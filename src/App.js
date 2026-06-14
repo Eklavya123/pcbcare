@@ -800,7 +800,7 @@ function AIChat() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function TipsTricks() {
   const s = useSettings();
-  const pc = s.primaryColor; const ac = s.accentColor;
+  const ac = s.accentColor;
   const tips = DB.get("pcb_tips", []);
   const [selected, setSelected] = useState(null);
 
