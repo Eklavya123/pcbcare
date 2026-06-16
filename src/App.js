@@ -63,6 +63,9 @@ function AdGate({onComplete}) {
     const t=setInterval(()=>setSecs(s=>{if(s<=1){clearInterval(t);setDone(true);return 0;}return s-1;}),1000);
     return()=>clearInterval(t);
   },[]);
+  useEffect(()=>{
+    try{(window.adsbygoogle=window.adsbygoogle||[]).push({});}catch(e){}
+  },[]);
   return (
     <div style={{position:"fixed",inset:0,background:"#000",zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
       <div style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"#fff"}}>{done?"":"Ad ends in "+secs+"s"}</div>
@@ -998,15 +1001,6 @@ export default function PCBCare() {
     const onKey=e=>{if(e.key==="PrintScreen"||(e.ctrlKey&&e.shiftKey&&["S","s"].includes(e.key)))e.preventDefault();};
     document.addEventListener("keydown",onKey);
     return()=>{document.removeEventListener("keydown",onKey);document.getElementById("pcb-protect")?.remove();};
-  },[]);
-
-  useEffect(()=>{
-    if(!document.getElementById("adsense-script")){
-      const s=document.createElement("script");
-      s.id="ca-pub-3960694190417659";s.async=true;
-      s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3960694190417659";
-      s.crossOrigin="anonymous";document.head.appendChild(s);
-    }
   },[]);
 
   useEffect(()=>{
