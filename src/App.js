@@ -1003,7 +1003,7 @@ export default function PCBCare() {
   useEffect(()=>{
     if(!document.getElementById("adsense-script")){
       const s=document.createElement("script");
-      s.id="adsense-script";s.async=true;
+      s.id="ca-pub-3960694190417659";s.async=true;
       s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3960694190417659";
       s.crossOrigin="anonymous";document.head.appendChild(s);
     }
@@ -1125,4 +1125,4 @@ export default function PCBCare() {
       </div>
     </div>
   );
-}
+}adse
