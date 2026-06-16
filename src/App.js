@@ -1,12 +1,28 @@
 import React, { useState, useEffect, useRef } from "react";
 
-const LOGO = "data:image/jpeg;base64,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";
+const LOGO = "data:image/jpeg;base64,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";
+const INTRO_VIDEO = ""; // paste base64 data URL or http(s) video URL for intro; empty = animated logo intro
+const APP_URL = "https://pcbcare.vercel.app";
 const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
-const FB_KEY = "AIzaSyAn1mLFmN-0eOkgzVj_eZ1-Nr4AVX8IAOg";
+
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAn1mLFmN-0eOkgzVj_eZ1-Nr4AVX8IAOg",
+  authDomain: "pcb-care.firebaseapp.com",
+  projectId: "pcb-care",
+  storageBucket: "pcb-care.firebasestorage.app",
+  messagingSenderId: "849256587515",
+  appId: "1:849256587515:web:3577e0896e6642000f905e",
+  measurementId: "G-7LJ17PXJ8C"
+};
+const FB_KEY = FIREBASE_CONFIG.apiKey;
+
 const PC = "#4caf50";
 const AC = "#ffd700";
-const ADMIN_KEY = "PCBCARE_ADMIN_X9K_2024";
+
+// Admin direct-login credentials
+const ADMIN_EMAIL = "nnikhilpanjwani17@gmail.com";
+const ADMIN_PASSWORD = "6thdecember2023";
 
 const DB = {
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
@@ -20,6 +36,43 @@ const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
   const r = await fetch(url,{method,headers:h,body:body?JSON.stringify(body):null});
   if(method==="DELETE"||method==="PATCH") return r;
   return r.json();
+};
+
+// ── Firebase SDK loader + Google Sign-In ───────────────────────────────────────
+let _fbApp=null,_fbAuth=null,_fbReady=null;
+const loadScript=src=>new Promise((res,rej)=>{
+  if([...document.scripts].some(s=>s.src===src))return res();
+  const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);
+});
+const initFirebase=async()=>{
+  if(_fbReady)return _fbReady;
+  _fbReady=(async()=>{
+    await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js");
+    await loadScript("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js");
+    if(!window.firebase.apps.length)_fbApp=window.firebase.initializeApp(FIREBASE_CONFIG);
+    else _fbApp=window.firebase.app();
+    _fbAuth=window.firebase.auth();
+    return _fbAuth;
+  })();
+  return _fbReady;
+};
+const googleSignIn=async()=>{
+  const auth=await initFirebase();
+  const provider=new window.firebase.auth.GoogleAuthProvider();
+  const result=await auth.signInWithPopup(provider);
+  return result.user;
+};
+
+// ── App settings (single-row config, id=1) ─────────────────────────────────────
+const getAutoApprove=async()=>{
+  try{
+    const d=await api("app_settings",{filter:"?id=eq.1&select=auto_approve"});
+    if(Array.isArray(d)&&d.length)return !!d[0].auto_approve;
+  }catch{}
+  return false;
+};
+const setAutoApprove=async(val)=>{
+  await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.1`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({auto_approve:val})});
 };
 
 // AdSense full-screen ad gate
@@ -58,15 +111,28 @@ function AdGate({onComplete}) {
   );
 }
 
-// Intro animation
+// Intro animation (supports video via INTRO_VIDEO, else animated logo)
 function Intro({onDone}) {
   const [p,setP]=useState(0);
   useEffect(()=>{
+    if(INTRO_VIDEO)return; // video handles its own timing via onEnded
     const t1=setTimeout(()=>setP(1),400);
     const t2=setTimeout(()=>setP(2),1400);
     const t3=setTimeout(()=>onDone(),3200);
     return()=>[t1,t2,t3].forEach(clearTimeout);
   },[onDone]);
+
+  if(INTRO_VIDEO){
+    return (
+      <div style={{position:"fixed",inset:0,background:"#0a0d14",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+        <video src={INTRO_VIDEO} autoPlay muted playsInline onEnded={onDone}
+          onError={onDone}
+          style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+        <button onClick={onDone} style={{position:"absolute",bottom:30,right:20,background:"rgba(255,255,255,0.15)",border:"none",borderRadius:20,padding:"8px 16px",color:"#fff",fontSize:12,cursor:"pointer"}}>Skip →</button>
+      </div>
+    );
+  }
+
   return (
     <div style={{position:"fixed",inset:0,background:"#0a0d14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}>
       <svg style={{position:"absolute",inset:0,width:"100%",height:"100%",opacity:0.08}} viewBox="0 0 400 800">
@@ -86,15 +152,27 @@ function Intro({onDone}) {
   );
 }
 
-
-// Login page
-function Login({onLogin, onGoSignup}) {
+// Login page (handles admin direct-login + real Google sign-in)
+function Login({onLogin, onGoSignup, onAdmin}) {
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
+  const [gLoading,setGLoading]=useState(false);
+
+  const finishLogin=async(uid)=>{
+    const users = await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
+    const user = Array.isArray(users)?users[0]:null;
+    if(!user){setErr("Account not found. Please sign up.");return null;}
+    if(user.status==="pending"){setErr("Account pending admin approval.");return null;}
+    if(user.status==="rejected"){setErr("Account rejected. Contact admin.");return null;}
+    DB.set("pcb_user",user);onLogin(user);return user;
+  };
+
   const doLogin = async () => {
     if(!email||!pw){setErr("Enter email and password");return;}
+    // Admin direct login
+    if(email.trim().toLowerCase()===ADMIN_EMAIL && pw===ADMIN_PASSWORD){onAdmin();return;}
     setLoading(true);setErr("");
     try {
       const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FB_KEY}`,{
@@ -103,15 +181,37 @@ function Login({onLogin, onGoSignup}) {
       });
       const data = await res.json();
       if(data.error){setErr(data.error.message.replace(/_/g," "));setLoading(false);return;}
-      const users = await api("users",{filter:`?firebase_uid=eq.${data.localId}&select=*`});
-      const user = Array.isArray(users)?users[0]:null;
-      if(!user){setErr("Account not found. Please sign up.");setLoading(false);return;}
-      if(user.status==="pending"){setErr("Account pending admin approval.");setLoading(false);return;}
-      if(user.status==="rejected"){setErr("Account rejected. Contact admin.");setLoading(false);return;}
-      DB.set("pcb_user",user);onLogin(user);
+      await finishLogin(data.localId);
     } catch{setErr("Connection error. Try again.");}
     setLoading(false);
   };
+
+  const doGoogle = async () => {
+    setGLoading(true);setErr("");
+    try{
+      const gUser=await googleSignIn();
+      const users=await api("users",{filter:`?firebase_uid=eq.${gUser.uid}&select=*`});
+      const existing=Array.isArray(users)?users[0]:null;
+      if(existing){
+        if(existing.status==="pending"){setErr("Account pending admin approval.");setGLoading(false);return;}
+        if(existing.status==="rejected"){setErr("Account rejected. Contact admin.");setGLoading(false);return;}
+        DB.set("pcb_user",existing);onLogin(existing);
+      }else{
+        // Auto-register google user respecting approval toggle
+        const auto=await getAutoApprove();
+        await api("users",{method:"POST",body:{firebase_uid:gUser.uid,full_name:gUser.displayName||"Technician",email:gUser.email||"",phone:gUser.phoneNumber||"",country:"Pakistan",state:"",city:"",instagram_id:"",experience:"",specialization:"",method:"Google",status:auto?"approved":"pending"},prefer:"return=representation"});
+        if(auto){
+          const fresh=await api("users",{filter:`?firebase_uid=eq.${gUser.uid}&select=*`});
+          const u=Array.isArray(fresh)?fresh[0]:null;
+          if(u){DB.set("pcb_user",u);onLogin(u);}
+        }else{
+          setErr("Registered! Your account is pending admin approval.");
+        }
+      }
+    }catch(e){setErr("Google Sign-In failed. "+(e?.message||""));}
+    setGLoading(false);
+  };
+
   return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:"1px solid #2a3050"}}>
@@ -119,7 +219,7 @@ function Login({onLogin, onGoSignup}) {
           <img src={LOGO} alt="PCB Care" style={{width:180,marginBottom:14,filter:"drop-shadow(0 0 20px rgba(76,175,80,0.3))"}}/>
           <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
         </div>
-        <button onClick={()=>setErr("Google Sign-In activates after deployment with Firebase SDK.")}
+        <button onClick={doGoogle} disabled={gLoading}
           style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:18}}>
           <svg width="20" height="20" viewBox="0 0 48 48">
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -127,7 +227,7 @@ function Login({onLogin, onGoSignup}) {
             <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
             <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
           </svg>
-          Continue with Google
+          {gLoading?"Connecting...":"Continue with Google"}
         </button>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
           <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
@@ -150,9 +250,8 @@ function Login({onLogin, onGoSignup}) {
   );
 }
 
-
 // Signup page
-function Signup({onGoLogin}) {
+function Signup({onGoLogin, onLogin}) {
   const [step,setStep]=useState(1);
   const [method,setMethod]=useState("email");
   const [email,setEmail]=useState("");
@@ -163,6 +262,7 @@ function Signup({onGoLogin}) {
   const [form,setForm]=useState({fullName:"",state:"",city:"",instagramId:"",experience:"",specialization:""});
   const [errors,setErrors]=useState({});
   const [loading,setLoading]=useState(false);
+  const [gLoading,setGLoading]=useState(false);
   const [submitted,setSubmitted]=useState(false);
   const [err,setErr]=useState("");
   const EXP=["< 1 year","1-3 years","3-5 years","5-10 years","10+ years"];
@@ -176,7 +276,14 @@ function Signup({onGoLogin}) {
     setErrors(e);return Object.keys(e).length===0;
   };
   const register=async(uid,emailVal,phoneVal,meth)=>{
-    await api("users",{method:"POST",body:{firebase_uid:uid,full_name:form.fullName,email:emailVal||"",phone:phoneVal||"",country:"Pakistan",state:form.state,city:form.city,instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,method:meth,status:"pending"},prefer:"return=minimal"});
+    const auto=await getAutoApprove();
+    const status=auto?"approved":"pending";
+    await api("users",{method:"POST",body:{firebase_uid:uid,full_name:form.fullName,email:emailVal||"",phone:phoneVal||"",country:"Pakistan",state:form.state,city:form.city,instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,method:meth,status},prefer:"return=minimal"});
+    if(auto && onLogin){
+      const fresh=await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
+      const u=Array.isArray(fresh)?fresh[0]:null;
+      if(u){DB.set("pcb_user",u);onLogin(u);return;}
+    }
     setSubmitted(true);
   };
   const doSignup=async()=>{
@@ -194,6 +301,27 @@ function Signup({onGoLogin}) {
       }
     }catch{setErr("Connection error.");}
     setLoading(false);
+  };
+  const doGoogleSignup=async()=>{
+    setGLoading(true);setErr("");
+    try{
+      const gUser=await googleSignIn();
+      const users=await api("users",{filter:`?firebase_uid=eq.${gUser.uid}&select=*`});
+      const existing=Array.isArray(users)?users[0]:null;
+      if(existing){
+        if(existing.status==="approved"){DB.set("pcb_user",existing);onLogin&&onLogin(existing);}
+        else setErr("Account already exists and is pending approval.");
+        setGLoading(false);return;
+      }
+      const auto=await getAutoApprove();
+      await api("users",{method:"POST",body:{firebase_uid:gUser.uid,full_name:gUser.displayName||form.fullName||"Technician",email:gUser.email||"",phone:gUser.phoneNumber||"",country:"Pakistan",state:form.state,city:form.city,instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,method:"Google",status:auto?"approved":"pending"},prefer:"return=minimal"});
+      if(auto){
+        const fresh=await api("users",{filter:`?firebase_uid=eq.${gUser.uid}&select=*`});
+        const u=Array.isArray(fresh)?fresh[0]:null;
+        if(u){DB.set("pcb_user",u);onLogin&&onLogin(u);}
+      }else setSubmitted(true);
+    }catch(e){setErr("Google Sign-In failed. "+(e?.message||""));}
+    setGLoading(false);
   };
   if(submitted) return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -220,7 +348,7 @@ function Signup({onGoLogin}) {
         {step===1 && (
           <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:14}}>Choose Sign Up Method</div>
-            <button onClick={()=>setErr("Google Sign-In activates after deployment.")}
+            <button onClick={doGoogleSignup} disabled={gLoading}
               style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
               <svg width="20" height="20" viewBox="0 0 48 48">
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -228,7 +356,7 @@ function Signup({onGoLogin}) {
                 <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
                 <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
               </svg>
-              Sign up with Google
+              {gLoading?"Connecting...":"Sign up with Google"}
             </button>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
               <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or with email</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
@@ -296,29 +424,6 @@ function Signup({onGoLogin}) {
   );
 }
 
-
-// Admin Login - secret key access
-function AdminLogin({onAuth,onBack}) {
-  const [key,setKey]=useState("");
-  const [err,setErr]=useState(false);
-  const check=()=>key===ADMIN_KEY?onAuth():setErr(true);
-  return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:360,width:"100%",border:"1px solid #2a3050",textAlign:"center"}}>
-        <img src={LOGO} alt="" style={{width:130,marginBottom:20}}/>
-        <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>Admin Access</div>
-        <div style={{fontSize:12,color:"#6b7db3",marginBottom:20}}>Enter your admin secret key to continue</div>
-        <input type="password" value={key} onChange={e=>{setKey(e.target.value);setErr(false);}} onKeyDown={e=>e.key==="Enter"&&check()}
-          placeholder="Admin secret key"
-          style={{width:"100%",padding:"13px 14px",borderRadius:10,border:`1px solid ${err?"#ff4757":"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
-        {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10}}>❌ Invalid key. Access denied.</div>}
-        <button onClick={check} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>Access Admin Panel</button>
-        <button onClick={onBack} style={{width:"100%",padding:"11px",borderRadius:10,background:"none",border:"1px solid #2a3050",color:"#6b7db3",cursor:"pointer",fontSize:13}}>← Back to App</button>
-      </div>
-    </div>
-  );
-}
-
 const moderate=(text)=>{
   if(/(\+?[\d\s\-.()]{10,})/.test(text))return{blocked:true,reason:"Phone numbers are not allowed."};
   if(/(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(text))return{blocked:true,reason:"URLs are not allowed."};
@@ -332,7 +437,6 @@ function Home({setAdGate}) {
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
-    {id:"parts",icon:"🔩",title:"Part Finder",desc:"Find by model number",color:PC},
     {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     {id:"community",icon:"👥",title:"Community",desc:"Ask & share",color:"#7c5cfc"},
@@ -362,7 +466,7 @@ function Home({setAdGate}) {
   );
 }
 
-// Error Codes - fetched from Supabase
+// Error Codes
 function Errors() {
   const [app,setApp]=useState("");
   const [brand,setBrand]=useState("");
@@ -428,7 +532,6 @@ function Errors() {
     </div>
   );
 }
-
 
 // Wiring Diagrams
 function Wiring() {
@@ -497,60 +600,7 @@ function Wiring() {
   );
 }
 
-// Parts Finder
-function Parts() {
-  const [model,setModel]=useState("");
-  const [result,setResult]=useState(null);
-  const [loading,setLoading]=useState(false);
-  const search=async()=>{
-    if(!model.trim())return;
-    setLoading(true);setResult(null);
-    try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,messages:[{role:"user",content:`Appliance parts advisor. Model: ${model}. JSON only no markdown: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}`}]})});
-      const data=await res.json();
-      const text=data.content?.map(i=>i.text||"").join("")||"";
-      setResult(JSON.parse(text.replace(/```json|```/g,"").trim()));
-    }catch{setResult({error:"Could not fetch. Try again."});}
-    setLoading(false);
-  };
-  return (
-    <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>🔩 Part Finder</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Enter model number to find common parts</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
-        <div style={{display:"flex",gap:8}}>
-          <input value={model} onChange={e=>setModel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="e.g. RF28R7351SR, WM3900HWA..."
-            style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
-          <button onClick={search} disabled={loading||!model.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Find"}</button>
-        </div>
-      </div>
-      {result&&!result.error&&<div style={{background:"#1a1f2e",borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
-        <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:"1px solid #2a3050"}}>
-          <div style={{fontWeight:700,fontSize:14,color:"#fff"}}>{result.brand} — {result.model}</div>
-          <div style={{fontSize:11,color:"#6b7db3"}}>{result.appliance_type}</div>
-        </div>
-        <div style={{padding:16}}>
-          {result.common_parts?.map((p,i)=>(
-            <div key={i} style={{background:"#0f1117",borderRadius:10,padding:12,marginBottom:8,borderLeft:`3px solid ${PC}`}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                <div style={{fontWeight:600,fontSize:13,color:"#fff"}}>{p.part_name}</div>
-                <div style={{fontSize:10,color:PC,background:`${PC}22`,borderRadius:6,padding:"2px 7px",marginLeft:6,whiteSpace:"nowrap"}}>{p.part_number}</div>
-              </div>
-              <div style={{fontSize:12,color:"#6b7db3"}}>{p.why_needed}</div>
-            </div>
-          ))}
-          {result.search_tip&&<div style={{background:`${AC}11`,borderRadius:10,padding:12,border:`1px solid ${AC}33`,marginTop:4}}>
-            <div style={{fontSize:10,fontWeight:600,color:AC,marginBottom:4}}>💡 Tip</div>
-            <div style={{fontSize:12,color:"#b0b8d0"}}>{result.search_tip}</div>
-          </div>}
-        </div>
-      </div>}
-      {result?.error&&<div style={{background:"#1a1f2e",borderRadius:14,padding:16,textAlign:"center",color:"#ff4757"}}>⚠ {result.error}</div>}
-    </div>
-  );
-}
-
-// Tips & Tricks with sub-categories
+// Tips & Tricks
 function TipsTricks() {
   const [sub,setSub]=useState("All");
   const [tips,setTips]=useState([]);
@@ -627,7 +677,6 @@ function SensorValues() {
     </div>
   );
 }
-
 
 // Community
 function Community({user}) {
@@ -721,7 +770,7 @@ function Community({user}) {
   );
 }
 
-// AI Chat with database knowledge
+// AI Chat
 function AIChat() {
   const LIMIT=5;
   const today=new Date().toISOString().split("T")[0];
@@ -837,7 +886,6 @@ function Requests({user}) {
   );
 }
 
-
 // ── ADMIN PANEL ───────────────────────────────────────────────────────────────
 function AdminPanel({onClose}) {
   const [tab,setTab]=useState("insights");
@@ -853,600 +901,4 @@ function AdminPanel({onClose}) {
   ];
   return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",color:"#e8eaf0",maxWidth:480,margin:"0 auto"}}>
-      <div style={{background:"#1a1f2e",borderBottom:"1px solid #2a3050",padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <img src={LOGO} alt="" style={{height:32}}/>
-          <div>
-            <div style={{fontWeight:700,fontSize:15,color:"#fff"}}>Admin Panel</div>
-            <div style={{fontSize:10,color:"#6b7db3"}}>PCB Care · Supabase Connected</div>
-          </div>
-        </div>
-        <button onClick={onClose} style={{background:"#2a3050",border:"none",borderRadius:8,padding:"6px 12px",color:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:600}}>✕ Close</button>
-      </div>
-      <div style={{overflowX:"auto",display:"flex",gap:4,padding:"8px 12px",borderBottom:"1px solid #2a3050",background:"#1a1f2e"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)}
-            style={{whiteSpace:"nowrap",padding:"7px 10px",borderRadius:8,border:tab===t.id?`1px solid ${PC}`:"1px solid transparent",background:tab===t.id?`${PC}22`:"none",color:tab===t.id?PC:"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={{padding:16,paddingBottom:40}}>
-        {tab==="insights" && <AdminInsights online={online}/>}
-        {tab==="users" && <AdminUsers/>}
-        {tab==="errors" && <AdminErrors/>}
-        {tab==="wiring" && <AdminWiring/>}
-        {tab==="tips" && <AdminTips/>}
-        {tab==="requests" && <AdminRequests/>}
-        {tab==="community" && <AdminCommunity/>}
-      </div>
-    </div>
-  );
-}
-
-function AdminInsights({online}) {
-  const [stats,setStats]=useState({users:0,pending:0,errors:0,posts:0,requests:0,tips:0});
-  useEffect(()=>{
-    const count=async(table,filter="")=>{
-      const r=await fetch(`${SB_URL}/rest/v1/${table}?select=id${filter}`,{headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,Prefer:"count=exact"}});
-      const cr=r.headers.get("content-range")||"0/0";
-      return parseInt(cr.split("/")[1]||"0");
-    };
-    Promise.all([
-      count("users"),count("users","&status=eq.pending"),count("error_codes"),
-      count("community_posts"),count("user_requests"),count("tips_tricks")
-    ]).then(([u,p,e,po,r,t])=>setStats({users:u,pending:p,errors:e,posts:po,requests:r,tips:t}));
-  },[]);
-  const items=[
-    {label:"🟢 Online Now",value:online,color:"#4caf50",live:true},
-    {label:"⏳ Pending Approvals",value:stats.pending,color:"#ffa502"},
-    {label:"✅ Total Users",value:stats.users,color:PC},
-    {label:"🔴 Error Codes",value:stats.errors,color:"#ff4757"},
-    {label:"💡 Tips",value:stats.tips,color:AC},
-    {label:"📥 Requests",value:stats.requests,color:"#ff6b35"},
-    {label:"🗣️ Posts",value:stats.posts,color:"#7c5cfc"},
-  ];
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>📊 Live Insights</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Real-time data from Supabase database</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
-        {items.map((s,i)=>(
-          <div key={i} style={{background:"#1a1f2e",borderRadius:14,padding:14,border:`1px solid ${s.color}22`}}>
-            {s.live&&<div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
-              <div style={{width:7,height:7,borderRadius:"50%",background:"#4caf50",boxShadow:"0 0 6px #4caf50"}}/>
-              <div style={{fontSize:9,color:"#4caf50",fontWeight:700}}>LIVE</div>
-            </div>}
-            <div style={{fontSize:26,fontWeight:800,color:s.color,marginBottom:4}}>{s.value}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,border:`1px solid ${PC}22`}}>
-        <div style={{fontSize:12,fontWeight:600,color:PC,marginBottom:8}}>🔗 Supabase Connected</div>
-        <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.6}}>All data is stored and fetched live from your Supabase database. Changes made here are instantly visible to all users.</div>
-      </div>
-    </div>
-  );
-}
-
-function AdminUsers() {
-  const [users,setUsers]=useState([]);
-  const [view,setView]=useState("pending");
-  const [loading,setLoading]=useState(true);
-  useEffect(()=>{
-    api("users",{filter:"?select=*&order=created_at.desc"}).then(d=>{setUsers(d||[]);setLoading(false);});
-  },[]);
-  const updateStatus=async(id,status)=>{
-    await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});
-    setUsers(prev=>prev.map(u=>u.id===id?{...u,status}:u));
-  };
-  const toggleMute=async(id,muted)=>{
-    await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({muted:!muted})});
-    setUsers(prev=>prev.map(u=>u.id===id?{...u,muted:!muted}:u));
-  };
-  const filtered=users.filter(u=>view==="pending"?u.status==="pending":u.status==="approved");
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>👥 User Management</div>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        {[{v:"pending",l:`⏳ Pending (${users.filter(u=>u.status==="pending").length})`},{v:"approved",l:`✅ Approved (${users.filter(u=>u.status==="approved").length})`}].map(o=>(
-          <button key={o.v} onClick={()=>setView(o.v)} style={{flex:1,padding:"9px",borderRadius:10,border:view===o.v?`2px solid ${PC}`:"1px solid #2a3050",background:view===o.v?"#1a2a1a":"#1a1f2e",color:view===o.v?"#fff":"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:600}}>{o.l}</button>
-        ))}
-      </div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading users from Supabase...</div>}
-      {filtered.map(u=>(
-        <div key={u.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,marginBottom:10,border:"1px solid #2a3050"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{width:40,height:40,borderRadius:"50%",background:`linear-gradient(135deg,${PC},${AC})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"#0a0d14",flexShrink:0}}>{u.full_name?.charAt(0)||"?"}</div>
-            <div>
-              <div style={{fontWeight:700,fontSize:14,color:u.muted?"#6b7db3":"#fff"}}>{u.full_name} {u.muted?"🔇":""}</div>
-              <div style={{fontSize:11,color:"#6b7db3"}}>Via {u.method} · {u.created_at?.split("T")[0]}</div>
-            </div>
-          </div>
-          <div style={{background:"#0f1117",borderRadius:10,padding:12,marginBottom:10}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {[["📱 Phone",u.phone],["📧 Email",u.email],["🌍 Country",u.country],["🗺️ State",u.state],["🏙️ City",u.city],["📸 Instagram",u.instagram_id?`@${u.instagram_id}`:"—"]].map(([l,v])=>(
-                <div key={l}><div style={{fontSize:10,color:"#6b7db3",marginBottom:2}}>{l}</div><div style={{fontSize:12,color:"#e8eaf0"}}>{v||"—"}</div></div>
-              ))}
-            </div>
-            <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid #2a3050"}}>
-              <div style={{fontSize:10,color:"#6b7db3",marginBottom:2}}>🔧 Experience · ⚙️ Specialization</div>
-              <div style={{fontSize:12,color:AC}}>{u.experience||"—"} · {u.specialization||"—"}</div>
-            </div>
-          </div>
-          {view==="pending"?(
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>updateStatus(u.id,"approved")} style={{flex:1,padding:"9px",borderRadius:8,background:"#4caf5022",color:"#4caf50",border:"1px solid #4caf5044",cursor:"pointer",fontSize:12,fontWeight:700}}>✅ Approve</button>
-              <button onClick={()=>updateStatus(u.id,"rejected")} style={{flex:1,padding:"9px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"1px solid #ff475744",cursor:"pointer",fontSize:12,fontWeight:700}}>❌ Reject</button>
-            </div>
-          ):(
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>toggleMute(u.id,u.muted)} style={{flex:1,padding:"8px",borderRadius:8,background:"#ffa50222",color:"#ffa502",border:"none",cursor:"pointer",fontSize:12}}>{u.muted?"🔊 Unmute":"🔇 Mute"}</button>
-              <button onClick={()=>updateStatus(u.id,"rejected")} style={{flex:1,padding:"8px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12}}>🗑️ Remove</button>
-            </div>
-          )}
-        </div>
-      ))}
-      {!loading&&filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:20,fontSize:13}}>No {view} users.</div>}
-    </div>
-  );
-}
-
-
-function AdminErrors() {
-  const [form,setForm]=useState({appliance:"fridge",brand:"",error_code:"",meaning:"",indoor_led_blinks:0,outdoor_led_blinks:0,cause:"",how_to_fix:""});
-  const [codes,setCodes]=useState([]);
-  const [saved,setSaved]=useState(false);
-  const [loading,setLoading]=useState(true);
-  useEffect(()=>{
-    api("error_codes",{filter:"?select=*&order=created_at.desc"}).then(d=>{setCodes(d||[]);setLoading(false);});
-  },[]);
-  const save=async()=>{
-    if(!form.brand||!form.error_code||!form.how_to_fix)return;
-    await api("error_codes",{method:"POST",body:form,prefer:"return=minimal"});
-    setSaved(true);setTimeout(()=>setSaved(false),2000);
-    setForm({appliance:"fridge",brand:"",error_code:"",meaning:"",indoor_led_blinks:0,outdoor_led_blinks:0,cause:"",how_to_fix:""});
-    api("error_codes",{filter:"?select=*&order=created_at.desc"}).then(d=>setCodes(d||[]));
-  };
-  const del=async(id)=>{
-    await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
-    setCodes(prev=>prev.filter(c=>c.id!==id));
-  };
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>🔴 Manage Error Codes</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${PC}33`,marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:600,color:PC,marginBottom:12}}>➕ Add Error Code → Saves to Supabase</div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          {[{v:"fridge",l:"🧊"},{v:"washing",l:"🌀"},{v:"ac",l:"❄️"}].map(o=>(
-            <button key={o.v} onClick={()=>setForm(f=>({...f,appliance:o.v}))}
-              style={{flex:1,padding:"9px",borderRadius:9,border:form.appliance===o.v?`2px solid ${PC}`:"1px solid #2a3050",background:form.appliance===o.v?"#1a2a1a":"#0f1117",color:form.appliance===o.v?"#fff":"#6b7db3",cursor:"pointer",fontSize:14}}>
-              {o.l}
-            </button>
-          ))}
-        </div>
-        {[["brand","Brand (e.g. Samsung, LG, Gree)"],["error_code","Error Code (e.g. E1, F2, CH01)"],["meaning","Meaning / Error Name"],["cause","Likely Cause"],["how_to_fix","How to Fix"]].map(([f,ph])=>(
-          <input key={f} value={form[f]} onChange={e=>setForm(x=>({...x,[f]:e.target.value}))} placeholder={ph}
-            style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
-        ))}
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>Indoor LED Blinks</div>
-            <input type="number" min="0" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:parseInt(e.target.value)||0}))}
-              style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>Outdoor LED Blinks</div>
-            <input type="number" min="0" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:parseInt(e.target.value)||0}))}
-              style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-          </div>
-        </div>
-        <button onClick={save} style={{width:"100%",padding:"12px",borderRadius:9,background:saved?"#4caf50":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
-          {saved?"✅ Saved to Supabase!":"Save Error Code"}
-        </button>
-      </div>
-      <div style={{fontSize:12,fontWeight:600,color:"#6b7db3",marginBottom:8}}>{codes.length} error codes in database</div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:16}}>Loading...</div>}
-      {codes.map(c=>(
-        <div key={c.id} style={{background:"#1a1f2e",borderRadius:12,padding:12,marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:2}}>
-              <div style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{c.error_code}</div>
-              <div style={{fontSize:12,color:"#fff",fontWeight:600}}>{c.brand}</div>
-              <div style={{fontSize:11,color:"#6b7db3"}}>· {c.appliance}</div>
-            </div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{c.meaning}</div>
-          </div>
-          <button onClick={()=>del(c.id)} style={{background:"#ff475722",border:"none",borderRadius:7,padding:"6px 9px",color:"#ff4757",cursor:"pointer",fontSize:11,flexShrink:0,marginLeft:8}}>🗑️</button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AdminWiring() {
-  const [form,setForm]=useState({category:"Fridge",title:"",description:"",image_url:"",tips:""});
-  const [items,setItems]=useState([]);
-  const [saved,setSaved]=useState(false);
-  const [preview,setPreview]=useState(null);
-  const fileRef=useRef(null);
-  useEffect(()=>{
-    api("wiring_diagrams",{filter:"?select=*&order=created_at.desc"}).then(d=>setItems(d||[]));
-  },[]);
-  const handleUpload=e=>{
-    const file=e.target.files[0];if(!file)return;
-    if(file.size>5*1024*1024){alert("Max 5MB");return;}
-    const reader=new FileReader();
-    reader.onload=ev=>{setPreview(ev.target.result);setForm(f=>({...f,image_url:ev.target.result}));};
-    reader.readAsDataURL(file);
-  };
-  const save=async()=>{
-    if(!form.title)return;
-    const tips=form.tips.split("\n").filter(Boolean);
-    await api("wiring_diagrams",{method:"POST",body:{...form,tips},prefer:"return=minimal"});
-    setSaved(true);setTimeout(()=>setSaved(false),2000);
-    setForm({category:"Fridge",title:"",description:"",image_url:"",tips:""});
-    setPreview(null);if(fileRef.current)fileRef.current.value="";
-    api("wiring_diagrams",{filter:"?select=*&order=created_at.desc"}).then(d=>setItems(d||[]));
-  };
-  const del=async id=>{
-    await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
-    setItems(prev=>prev.filter(x=>x.id!==id));
-  };
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>⚡ Wiring Diagrams</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${AC}33`,marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:600,color:AC,marginBottom:12}}>➕ Add Wiring Diagram → Saves to Supabase</div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          {["Fridge","Washing","AC"].map(c=>(
-            <button key={c} onClick={()=>setForm(f=>({...f,category:c}))}
-              style={{flex:1,padding:"8px",borderRadius:8,border:form.category===c?`2px solid ${AC}`:"1px solid #2a3050",background:form.category===c?"#1a2a0a":"#0f1117",color:form.category===c?AC:"#6b7db3",cursor:"pointer",fontSize:12}}>
-              {c==="Fridge"?"🧊":c==="Washing"?"🌀":"❄️"} {c}
-            </button>
-          ))}
-        </div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title *"
-          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
-        <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Short Description"
-          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
-        {preview?(
-          <div style={{position:"relative",marginBottom:8}}>
-            <img src={preview} alt="" style={{width:"100%",borderRadius:9,maxHeight:160,objectFit:"contain",background:"#0a0d14"}}/>
-            <button onClick={()=>{setPreview(null);setForm(f=>({...f,image_url:""}));if(fileRef.current)fileRef.current.value="";}}
-              style={{position:"absolute",top:6,right:6,width:26,height:26,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:12,cursor:"pointer"}}>✕</button>
-          </div>
-        ):(
-          <div onClick={()=>fileRef.current?.click()}
-            style={{border:`2px dashed ${AC}44`,borderRadius:9,padding:18,textAlign:"center",cursor:"pointer",background:"#0a0d14",marginBottom:8}}>
-            <div style={{fontSize:28,marginBottom:4}}>🖼️</div>
-            <div style={{fontSize:12,color:AC}}>Tap to Upload Wiring Image</div>
-            <div style={{fontSize:10,color:"#6b7db3",marginTop:2}}>JPG, PNG — Max 5MB</div>
-          </div>
-        )}
-        <input ref={fileRef} type="file" accept="image/*" onChange={handleUpload} style={{display:"none"}}/>
-        <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3}
-          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
-        <button onClick={save} style={{width:"100%",padding:"12px",borderRadius:9,background:saved?"#4caf50":`linear-gradient(135deg,${AC},${PC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
-          {saved?"✅ Saved!":"Add Diagram"}
-        </button>
-      </div>
-      {items.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:12,marginBottom:8,border:"1px solid #2a3050",display:"flex",gap:10,alignItems:"center"}}>
-          {item.image_url&&<img src={item.image_url} alt="" style={{width:52,height:40,borderRadius:7,objectFit:"cover",flexShrink:0}}/>}
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.title}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{item.category} · {item.tips?.length||0} tips</div>
-          </div>
-          <button onClick={()=>del(item.id)} style={{background:"#ff475722",border:"none",borderRadius:7,padding:"6px 9px",color:"#ff4757",cursor:"pointer",fontSize:11,flexShrink:0}}>🗑️</button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AdminTips() {
-  const [form,setForm]=useState({title:"",category:"General",sub_category:"",description:"",media_type:"none",media_url:"",media_data:""});
-  const [items,setItems]=useState([]);
-  const [saved,setSaved]=useState(false);
-  const fileRef=useRef(null);
-  const CATS=["General","Safety","Tools","Fridge","Washing Machine","AC"];
-  const SUBCATS=["Wiring Connection","Sensor Values"];
-  useEffect(()=>{
-    api("tips_tricks",{filter:"?select=*&order=created_at.desc"}).then(d=>setItems(d||[]));
-  },[]);
-  const save=async()=>{
-    if(!form.title||!form.description)return;
-    await api("tips_tricks",{method:"POST",body:form,prefer:"return=minimal"});
-    setSaved(true);setTimeout(()=>setSaved(false),2000);
-    setForm({title:"",category:"General",sub_category:"",description:"",media_type:"none",media_url:"",media_data:""});
-    if(fileRef.current)fileRef.current.value="";
-    api("tips_tricks",{filter:"?select=*&order=created_at.desc"}).then(d=>setItems(d||[]));
-  };
-  const del=async id=>{
-    await fetch(`${SB_URL}/rest/v1/tips_tricks?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
-    setItems(prev=>prev.filter(x=>x.id!==id));
-  };
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>💡 Tips & Tricks</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${AC}33`,marginBottom:16}}>
-        <div style={{fontSize:12,fontWeight:600,color:AC,marginBottom:12}}>➕ Publish Tip → Saves to Supabase</div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title *"
-          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
-        <div style={{display:"flex",gap:8,marginBottom:8}}>
-          <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
-            style={{flex:1,padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none"}}>
-            {CATS.map(c=><option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))}
-            style={{flex:1,padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none"}}>
-            <option value="">No Sub-category</option>
-            {SUBCATS.map(s=><option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description *" rows={4}
-          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{display:"flex",gap:6,marginBottom:8}}>
-          {[{v:"none",l:"None"},{v:"image",l:"🔗 Image URL"},{v:"video_url",l:"▶️ Video URL"},{v:"upload",l:"📁 Upload"}].map(o=>(
-            <button key={o.v} onClick={()=>setForm(f=>({...f,media_type:o.v,media_url:"",media_data:""}))}
-              style={{flex:1,padding:"7px 3px",borderRadius:7,border:form.media_type===o.v?`2px solid ${AC}`:"1px solid #2a3050",background:form.media_type===o.v?`${AC}22`:"#0f1117",color:form.media_type===o.v?AC:"#6b7db3",fontSize:10,cursor:"pointer"}}>
-              {o.l}
-            </button>
-          ))}
-        </div>
-        {(form.media_type==="image"||form.media_type==="video_url")&&(
-          <input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))}
-            placeholder={form.media_type==="image"?"Image URL (https://...)":"YouTube or video URL"}
-            style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",marginBottom:8,boxSizing:"border-box"}}/>
-        )}
-        {form.media_type==="upload"&&(
-          <div>
-            <div onClick={()=>fileRef.current?.click()}
-              style={{border:`2px dashed ${AC}44`,borderRadius:9,padding:14,textAlign:"center",cursor:"pointer",marginBottom:8}}>
-              <div style={{fontSize:12,color:AC}}>📁 {form.media_data?"Image Selected ✅":"Upload Image"}</div>
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" onChange={e=>{
-              const f=e.target.files[0];if(!f)return;
-              const r=new FileReader();r.onload=ev=>setForm(x=>({...x,media_data:ev.target.result}));r.readAsDataURL(f);
-            }} style={{display:"none"}}/>
-          </div>
-        )}
-        <button onClick={save} style={{width:"100%",padding:"12px",borderRadius:9,background:saved?"#4caf50":`linear-gradient(135deg,${AC},${PC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>
-          {saved?"✅ Published!":"Publish Tip"}
-        </button>
-      </div>
-      <div style={{fontSize:12,fontWeight:600,color:"#6b7db3",marginBottom:8}}>{items.length} tips in database</div>
-      {items.map(t=>(
-        <div key={t.id} style={{background:"#1a1f2e",borderRadius:12,padding:12,marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-          <div style={{flex:1,marginRight:8}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:2}}>{t.title}</div>
-            <div style={{fontSize:11,color:AC}}>{t.category}{t.sub_category?" · "+t.sub_category:""}</div>
-            <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{t.description?.slice(0,50)}{t.description?.length>50?"...":""}</div>
-          </div>
-          <button onClick={()=>del(t.id)} style={{background:"#ff475722",border:"none",borderRadius:7,padding:"6px 9px",color:"#ff4757",cursor:"pointer",fontSize:11,flexShrink:0}}>🗑️</button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AdminRequests() {
-  const [requests,setRequests]=useState([]);
-  const [loading,setLoading]=useState(true);
-  useEffect(()=>{
-    api("user_requests",{filter:"?select=*&order=created_at.desc"}).then(d=>{setRequests(d||[]);setLoading(false);});
-  },[]);
-  const updateStatus=async(id,status)=>{
-    await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});
-    setRequests(prev=>prev.map(r=>r.id===id?{...r,status}:r));
-  };
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>📥 User Requests</div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading...</div>}
-      {requests.map(r=>(
-        <div key={r.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,marginBottom:10,border:`1px solid ${r.status==="pending"?"#ffa50233":"#2a3050"}`}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{r.user_name}</div>
-            <div style={{fontSize:11,padding:"3px 8px",borderRadius:12,background:r.status==="pending"?"#ffa50222":r.status==="done"?"#4caf5022":"#ff475722",color:r.status==="pending"?"#ffa502":r.status==="done"?"#4caf50":"#ff4757"}}>{r.status}</div>
-          </div>
-          <div style={{fontSize:12,color:"#ff6b35",fontWeight:600,marginBottom:4}}>{r.request_type}{r.brand?" · "+r.brand:""}{r.appliance?" · "+r.appliance:""}</div>
-          <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.5,marginBottom:10}}>{r.description}</div>
-          {r.status==="pending"&&(
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>updateStatus(r.id,"done")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:"#4caf50",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✅ Mark Done</button>
-              <button onClick={()=>updateStatus(r.id,"rejected")} style={{flex:1,padding:"8px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>❌ Reject</button>
-            </div>
-          )}
-        </div>
-      ))}
-      {!loading&&requests.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:20,fontSize:13}}>No requests yet.</div>}
-    </div>
-  );
-}
-
-function AdminCommunity() {
-  const [posts,setPosts]=useState([]);
-  const [loading,setLoading]=useState(true);
-  useEffect(()=>{
-    api("community_posts",{filter:"?select=*&order=created_at.desc"}).then(d=>{setPosts(d||[]);setLoading(false);});
-  },[]);
-  const del=async id=>{
-    await fetch(`${SB_URL}/rest/v1/community_posts?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
-    setPosts(prev=>prev.filter(p=>p.id!==id));
-  };
-  return (
-    <div>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:12}}>🗣️ Community Posts</div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading...</div>}
-      {posts.map(p=>(
-        <div key={p.id} style={{background:"#1a1f2e",borderRadius:12,padding:12,marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-          <div style={{flex:1,marginRight:8}}>
-            <div style={{fontSize:12,fontWeight:600,color:"#fff",marginBottom:4}}>{p.author_name} · {p.created_at?.split("T")[0]}</div>
-            <div style={{fontSize:11,color:"#b0b8d0",lineHeight:1.4}}>{p.text?.slice(0,80)}{p.text?.length>80?"...":""}</div>
-          </div>
-          <button onClick={()=>del(p.id)} style={{background:"#ff475722",border:"none",borderRadius:7,padding:"6px 9px",color:"#ff4757",cursor:"pointer",fontSize:11,flexShrink:0}}>🗑️</button>
-        </div>
-      ))}
-      {!loading&&posts.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:20,fontSize:13}}>No posts yet.</div>}
-    </div>
-  );
-}
-
-
-// ── MAIN APP ──────────────────────────────────────────────────────────────────
-export default function PCBCare() {
-  const [intro,setIntro]=useState(!DB.get("pcb_intro_seen",false));
-  const [authPage,setAuthPage]=useState("login");
-  const [user,setUser]=useState(()=>DB.get("pcb_user",null));
-  const [section,setSection]=useState("home");
-  const [adGate,setAdGate]=useState(null);
-  const [adminOpen,setAdminOpen]=useState(false);
-  const [adminAuthed,setAdminAuthed]=useState(false);
-  const [tapCount,setTapCount]=useState(0);
-  const [tapTimer,setTapTimer]=useState(null);
-  const [notifAsked,setNotifAsked]=useState(()=>DB.get("pcb_notif_asked",false));
-  const [notifPrompt,setNotifPrompt]=useState(false);
-
-  // Screen protection
-  useEffect(()=>{
-    const style=document.createElement("style");
-    style.id="pcb-protect";
-    style.innerHTML="* { -webkit-user-select:none !important; user-select:none !important; } body { -webkit-touch-callout:none !important; }";
-    document.head.appendChild(style);
-    const onKey=e=>{if(e.key==="PrintScreen"||(e.ctrlKey&&e.shiftKey&&["S","s"].includes(e.key)))e.preventDefault();};
-    document.addEventListener("keydown",onKey);
-    return()=>{document.removeEventListener("keydown",onKey);document.getElementById("pcb-protect")?.remove();};
-  },[]);
-
-  // AdSense script injection
-  useEffect(()=>{
-    if(!document.getElementById("adsense-script")){
-      const s=document.createElement("script");
-      s.id="adsense-script";
-      s.async=true;
-      s.src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3960694190417659";
-      s.crossOrigin="anonymous";
-      document.head.appendChild(s);
-    }
-  },[]);
-
-  // Notification prompt after login
-  useEffect(()=>{
-    if(user&&!notifAsked)setTimeout(()=>setNotifPrompt(true),2000);
-  },[user,notifAsked]);
-
-  // Hidden admin - tap logo 7 times fast
-  const handleLogoTap=()=>{
-    const newCount=tapCount+1;
-    setTapCount(newCount);
-    if(tapTimer)clearTimeout(tapTimer);
-    const t=setTimeout(()=>setTapCount(0),3000);
-    setTapTimer(t);
-    if(newCount>=7){setAdminOpen(true);setTapCount(0);if(tapTimer)clearTimeout(tapTimer);}
-  };
-
-  const handleNotifAllow=async()=>{
-    try{if("Notification" in window)await Notification.requestPermission();}catch{}
-    DB.set("pcb_notif_asked",true);setNotifAsked(true);setNotifPrompt(false);
-  };
-
-  const handleAdGate=dest=>{
-    if(dest==="home"){setSection("home");return;}
-    setAdGate(dest);
-  };
-
-  const handleAdComplete=()=>{
-    setSection(adGate);
-    setAdGate(null);
-    // Push ad refresh
-    try{(window.adsbygoogle=window.adsbygoogle||[]).push({});}catch{}
-  };
-
-  const nav=[
-    {id:"home",icon:"🏠",label:"Home"},
-    {id:"errors",icon:"🔴",label:"Errors"},
-    {id:"wiring",icon:"⚡",label:"Wiring"},
-    {id:"tips",icon:"💡",label:"Tips"},
-    {id:"community",icon:"👥",label:"Community"},
-    {id:"ai",icon:"🤖",label:"AI"},
-    {id:"requests",icon:"📥",label:"Requests"},
-  ];
-
-  if(intro) return <Intro onDone={()=>{DB.set("pcb_intro_seen",true);setIntro(false);}}/>;
-
-  if(!user){
-    if(authPage==="login") return <Login onLogin={u=>{DB.set("pcb_user",u);setUser(u);}} onGoSignup={()=>setAuthPage("signup")}/>;
-    return <Signup onGoLogin={()=>setAuthPage("login")}/>;
-  }
-
-  if(adGate) return <AdGate onComplete={handleAdComplete}/>;
-
-  if(adminOpen){
-    if(!adminAuthed) return <AdminLogin onAuth={()=>setAdminAuthed(true)} onBack={()=>setAdminOpen(false)}/>;
-    return <AdminPanel onClose={()=>{setAdminOpen(false);setAdminAuthed(false);}}/>;
-  }
-
-  return (
-    <div style={{fontFamily:"'Inter','Segoe UI',sans-serif",background:"#0a0d14",minHeight:"100vh",color:"#e8eaf0",maxWidth:480,margin:"0 auto"}}>
-
-      {/* Notification Prompt */}
-      {notifPrompt&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9998,display:"flex",alignItems:"flex-end",justifyContent:"center",padding:20}}>
-          <div style={{background:"#1a1f2e",borderRadius:20,padding:24,width:"100%",maxWidth:420,border:"1px solid #2a3050",marginBottom:10}}>
-            <div style={{display:"flex",gap:14,alignItems:"flex-start",marginBottom:16}}>
-              <div style={{fontSize:36}}>🔔</div>
-              <div>
-                <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:6}}>Enable Notifications</div>
-                <div style={{fontSize:13,color:"#b0b8d0",lineHeight:1.6}}>Get notified when new error codes, wiring diagrams, tips, or updates are published.</div>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={handleNotifAllow} style={{flex:1,padding:"13px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>🔔 Allow</button>
-              <button onClick={()=>{DB.set("pcb_notif_asked",true);setNotifAsked(true);setNotifPrompt(false);}}
-                style={{flex:1,padding:"13px",borderRadius:12,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontWeight:600,fontSize:14}}>Not Now</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div style={{background:"#1a1f2e",borderBottom:"1px solid #2a3050",padding:"11px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100}}>
-        <img src={LOGO} alt="PCB Care" onClick={handleLogoTap} style={{height:36,cursor:"pointer",filter:"drop-shadow(0 0 10px rgba(76,175,80,0.3))"}}
-          title="Tap 7 times for admin"/>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <div style={{fontSize:10,color:PC,background:"#4caf5011",borderRadius:20,padding:"4px 10px",border:`1px solid ${PC}33`}}>🟢 Online</div>
-          <button onClick={()=>{DB.set("pcb_user",null);setUser(null);setAuthPage("login");}}
-            style={{background:"#2a3050",border:"none",borderRadius:8,padding:"6px 10px",color:"#6b7db3",fontSize:11,cursor:"pointer"}}>↩ Logout</button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div style={{paddingBottom:80}}>
-        {section==="home"&&<Home setAdGate={handleAdGate}/>}
-        {section==="errors"&&<Errors/>}
-        {section==="wiring"&&<Wiring/>}
-        {section==="parts"&&<Parts/>}
-        {section==="tips"&&<TipsTricks/>}
-        {section==="sensors"&&<SensorValues/>}
-        {section==="community"&&<Community user={user}/>}
-        {section==="ai"&&<AIChat/>}
-        {section==="requests"&&<Requests user={user}/>}
-      </div>
-
-      {/* Bottom Navigation */}
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#1a1f2e",borderTop:"1px solid #2a3050",display:"flex",padding:"6px 0 10px"}}>
-        {nav.map(n=>(
-          <button key={n.id} onClick={()=>n.id==="home"?setSection("home"):handleAdGate(n.id)}
-            style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"5px 2px",minWidth:40}}>
-            <div style={{fontSize:18}}>{n.icon}</div>
-            <div style={{fontSize:8,fontWeight:600,color:section===n.id?PC:"#6b7db3",textTransform:"uppercase",letterSpacing:"0.3px"}}>{n.label}</div>
-            {section===n.id&&<div style={{width:16,height:2,background:PC,borderRadius:2}}/>}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+      <div style={{background:"#1a1f2e",borderBottom:"1px sol
