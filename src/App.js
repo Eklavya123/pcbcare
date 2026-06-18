@@ -1484,12 +1484,14 @@ export default function PCBCare() {
   const [showAd,setShowAd]=useState(false);
   const [showProfilePopup,setShowProfilePopup]=useState(false);
   const profilePromptedRef=useRef(false);
+  const userRef=useRef(user);
+  userRef.current=user;
 
   // ── Intro: always plays once per browser session, never shows a skip button.
   useEffect(()=>{
     const seenIntro=DB.get("pcb_intro_seen_session",false);
     if(seenIntro){
-      setStage(user?"app":"auth");
+      setStage(userRef.current?"app":"auth");
     }
   },[]);
 
