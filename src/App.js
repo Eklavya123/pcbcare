@@ -52,7 +52,7 @@ const PC = "#4caf50";
 const AC = "#ffd700";
 const ADMIN_EMAIL = "nnikhilpanjwani17@gmail.com";
 const ADMIN_PASSWORD = "6thdecember2023";
-const ADSENSE_CLIENT = "ca-pub-3960694190417659";
+const MONETAG_VERIFICATION = "000f89c9b52d4227c9d7d01e91f62ea3";
 
 // How long (ms) a user who watched a FULL ad is exempt from seeing another one.
 const AD_FREE_WINDOW_MS = 4 * 60 * 1000; // 4 minutes
@@ -111,27 +111,20 @@ const getAutoApprove = async () => {
 const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u.state.trim() && u.country && u.country.trim());
 
 // ── AD GATE ───────────────────────────────────────────────────────────────────
-// Shows a real AdSense unit and only blocks the user once every AD_FREE_WINDOW_MS.
+// Shows a placeholder ad slot and only blocks the user once every AD_FREE_WINDOW_MS.
 // If the person watched the full ad (the countdown reached zero) we stamp the
 // time in DB; subsequent feature taps within the window skip the ad entirely.
+// NOTE: AdSense has been removed. This slot is currently a placeholder — wire in
+// Monetag's actual ad-zone script here once that's provided (separate from the
+// monetag site-verification meta tag, which is already injected in PCBCare()).
 function AdGate({onComplete}) {
   const AD_SECONDS = 15;
   const [secs,setSecs]=useState(AD_SECONDS);
   const [done,setDone]=useState(false);
-  const [adLoaded,setAdLoaded]=useState(false);
   const pushedRef = useRef(false);
 
   useEffect(()=>{
-    // Push the ad request once the slot is in the DOM.
-    if(!pushedRef.current){
-      pushedRef.current = true;
-      try{
-        (window.adsbygoogle = window.adsbygoogle || []).push({});
-        setAdLoaded(true);
-      }catch(e){
-        console.error("AdSense push failed:",e);
-      }
-    }
+    pushedRef.current = true;
     const t=setInterval(()=>setSecs(s=>{
       if(s<=1){
         clearInterval(t);
@@ -152,13 +145,9 @@ function AdGate({onComplete}) {
       <div style={{width:"100%",maxWidth:480,padding:20,textAlign:"center"}}>
         <div style={{fontSize:13,color:"#888",marginBottom:14,textTransform:"uppercase",letterSpacing:2}}>Advertisement</div>
         <div style={{background:"#1a1a1a",borderRadius:16,minHeight:250,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,border:"1px solid #333",overflow:"hidden",position:"relative"}}>
-          <ins className="adsbygoogle"
-            style={{display:"block",width:"100%",minHeight:250}}
-            data-ad-client={ADSENSE_CLIENT}
-            data-ad-slot="1234567890"
-            data-ad-format="auto"
-            data-full-width-responsive="true"/>
-          {!adLoaded&&<div style={{position:"absolute",color:"#555",fontSize:12}}>Loading ad…</div>}
+          <div id="ad-slot" style={{width:"100%",minHeight:250,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{color:"#555",fontSize:12}}>Ad slot</div>
+          </div>
         </div>
         <div style={{height:4,background:"#222",borderRadius:4,overflow:"hidden",marginBottom:16}}>
           <div style={{height:"100%",background:`linear-gradient(90deg,${PC},${AC})`,borderRadius:4,transition:"width 1s linear",width:`${((AD_SECONDS-secs)/AD_SECONDS)*100}%`}}/>
@@ -628,11 +617,11 @@ const moderate=(text)=>{
 };
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function Home({setAdGate}) {
+function Home({setAdGate,partsEnabled=true}) {
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
-    {id:"parts",icon:"🔩",title:"Part Finder",desc:"Find by model number",color:PC},
+    ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Find by model number",color:PC}]:[]),
     {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     {id:"community",icon:"👥",title:"Community",desc:"Ask & share",color:"#7c5cfc"},
@@ -1370,62 +1359,67 @@ function AdminUsers() {
 // storage) immediately on change, then re-reads from Supabase on mount so the
 // UI always reflects the true persisted state rather than a stale default.
 function AdminSettings() {
-  const [autoApprove,setAutoApprove]=useState(false);
-  const [adFreeWindowMin,setAdFreeWindowMin]=useState(4);
-  const [aiDailyLimit,setAiDailyLimit]=useState(5);
+  const blankSettings={auto_approve:false,ad_free_window_min:4,ai_daily_limit:5,parts_identifier_enabled:true};
+  const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
+  const [draft,setDraft]=useState(blankSettings);    // working copy the admin is editing
   const [loaded,setLoaded]=useState(false);
-  const [saving,setSaving]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState("");
 
   const loadSettings=async()=>{
+    let next=blankSettings;
     try{
       const rows=await api("app_settings",{filter:"?select=key,value"});
       const map={};(rows||[]).forEach(r=>{map[r.key]=r.value;});
-      setAutoApprove(map.auto_approve==="true");
-      setAdFreeWindowMin(map.ad_free_window_min?Number(map.ad_free_window_min):DB.get("pcb_ad_free_window_min",4));
-      setAiDailyLimit(map.ai_daily_limit?Number(map.ai_daily_limit):DB.get("pcb_ai_daily_limit",5));
+      next={
+        auto_approve: map.auto_approve==="true",
+        ad_free_window_min: map.ad_free_window_min?Number(map.ad_free_window_min):DB.get("pcb_ad_free_window_min",4),
+        ai_daily_limit: map.ai_daily_limit?Number(map.ai_daily_limit):DB.get("pcb_ai_daily_limit",5),
+        parts_identifier_enabled: map.parts_identifier_enabled!==undefined?map.parts_identifier_enabled==="true":DB.get("pcb_parts_identifier_enabled",true),
+      };
     }catch(e){
       // Backend unreachable — fall back to whatever was last saved locally so
       // the admin still sees their real settings instead of hardcoded defaults.
-      setAutoApprove(DB.get("pcb_auto_approve",false));
-      setAdFreeWindowMin(DB.get("pcb_ad_free_window_min",4));
-      setAiDailyLimit(DB.get("pcb_ai_daily_limit",5));
+      next={
+        auto_approve: DB.get("pcb_auto_approve",false),
+        ad_free_window_min: DB.get("pcb_ad_free_window_min",4),
+        ai_daily_limit: DB.get("pcb_ai_daily_limit",5),
+        parts_identifier_enabled: DB.get("pcb_parts_identifier_enabled",true),
+      };
     }
-    setLoaded(true);
+    setSaved(next);setDraft(next);setLoaded(true);
   };
   useEffect(()=>{loadSettings();},[]);
+
+  const isDirty = loaded && JSON.stringify(draft)!==JSON.stringify(saved);
 
   const upsertSetting=async(key,value)=>{
     await fetch(`${SB_URL}/rest/v1/app_settings`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({key,value:String(value)})});
   };
 
-  const onToggleAutoApprove=async(val)=>{
-    setAutoApprove(val);
-    DB.set("pcb_auto_approve",val); // local mirror so a refresh before the network call lands still shows correctly
-    setSaving("auto_approve");
-    try{await upsertSetting("auto_approve",val);}catch(e){console.error(e);}
-    setSaving("");
+  const saveAll=async()=>{
+    setSaving(true);setMsg("");
+    try{
+      const changedKeys=Object.keys(draft).filter(k=>draft[k]!==saved[k]);
+      await Promise.all(changedKeys.map(k=>upsertSetting(k,draft[k])));
+      const dbKeyFor={auto_approve:"pcb_auto_approve",ad_free_window_min:"pcb_ad_free_window_min",ai_daily_limit:"pcb_ai_daily_limit",parts_identifier_enabled:"pcb_parts_identifier_enabled"};
+      changedKeys.forEach(k=>DB.set(dbKeyFor[k],draft[k]));
+      setSaved(draft);
+      setMsg("✅ Changes saved.");
+    }catch(e){
+      setMsg("⚠ Save failed: "+e.message);
+    }
+    setSaving(false);
   };
-  const onChangeAdWindow=async(val)=>{
-    setAdFreeWindowMin(val);
-    DB.set("pcb_ad_free_window_min",val);
-    setSaving("ad_free_window_min");
-    try{await upsertSetting("ad_free_window_min",val);}catch(e){console.error(e);}
-    setSaving("");
-  };
-  const onChangeAiLimit=async(val)=>{
-    setAiDailyLimit(val);
-    DB.set("pcb_ai_daily_limit",val);
-    setSaving("ai_daily_limit");
-    try{await upsertSetting("ai_daily_limit",val);}catch(e){console.error(e);}
-    setSaving("");
-  };
+
+  const discardAll=()=>{setDraft(saved);setMsg("");};
 
   if(!loaded) return <div style={{padding:30,textAlign:"center",color:"#6b7db3"}}>Loading settings...</div>;
 
   return (
-    <div style={{padding:16}}>
+    <div style={{padding:16,paddingBottom:isDirty?90:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>⚙️ App Settings</div>
-      <div style={{fontSize:11,color:"#6b7db3",marginBottom:18}}>Changes save instantly and persist across refreshes &amp; sessions.</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:18}}>Make your changes, then tap Save Changes below to publish them.</div>
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1433,36 +1427,52 @@ function AdminSettings() {
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Auto-approve new signups</div>
             <div style={{fontSize:11,color:"#6b7db3"}}>Skip manual review for new accounts</div>
           </div>
-          <button onClick={()=>onToggleAutoApprove(!autoApprove)} style={{width:48,height:26,borderRadius:14,background:autoApprove?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
-            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:autoApprove?25:3,transition:"left 0.2s"}}/>
+          <button onClick={()=>setDraft(d=>({...d,auto_approve:!d.auto_approve}))} style={{width:48,height:26,borderRadius:14,background:draft.auto_approve?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.auto_approve?25:3,transition:"left 0.2s"}}/>
           </button>
         </div>
-        {saving==="auto_approve"&&<div style={{fontSize:10,color:AC,marginTop:6}}>Saving...</div>}
+      </div>
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Parts Identifier</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>Show/hide the Part Finder feature for all users</div>
+          </div>
+          <button onClick={()=>setDraft(d=>({...d,parts_identifier_enabled:!d.parts_identifier_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_identifier_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_identifier_enabled?25:3,transition:"left 0.2s"}}/>
+          </button>
+        </div>
       </div>
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
         <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Ad-free window after a completed ad</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Minutes a user stays ad-free after finishing one full advertisement</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <input type="range" min={1} max={30} value={adFreeWindowMin} onChange={e=>onChangeAdWindow(Number(e.target.value))} style={{flex:1}}/>
-          <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:PC}}>{adFreeWindowMin} min</div>
+          <input type="range" min={1} max={30} value={draft.ad_free_window_min} onChange={e=>setDraft(d=>({...d,ad_free_window_min:Number(e.target.value)}))} style={{flex:1}}/>
+          <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:PC}}>{draft.ad_free_window_min} min</div>
         </div>
-        {saving==="ad_free_window_min"&&<div style={{fontSize:10,color:AC,marginTop:6}}>Saving...</div>}
       </div>
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
         <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>PCB AI daily question limit</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <input type="range" min={1} max={20} value={aiDailyLimit} onChange={e=>onChangeAiLimit(Number(e.target.value))} style={{flex:1}}/>
-          <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:AC}}>{aiDailyLimit}/day</div>
+          <input type="range" min={1} max={20} value={draft.ai_daily_limit} onChange={e=>setDraft(d=>({...d,ai_daily_limit:Number(e.target.value)}))} style={{flex:1}}/>
+          <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:AC}}>{draft.ai_daily_limit}/day</div>
         </div>
-        {saving==="ai_daily_limit"&&<div style={{fontSize:10,color:AC,marginTop:6}}>Saving...</div>}
       </div>
 
       <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:"#b0b8d0",lineHeight:1.6}}>
         💡 These settings are stored in the <code>app_settings</code> table in Supabase (the live backend), not just in this browser — so they stay correct after a refresh, after closing the app, and for every admin device.
       </div>
+
+      {isDirty&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${PC}55`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,zIndex:20,boxShadow:"0 -4px 16px rgba(0,0,0,0.4)"}}>
+        <div style={{flex:1,fontSize:12,color:AC,fontWeight:600}}>You have unsaved changes</div>
+        <button onClick={discardAll} disabled={saving} style={{padding:"10px 16px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Discard</button>
+        <button onClick={saveAll} disabled={saving} style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving...":"Save Changes"}</button>
+      </div>}
+      {msg&&!isDirty&&<div style={{position:"fixed",bottom:16,left:16,right:16,textAlign:"center",fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"10px"}}>{msg}</div>}
     </div>
   );
 }
@@ -1520,6 +1530,33 @@ export default function PCBCare() {
   const profilePromptedRef=useRef(false);
   const userRef=useRef(user);
   userRef.current=user;
+  const [partsEnabled,setPartsEnabled]=useState(()=>DB.get("pcb_parts_identifier_enabled",true));
+
+  // ── Parts Identifier feature flag, controlled from Admin → Settings.
+  useEffect(()=>{
+    api("app_settings",{filter:"?key=eq.parts_identifier_enabled&select=value"})
+      .then(rows=>{
+        if(Array.isArray(rows)&&rows[0]){
+          const enabled=rows[0].value==="true";
+          setPartsEnabled(enabled);
+          DB.set("pcb_parts_identifier_enabled",enabled);
+        }
+      })
+      .catch(()=>{}); // keep the local-mirror default on failure
+  },[]);
+
+  // ── Monetag site verification meta tag. Ideally this lives as a static tag in
+  // public/index.html (more reliable for verification crawlers that don't run
+  // JS), but is injected here too as a safety net since this app only has App.js
+  // in scope right now. See chat for the index.html snippet to add manually.
+  useEffect(()=>{
+    if(!document.querySelector('meta[name="monetag"]')){
+      const m=document.createElement("meta");
+      m.name="monetag";
+      m.content=MONETAG_VERIFICATION;
+      document.head.appendChild(m);
+    }
+  },[]);
 
   // ── Intro: always plays once per browser session, never shows a skip button.
   useEffect(()=>{
@@ -1607,10 +1644,10 @@ export default function PCBCare() {
       </div>
 
       <div style={{paddingBottom:74,minHeight:"calc(100vh - 56px)"}}>
-        {tab==="home"&&<Home setAdGate={requestTab}/>}
+        {tab==="home"&&<Home setAdGate={requestTab} partsEnabled={partsEnabled}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
-        {tab==="parts"&&<Parts/>}
+        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:"#6b7db3"}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
         {tab==="community"&&<Community user={user}/>}
