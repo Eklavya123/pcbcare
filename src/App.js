@@ -223,10 +223,7 @@ function MobileVerify({onVerified,onCancel}) {
   const [otp,setOtp]=useState("");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
-  const [confirmationResult,setConfirmationResult]=useState(null);
   const [resendIn,setResendIn]=useState(0);
-  const recaptchaRef=useRef(null);
-  const verifierRef=useRef(null);
 
   useEffect(()=>{
     if(resendIn<=0)return;
@@ -236,38 +233,34 @@ function MobileVerify({onVerified,onCancel}) {
 
   const digitsOnly = phone.replace(/\D/g,"").slice(0,10);
 
-  const setupRecaptcha=async()=>{
-    await initFirebase();
-    if(!verifierRef.current){
-      verifierRef.current = new window.firebase.auth.RecaptchaVerifier(recaptchaRef.current,{size:"invisible"});
-    }
-    return verifierRef.current;
-  };
-
+  // Supabase Auth (GoTrue) phone OTP via the Twilio provider configured in the
+  // Supabase dashboard. No client-side reCAPTCHA needed here — Twilio's own
+  // abuse protection plus Supabase's built-in rate limiting (1 OTP per 60s per
+  // number, default) cover what Firebase's invisible reCAPTCHA used to do.
   const sendOtp=async()=>{
     setErr("");
     if(digitsOnly.length!==10){setErr("Enter a valid 10-digit mobile number.");return;}
     setLoading(true);
     try{
-      const auth=await initFirebase();
-      const verifier=await setupRecaptcha();
       const fullNumber="+91"+digitsOnly;
-      const result=await auth.signInWithPhoneNumber(fullNumber,verifier);
-      setConfirmationResult(result);
-      setStage("otp");
-      setResendIn(30);
+      const res=await fetch(`${SB_URL}/auth/v1/otp`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({phone:fullNumber,channel:"sms"})});
+      const raw=await res.text();
+      let data={};try{data=raw?JSON.parse(raw):{};}catch{}
+      if(!res.ok){
+        console.error("OTP send failed:",res.status,data); // check browser console for the real Supabase/Twilio error
+        const friendly={
+          "sms_send_failed":"Twilio couldn't deliver the SMS. Check your Twilio credentials and sender/Verify Service setup in Supabase → Authentication → Providers → Phone.",
+          "over_sms_send_rate_limit":"You can only request one OTP every 60 seconds. Please wait and try again.",
+          "phone_provider_disabled":"Phone sign-in isn't enabled in Supabase → Authentication → Providers.",
+          "validation_failed":"That phone number looks invalid.",
+        };
+        setErr(friendly[data.error_code]||data.msg||data.error_description||data.message||`Could not send OTP (status ${res.status}). Try again.`);
+      }else{
+        setStage("otp");
+        setResendIn(60); // Supabase's default minimum interval between OTP requests
+      }
     }catch(e){
-      console.error("OTP send failed:",e.code,e.message); // check browser console for the real Firebase error code
-      const friendly={
-        "auth/unauthorized-domain":"This domain isn't authorized in Firebase Console (Authentication → Settings → Authorized domains).",
-        "auth/quota-exceeded":"Daily SMS quota exceeded for this project. Check Authentication → Usage in Firebase Console.",
-        "auth/invalid-phone-number":"That phone number looks invalid.",
-        "auth/too-many-requests":"Too many attempts from this number/device. Try again later.",
-        "auth/missing-recaptcha-token":"reCAPTCHA failed to verify. Refresh and try again.",
-        "auth/sms-region-config-not-found":"SMS region policy blocks India. Set it in Authentication → Settings → SMS region policy in Firebase Console.",
-      };
-      setErr(friendly[e.code]||e.message?.replace(/_/g," ")||"Could not send OTP. Try again.");
-      try{verifierRef.current?.clear();verifierRef.current=null;}catch{}
+      setErr("Network error. Please check your connection and try again.");
     }
     setLoading(false);
   };
@@ -277,19 +270,25 @@ function MobileVerify({onVerified,onCancel}) {
     if(otp.trim().length<4){setErr("Enter the OTP sent to your phone.");return;}
     setLoading(true);
     try{
-      const result=await confirmationResult.confirm(otp.trim());
-      DB.set("pcb_phone_verified",{phone:"+91"+digitsOnly,uid:result.user.uid,at:Date.now()});
-      setStage("done");
-      setTimeout(()=>onVerified?.("+91"+digitsOnly),900);
+      const fullNumber="+91"+digitsOnly;
+      const res=await fetch(`${SB_URL}/auth/v1/verify`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({type:"sms",phone:fullNumber,token:otp.trim()})});
+      const raw=await res.text();
+      let data={};try{data=raw?JSON.parse(raw):{};}catch{}
+      if(!res.ok){
+        setErr(data.msg||data.error_description||"Incorrect OTP. Please try again.");
+      }else{
+        DB.set("pcb_phone_verified",{phone:fullNumber,uid:data.user?.id,at:Date.now()});
+        setStage("done");
+        setTimeout(()=>onVerified?.(fullNumber),900);
+      }
     }catch(e){
-      setErr("Incorrect OTP. Please try again.");
+      setErr("Network error. Please check your connection and try again.");
     }
     setLoading(false);
   };
 
   return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div id="recaptcha-container" ref={recaptchaRef}/>
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:"1px solid #2a3050"}}>
         <div style={{textAlign:"center",marginBottom:24}}>
           <div style={{fontSize:36,marginBottom:10}}>📱</div>
@@ -746,8 +745,8 @@ function Parts() {
   const [model,setModel]=useState("");const [result,setResult]=useState(null);const [loading,setLoading]=useState(false);
   const search=async()=>{
     if(!model.trim())return;setLoading(true);setResult(null);
-    try{const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,messages:[{role:"user",content:`Appliance parts advisor. Model: ${model}. JSON only no markdown: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}`}]})});
-    const data=await res.json();const text=data.content?.map(i=>i.text||"").join("")||"";setResult(JSON.parse(text.replace(/```json|```/g,"").trim()));}catch{setResult({error:"Could not fetch. Try again."});}setLoading(false);
+    try{const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:800,response_format:{type:"json_object"},messages:[{role:"user",content:`Appliance parts advisor. Respond with ONLY valid JSON, no markdown, no commentary, in exactly this shape: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}. Model number: ${model}.`}]})});
+    const data=await res.json();if(!res.ok)throw new Error(data.error||"AI request failed");const text=data.text||"";setResult(JSON.parse(text.replace(/```json|```/g,"").trim()));}catch{setResult({error:"Could not fetch. Try again."});}setLoading(false);
   };
   return (
     <div style={{padding:16}}>
@@ -839,8 +838,8 @@ function Community({user}) {
     const res=await api("community_posts",{method:"POST",body:{author_name:user?.full_name||"Technician",text:newPost},prefer:"return=representation"});
     const post=Array.isArray(res)?res[0]:null;
     if(post){setPosts(prev=>[{...post,community_replies:[]},...prev]);setNewPost("");setError("");setAiThinking(post.id);
-      try{const aiRes=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:200,messages:[{role:"user",content:`You are PCB AI, expert appliance repair bot. Reply in 2 sentences max to: "${newPost}"`}]})});
-      const aiData=await aiRes.json();const reply=aiData.content?.map(i=>i.text||"").join("")||"Good question!";
+      try{const aiRes=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:200,messages:[{role:"user",content:`You are PCB AI, expert appliance repair bot. Reply in 2 sentences max to: "${newPost}"`}]})});
+      const aiData=await aiRes.json();const reply=aiRes.ok?(aiData.text||"Good question!"):"Good question!";
       await api("community_replies",{method:"POST",body:{post_id:post.id,author_name:"PCB AI 🤖",text:reply,is_ai:true},prefer:"return=minimal"});
       setPosts(prev=>prev.map(p=>p.id===post.id?{...p,community_replies:[...p.community_replies,{author_name:"PCB AI 🤖",text:reply,is_ai:true}]}:p));}catch{}setAiThinking(null);}
   };
@@ -918,10 +917,10 @@ function AIChat() {
     const nu=usage+1;setUsage(nu);DB.set("ai_"+today,nu);
 
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:500,messages:[{role:"user",content:`You are PCB AI, expert appliance repair assistant. Use this knowledge base: ${dbCtx}. Be concise. Question: ${q}`}]})});
-      if(!res.ok) throw new Error("Bad response from AI service");
+      const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:500,messages:[{role:"user",content:`You are PCB AI, expert appliance repair assistant. Use this knowledge base: ${dbCtx}. Be concise. Question: ${q}`}]})});
       const data=await res.json();
-      const reply=data.content?.map(i=>i.text||"").join("")||"";
+      if(!res.ok) throw new Error(data.error||"Bad response from AI service");
+      const reply=data.text||"";
       if(!reply.trim()) throw new Error("Empty AI response");
       const left=LIMIT-nu;
       setMsgs(m=>[...m,{role:"assistant",text:reply+(left>0?" ("+left+" questions left today)":"\n\nDaily limit reached. Come back tomorrow!")}]);
