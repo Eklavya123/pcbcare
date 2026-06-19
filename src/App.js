@@ -90,8 +90,14 @@ const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
   const h = {apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"};
   if(prefer) h["Prefer"]=prefer;
   const r = await fetch(url,{method,headers:h,body:body?JSON.stringify(body):null});
-  if(method==="DELETE"||method==="PATCH") return r;
-  return r.json();
+  const raw = await r.text(); // read once as text; Supabase sends an EMPTY body for prefer:"return=minimal" and for PATCH/DELETE
+  if(!r.ok){
+    let detail=raw;
+    try{const j=JSON.parse(raw);detail=j.message||j.error||raw;}catch{}
+    throw new Error(`${table} ${method} failed (${r.status}): ${detail||r.statusText}`);
+  }
+  if(!raw) return null; // empty body is a valid success case, not a parse error
+  try{return JSON.parse(raw);}catch{return null;}
 };
 
 const getAutoApprove = async () => {
@@ -262,7 +268,16 @@ function MobileVerify({onVerified,onCancel}) {
       setStage("otp");
       setResendIn(30);
     }catch(e){
-      setErr(e.message?.replace(/_/g," ")||"Could not send OTP. Try again.");
+      console.error("OTP send failed:",e.code,e.message); // check browser console for the real Firebase error code
+      const friendly={
+        "auth/unauthorized-domain":"This domain isn't authorized in Firebase Console (Authentication → Settings → Authorized domains).",
+        "auth/quota-exceeded":"Daily SMS quota exceeded for this project. Check Authentication → Usage in Firebase Console.",
+        "auth/invalid-phone-number":"That phone number looks invalid.",
+        "auth/too-many-requests":"Too many attempts from this number/device. Try again later.",
+        "auth/missing-recaptcha-token":"reCAPTCHA failed to verify. Refresh and try again.",
+        "auth/sms-region-config-not-found":"SMS region policy blocks India. Set it in Authentication → Settings → SMS region policy in Firebase Console.",
+      };
+      setErr(friendly[e.code]||e.message?.replace(/_/g," ")||"Could not send OTP. Try again.");
       try{verifierRef.current?.clear();verifierRef.current=null;}catch{}
     }
     setLoading(false);
@@ -1141,18 +1156,28 @@ function AdminErrors() {
 
 // ── ADMIN: WIRING ─────────────────────────────────────────────────────────────
 function AdminWiring() {
-  const blank={category:"Fridge",title:"",description:"",image_url:"",tips:""};
-  const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
+  const blank={category:"Fridge",title:"",description:"",image_url:"",image_source:"upload",tips:""};
+  const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
   const load=async()=>{const d=await api("wiring_diagrams",{filter:"?select=*&order=category"});setList(d||[]);};
   useEffect(()=>{load();},[]);
+  const handleFile=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=()=>{setForm(f=>({...f,image_url:reader.result}));setUploading(false);};
+    reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
+    reader.readAsDataURL(file);
+  };
   const save=async()=>{
     if(!form.title.trim()){setMsg("⚠ Title required.");return;}
     const payload={category:form.category,title:form.title,description:form.description,image_url:form.image_url,tips:form.tips.split("\n").map(t=>t.trim()).filter(Boolean)};
-    if(editId){await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
-    else{await api("wiring_diagrams",{method:"POST",body:payload,prefer:"return=minimal"});}
-    setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
+    try{
+      if(editId){await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+      else{await api("wiring_diagrams",{method:"POST",body:payload,prefer:"return=minimal"});}
+      setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
+    }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({category:item.category,title:item.title,description:item.description,image_url:item.image_url||"",tips:(item.tips||[]).join("\n")});setEditId(item.id);};
+  const edit=(item)=>{setForm({category:item.category,title:item.title,description:item.description,image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",tips:(item.tips||[]).join("\n")});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
@@ -1163,9 +1188,18 @@ function AdminWiring() {
         </select>
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={2} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="Image URL" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Image</div>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
+        </div>
+        {form.image_source==="upload"&&<div style={{marginBottom:10}}>
+          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
+          {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
+          {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
+        </div>}
+        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
-        {msg&&<div style={{fontSize:12,marginBottom:10,color:PC}}>{msg}</div>}
+        {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
