@@ -1366,7 +1366,8 @@ function AdminSettings() {
   const [saving,setSaving]=useState(false);
   const [msg,setMsg]=useState("");
 
-  const loadSettings=async()=>{
+  const loadSettingsRef=useRef(null);
+  loadSettingsRef.current=async()=>{
     let next=blankSettings;
     try{
       const rows=await api("app_settings",{filter:"?select=key,value"});
@@ -1389,7 +1390,7 @@ function AdminSettings() {
     }
     setSaved(next);setDraft(next);setLoaded(true);
   };
-  useEffect(()=>{loadSettings();},[]);
+  useEffect(()=>{loadSettingsRef.current();},[]);
 
   const isDirty = loaded && JSON.stringify(draft)!==JSON.stringify(saved);
 
