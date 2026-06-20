@@ -50,8 +50,6 @@ const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
 const PC = "#4caf50";
 const AC = "#ffd700";
-const ADMIN_EMAIL = "nnikhilpanjwani17@gmail.com";
-const ADMIN_PASSWORD = "6thdecember2023";
 const MONETAG_VERIFICATION = "000f89c9b52d4227c9d7d01e91f62ea3";
 
 // How long (ms) a user who watched a FULL ad is exempt from seeing another one.
@@ -111,26 +109,24 @@ const getAutoApprove = async () => {
 const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u.state.trim() && u.country && u.country.trim());
 
 // ── AD GATE ───────────────────────────────────────────────────────────────────
-// Shows a placeholder ad slot and only blocks the user once every AD_FREE_WINDOW_MS.
-// If the person watched the full ad (the countdown reached zero) we stamp the
-// time in DB; subsequent feature taps within the window skip the ad entirely.
-// NOTE: AdSense has been removed. This slot is currently a placeholder — wire in
-// Monetag's actual ad-zone script here once that's provided (separate from the
-// monetag site-verification meta tag, which is already injected in PCBCare()).
+// A short wait gate shown once every AD_FREE_WINDOW_MS before unlocking a
+// feature. This does NOT display a contained ad unit — Monetag's MultiTag
+// (loaded once globally in PCBCare, not here) earns ambiently in the
+// background via popunders/push/interstitials, independent of this screen.
+// If a real visible banner inside this gate is wanted, that needs a separate
+// Banner/Native Banner zone from Monetag wired in here specifically.
 function AdGate({onComplete}) {
   const AD_SECONDS = 15;
   const [secs,setSecs]=useState(AD_SECONDS);
   const [done,setDone]=useState(false);
-  const pushedRef = useRef(false);
 
   useEffect(()=>{
-    pushedRef.current = true;
     const t=setInterval(()=>setSecs(s=>{
       if(s<=1){
         clearInterval(t);
         setDone(true);
-        // Remember that the user just watched a complete ad — they're ad-free
-        // for the next AD_FREE_WINDOW_MS across the whole app.
+        // Remember that the user just completed the wait gate — they're free
+        // of it for the next AD_FREE_WINDOW_MS across the whole app.
         DB.set("pcb_last_ad_watched", Date.now());
         return 0;
       }
@@ -141,18 +137,14 @@ function AdGate({onComplete}) {
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000",zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-      <div style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"#fff"}}>{done?"":"Ad ends in "+secs+"s"}</div>
-      <div style={{width:"100%",maxWidth:480,padding:20,textAlign:"center"}}>
-        <div style={{fontSize:13,color:"#888",marginBottom:14,textTransform:"uppercase",letterSpacing:2}}>Advertisement</div>
-        <div style={{background:"#1a1a1a",borderRadius:16,minHeight:250,display:"flex",alignItems:"center",justifyContent:"center",marginBottom:16,border:"1px solid #333",overflow:"hidden",position:"relative"}}>
-          <div id="ad-slot" style={{width:"100%",minHeight:250,display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{color:"#555",fontSize:12}}>Ad slot</div>
-          </div>
-        </div>
-        <div style={{height:4,background:"#222",borderRadius:4,overflow:"hidden",marginBottom:16}}>
+      <div style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"#fff"}}>{done?"":secs+"s"}</div>
+      <div style={{width:"100%",maxWidth:380,padding:20,textAlign:"center"}}>
+        <div style={{fontSize:40,marginBottom:16}}>{done?"✅":"⏳"}</div>
+        <div style={{fontSize:15,color:"#fff",fontWeight:600,marginBottom:8}}>{done?"You're all set!":"Just a moment..."}</div>
+        <div style={{fontSize:12,color:"#888",marginBottom:20}}>{done?"":"Unlocking this feature for free"}</div>
+        <div style={{height:4,background:"#222",borderRadius:4,overflow:"hidden"}}>
           <div style={{height:"100%",background:`linear-gradient(90deg,${PC},${AC})`,borderRadius:4,transition:"width 1s linear",width:`${((AD_SECONDS-secs)/AD_SECONDS)*100}%`}}/>
         </div>
-        <div style={{fontSize:12,color:"#555"}}>Please wait for the advertisement to finish</div>
       </div>
       {done&&<button onClick={onComplete} style={{position:"absolute",bottom:40,padding:"14px 48px",borderRadius:14,background:`linear-gradient(135deg,${PC},${AC})`,color:"#000",border:"none",cursor:"pointer",fontWeight:700,fontSize:15}}>Continue →</button>}
     </div>
@@ -183,193 +175,23 @@ function Intro({onDone}) {
   );
 }
 
-// ── GOOGLE BUTTON ─────────────────────────────────────────────────────────────
-function GoogleBtn({onSuccess,onError}) {
-  const [loading,setLoading]=useState(false);
-  const handle=async()=>{
-    setLoading(true);
-    try{
-      const auth=await initFirebase();
-      const provider=new window.firebase.auth.GoogleAuthProvider();
-      const result=await auth.signInWithPopup(provider);
-      onSuccess(result.user);
-    }catch(e){onError(e.message||"Google sign-in failed");}
-    setLoading(false);
-  };
-  return (
-    <button onClick={handle} disabled={loading}
-      style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:18,opacity:loading?0.7:1}}>
-      {loading?"Signing in...":<>
-        <svg width="20" height="20" viewBox="0 0 48 48">
-          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
-        </svg>
-        Continue with Google
-      </>}
-    </button>
-  );
-}
-
-// ── MOBILE OTP VERIFICATION (standalone screen) ─────────────────────────────────
-// Indian numbers only: fixed +91 prefix, exactly 10 digits. OTP is sent and
-// verified through Firebase Phone Auth (invisible reCAPTCHA). This is a
-// standalone flow reachable from Login/Signup or from inside the app — it is
-// NOT a required step inside the signup wizard itself.
-function MobileVerify({onVerified,onCancel}) {
-  const [phone,setPhone]=useState("");
-  const [stage,setStage]=useState("phone"); // phone -> otp -> done
-  const [otp,setOtp]=useState("");
-  const [err,setErr]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [resendIn,setResendIn]=useState(0);
-
-  useEffect(()=>{
-    if(resendIn<=0)return;
-    const t=setInterval(()=>setResendIn(s=>s>0?s-1:0),1000);
-    return()=>clearInterval(t);
-  },[resendIn]);
-
-  const digitsOnly = phone.replace(/\D/g,"").slice(0,10);
-
-  // Supabase Auth (GoTrue) phone OTP via the Twilio provider configured in the
-  // Supabase dashboard. No client-side reCAPTCHA needed here — Twilio's own
-  // abuse protection plus Supabase's built-in rate limiting (1 OTP per 60s per
-  // number, default) cover what Firebase's invisible reCAPTCHA used to do.
-  const sendOtp=async()=>{
-    setErr("");
-    if(digitsOnly.length!==10){setErr("Enter a valid 10-digit mobile number.");return;}
-    setLoading(true);
-    try{
-      const fullNumber="+91"+digitsOnly;
-      const res=await fetch(`${SB_URL}/auth/v1/otp`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({phone:fullNumber,channel:"sms"})});
-      const raw=await res.text();
-      let data={};try{data=raw?JSON.parse(raw):{};}catch{}
-      if(!res.ok){
-        console.error("OTP send failed:",res.status,data); // check browser console for the real Supabase/Twilio error
-        const friendly={
-          "sms_send_failed":"Twilio couldn't deliver the SMS. Check your Twilio credentials and sender/Verify Service setup in Supabase → Authentication → Providers → Phone.",
-          "over_sms_send_rate_limit":"You can only request one OTP every 60 seconds. Please wait and try again.",
-          "phone_provider_disabled":"Phone sign-in isn't enabled in Supabase → Authentication → Providers.",
-          "validation_failed":"That phone number looks invalid.",
-        };
-        setErr(friendly[data.error_code]||data.msg||data.error_description||data.message||`Could not send OTP (status ${res.status}). Try again.`);
-      }else{
-        setStage("otp");
-        setResendIn(60); // Supabase's default minimum interval between OTP requests
-      }
-    }catch(e){
-      setErr("Network error. Please check your connection and try again.");
-    }
-    setLoading(false);
-  };
-
-  const verifyOtp=async()=>{
-    setErr("");
-    if(otp.trim().length<4){setErr("Enter the OTP sent to your phone.");return;}
-    setLoading(true);
-    try{
-      const fullNumber="+91"+digitsOnly;
-      const res=await fetch(`${SB_URL}/auth/v1/verify`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({type:"sms",phone:fullNumber,token:otp.trim()})});
-      const raw=await res.text();
-      let data={};try{data=raw?JSON.parse(raw):{};}catch{}
-      if(!res.ok){
-        setErr(data.msg||data.error_description||"Incorrect OTP. Please try again.");
-      }else{
-        DB.set("pcb_phone_verified",{phone:fullNumber,uid:data.user?.id,at:Date.now()});
-        setStage("done");
-        setTimeout(()=>onVerified?.(fullNumber),900);
-      }
-    }catch(e){
-      setErr("Network error. Please check your connection and try again.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:"1px solid #2a3050"}}>
-        <div style={{textAlign:"center",marginBottom:24}}>
-          <div style={{fontSize:36,marginBottom:10}}>📱</div>
-          <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:6}}>Mobile Verification</div>
-          <div style={{fontSize:12,color:"#6b7db3"}}>Available for India numbers only</div>
-        </div>
-
-        {stage==="phone"&&<>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:6}}>Mobile Number</div>
-          <div style={{display:"flex",gap:8,marginBottom:10}}>
-            <div style={{padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:PC,fontSize:14,fontWeight:700}}>+91</div>
-            <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))}
-              onKeyDown={e=>e.key==="Enter"&&sendOtp()}
-              placeholder="10-digit number" inputMode="numeric" maxLength={10}
-              style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
-          </div>
-          <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>{digitsOnly.length}/10 digits entered</div>
-          {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:12,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
-          <button onClick={sendOtp} disabled={loading||digitsOnly.length!==10}
-            style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
-            {loading?"Sending OTP...":"Send OTP"}
-          </button>
-        </>}
-
-        {stage==="otp"&&<>
-          <div style={{fontSize:12,color:"#b0b8d0",marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:"#fff"}}>+91 {digitsOnly}</b></div>
-          <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()}
-            placeholder="Enter OTP" inputMode="numeric" maxLength={6}
-            style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
-          <button onClick={verifyOtp} disabled={loading||otp.trim().length<4}
-            style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
-            {loading?"Verifying...":"Verify OTP"}
-          </button>
-          <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>
-            {resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}
-          </div>
-        </>}
-
-        {stage==="done"&&<div style={{textAlign:"center",padding:"10px 0"}}>
-          <div style={{fontSize:40,marginBottom:10}}>✅</div>
-          <div style={{fontSize:14,color:"#fff",fontWeight:600}}>Mobile number verified!</div>
-        </div>}
-
-        {stage!=="done"&&<div style={{textAlign:"center",marginTop:14}}>
-          <button onClick={onCancel} style={{background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Cancel / Skip for now</button>
-        </div>}
-      </div>
-    </div>
-  );
-}
-
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function Login({onLogin,onGoSignup,onGoMobileVerify}) {
+function Login({onLogin,onGoSignup}) {
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
 
-  const handleGoogleSuccess=async(fbUser)=>{
-    try{
-      const users=await api("users",{filter:`?firebase_uid=eq.${fbUser.uid}&select=*`});
-      let user=Array.isArray(users)?users[0]:null;
-      if(!user){
-        const autoApprove=await getAutoApprove();
-        const status=autoApprove?"approved":"pending";
-        const res=await api("users",{method:"POST",body:{firebase_uid:fbUser.uid,full_name:fbUser.displayName||"Google User",email:fbUser.email||"",phone:"",country:"",state:"",city:"",instagram_id:"",experience:"",specialization:"",method:"Google",status},prefer:"return=representation"});
-        user=Array.isArray(res)?res[0]:null;
-        if(status==="pending"){setErr("Account pending admin approval.");return;}
-      }
-      if(!user){setErr("Account error. Try again.");return;}
-      if(user.status==="pending"){setErr("Account pending admin approval.");return;}
-      if(user.status==="rejected"){setErr("Account rejected. Contact admin.");return;}
-      DB.set("pcb_user",user);onLogin(user);
-    }catch(e){setErr("Error: "+e.message);}
-  };
-
   const doLogin=async()=>{
-    if(email===ADMIN_EMAIL&&pw===ADMIN_PASSWORD){onLogin({isAdmin:true,full_name:"Admin"});return;}
     if(!email||!pw){setErr("Enter email and password");return;}
     setLoading(true);setErr("");
+    try{
+      // Admin check happens server-side — the real credentials never ship in
+      // the client bundle, so they can't be found by inspecting the code.
+      const adminRes=await fetch("/api/admin-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password:pw})});
+      const adminData=await adminRes.json().catch(()=>({}));
+      if(adminRes.ok&&adminData.isAdmin){onLogin({isAdmin:true,full_name:"Admin"});setLoading(false);return;}
+    }catch(e){/* admin check failing just falls through to normal login below */}
     try{
       const auth=await initFirebase();
       const result=await auth.signInWithEmailAndPassword(email,pw);
@@ -395,10 +217,6 @@ function Login({onLogin,onGoSignup,onGoMobileVerify}) {
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
           <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
         </div>
-        <GoogleBtn onSuccess={handleGoogleSuccess} onError={setErr}/>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-          <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
-        </div>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
           style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="Password"
@@ -408,12 +226,9 @@ function Login({onLogin,onGoSignup,onGoMobileVerify}) {
           style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
           {loading?"Signing in...":"Sign In"}
         </button>
-        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3",marginBottom:10}}>
+        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3"}}>
           Don't have an account?{" "}
           <button onClick={onGoSignup} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign Up</button>
-        </div>
-        <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>
-          <button onClick={onGoMobileVerify} style={{background:"none",border:"none",color:AC,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>📱 Verify mobile number</button>
         </div>
       </div>
     </div>
@@ -422,18 +237,141 @@ function Login({onLogin,onGoSignup,onGoMobileVerify}) {
 
 // ── SIGNUP ────────────────────────────────────────────────────────────────────
 function Signup({onGoLogin}) {
-  const [step,setStep]=useState(1);
-  const [email,setEmail]=useState("");
-  const [pw,setPw]=useState("");
+  const [step,setStep]=useState(1); // 1: choose verification method, 2: set login credentials, 3: details form
+  const [verifyMethod,setVerifyMethod]=useState(null); // "google" | "phone"
+  const [fbUser,setFbUser]=useState(null); // {uid, email, displayName} once verification succeeds
+  const [err,setErr]=useState("");
+
+  // ── Phone sub-flow (step 1, phone branch) ──
+  const [phone,setPhone]=useState("");
+  const [phoneStage,setPhoneStage]=useState("phone"); // phone -> otp -> done
+  const [otp,setOtp]=useState("");
+  const [phoneErr,setPhoneErr]=useState("");
+  const [phoneLoading,setPhoneLoading]=useState(false);
+  const [resendIn,setResendIn]=useState(0);
+  const digitsOnly = phone.replace(/\D/g,"").slice(0,10);
+
+  useEffect(()=>{
+    if(resendIn<=0)return;
+    const t=setInterval(()=>setResendIn(s=>s>0?s-1:0),1000);
+    return()=>clearInterval(t);
+  },[resendIn]);
+
+  // ── Credentials sub-flow (step 2) ──
+  const [credEmail,setCredEmail]=useState("");
+  const [credPw,setCredPw]=useState("");
+  const [credPw2,setCredPw2]=useState("");
+  const [credErr,setCredErr]=useState("");
+  const [credLoading,setCredLoading]=useState(false);
+
+  // ── Details form (step 3) ──
   const [form,setForm]=useState({fullName:"",country:"India",state:"",city:"",instagramId:"",experience:"",specialization:""});
   const [errors,setErrors]=useState({});
   const [loading,setLoading]=useState(false);
   const [submitted,setSubmitted]=useState(false);
   const [submitMsg,setSubmitMsg]=useState("");
-  const [err,setErr]=useState("");
   const EXP=["< 1 year","1-3 years","3-5 years","5-10 years","10+ years"];
   const SPEC=["Refrigerator","Washing Machine","Air Conditioner","All Appliances","Other Electronics"];
 
+  const checkAlreadyRegistered=async(uid)=>{
+    const existing=await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
+    return Array.isArray(existing)&&existing[0];
+  };
+
+  // ── Step 1: Google branch ──
+  const handleGoogleVerify=async()=>{
+    setErr("");
+    try{
+      const auth=await initFirebase();
+      const provider=new window.firebase.auth.GoogleAuthProvider();
+      const result=await auth.signInWithPopup(provider);
+      if(await checkAlreadyRegistered(result.user.uid)){
+        setSubmitMsg("Already registered! Please sign in.");setSubmitted(true);return;
+      }
+      setFbUser({uid:result.user.uid,email:result.user.email||"",displayName:result.user.displayName||""});
+      setCredEmail(result.user.email||"");
+      setVerifyMethod("google");
+      setStep(2);
+    }catch(e){setErr(e.message||"Google sign-in failed");}
+  };
+
+  // ── Step 1: Phone branch ──
+  const sendOtp=async()=>{
+    setPhoneErr("");
+    if(digitsOnly.length!==10){setPhoneErr("Enter a valid 10-digit mobile number.");return;}
+    setPhoneLoading(true);
+    try{
+      const fullNumber="+91"+digitsOnly;
+      const res=await fetch(`${SB_URL}/auth/v1/otp`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({phone:fullNumber,channel:"sms"})});
+      const raw=await res.text();let data={};try{data=raw?JSON.parse(raw):{};}catch{}
+      if(!res.ok){
+        const friendly={
+          "sms_send_failed":"Couldn't deliver the SMS. Please try again shortly.",
+          "over_sms_send_rate_limit":"You can only request one OTP every 60 seconds. Please wait and try again.",
+          "phone_provider_disabled":"Phone sign-up isn't available right now.",
+          "validation_failed":"That phone number looks invalid.",
+        };
+        setPhoneErr(friendly[data.error_code]||data.msg||data.error_description||`Could not send OTP (status ${res.status}). Try again.`);
+      }else{
+        setPhoneStage("otp");setResendIn(60);
+      }
+    }catch(e){setPhoneErr("Network error. Please check your connection and try again.");}
+    setPhoneLoading(false);
+  };
+
+  const verifyOtp=async()=>{
+    setPhoneErr("");
+    if(otp.trim().length<4){setPhoneErr("Enter the OTP sent to your phone.");return;}
+    setPhoneLoading(true);
+    try{
+      const fullNumber="+91"+digitsOnly;
+      const res=await fetch(`${SB_URL}/auth/v1/verify`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({type:"sms",phone:fullNumber,token:otp.trim()})});
+      const raw=await res.text();let data={};try{data=raw?JSON.parse(raw):{};}catch{}
+      if(!res.ok){
+        setPhoneErr(data.msg||data.error_description||"Incorrect OTP. Please try again.");
+      }else{
+        const existingByPhone=await api("users",{filter:`?phone=eq.${fullNumber}&select=*`});
+        if(Array.isArray(existingByPhone)&&existingByPhone[0]){
+          setSubmitMsg("This phone number is already registered! Please sign in.");setSubmitted(true);return;
+        }
+        setFbUser({uid:data.user?.id||"",email:"",displayName:"",phone:fullNumber});
+        setVerifyMethod("phone");
+        setPhoneStage("done");
+        setStep(2);
+      }
+    }catch(e){setPhoneErr("Network error. Please check your connection and try again.");}
+    setPhoneLoading(false);
+  };
+
+  // ── Step 2: set the email+password that becomes the permanent login credential ──
+  const submitCredentials=async()=>{
+    setCredErr("");
+    if(!credEmail.trim()){setCredErr("Enter an email address.");return;}
+    if(!credPw||credPw.length<6){setCredErr("Password must be at least 6 characters.");return;}
+    if(credPw!==credPw2){setCredErr("Passwords don't match.");return;}
+    setCredLoading(true);
+    try{
+      const auth=await initFirebase();
+      if(verifyMethod==="google"){
+        const credential=window.firebase.auth.EmailAuthProvider.credential(credEmail.trim(),credPw);
+        await auth.currentUser.linkWithCredential(credential);
+        setFbUser(f=>({...f,email:credEmail.trim()}));
+      }else{
+        const result=await auth.createUserWithEmailAndPassword(credEmail.trim(),credPw);
+        setFbUser(f=>({...f,uid:result.user.uid,email:credEmail.trim()}));
+      }
+      setStep(3);
+    }catch(e){
+      const m=e.message||"";
+      if(m.includes("email-already-in-use")||m.includes("credential-already-in-use")){setCredErr("That email is already in use. Please sign in instead.");}
+      else if(m.includes("weak-password")){setCredErr("Password must be at least 6 characters.");}
+      else if(m.includes("invalid-email")){setCredErr("That email address looks invalid.");}
+      else{setCredErr(m.replace(/_/g," "));}
+    }
+    setCredLoading(false);
+  };
+
+  // ── Step 3: details form ──
   const validate=()=>{
     const e={};
     if(!form.fullName.trim())e.fullName="Required";
@@ -445,36 +383,26 @@ function Signup({onGoLogin}) {
     setErrors(e);return Object.keys(e).length===0;
   };
 
-  const handleGoogleSuccess=async(fbUser)=>{
-    const autoApprove=await getAutoApprove();
-    const status=autoApprove?"approved":"pending";
+  const doSignup=async()=>{
+    if(!validate())return;
+    setLoading(true);setErr("");
     try{
-      const existing=await api("users",{filter:`?firebase_uid=eq.${fbUser.uid}&select=*`});
-      if(Array.isArray(existing)&&existing[0]){setSubmitMsg("Already registered! Please sign in.");setSubmitted(true);return;}
-      await api("users",{method:"POST",body:{firebase_uid:fbUser.uid,full_name:fbUser.displayName||"Google User",email:fbUser.email||"",phone:"",country:"",state:"",city:"",instagram_id:"",experience:"",specialization:"",method:"Google",status},prefer:"return=minimal"});
+      const autoApprove=await getAutoApprove();
+      const status=autoApprove?"approved":"pending";
+      await api("users",{method:"POST",body:{
+        firebase_uid:fbUser.uid,
+        full_name:form.fullName,
+        email:fbUser.email,
+        phone:fbUser.phone||"",
+        country:form.country,state:form.state,city:form.city,
+        instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,
+        method:verifyMethod==="google"?"Google":"Phone",
+        status,
+        verified_at:new Date().toISOString(),
+      },prefer:"return=minimal"});
       setSubmitMsg(autoApprove?"Registration complete! You can now sign in.":"Your account is pending admin approval within 24-48 hours.");
       setSubmitted(true);
     }catch(e){setErr("Error: "+e.message);}
-  };
-
-  const doSignup=async()=>{
-    if(!validate())return;
-    if(!email||!pw){setErr("Enter email and password");return;}
-    setLoading(true);setErr("");
-    try{
-      const auth=await initFirebase();
-      const result=await auth.createUserWithEmailAndPassword(email,pw);
-      const autoApprove=await getAutoApprove();
-      const status=autoApprove?"approved":"pending";
-      await api("users",{method:"POST",body:{firebase_uid:result.user.uid,full_name:form.fullName,email,phone:"",country:form.country,state:form.state,city:form.city,instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,method:"Email",status},prefer:"return=minimal"});
-      setSubmitMsg(autoApprove?"Registration complete! You can now sign in.":"Your account is pending admin approval within 24-48 hours.");
-      setSubmitted(true);
-    }catch(e){
-      const m=e.message||"";
-      if(m.includes("email-already-in-use")){setErr("Email already registered. Please sign in.");}
-      else if(m.includes("weak-password")){setErr("Password must be at least 6 characters.");}
-      else{setErr(m.replace(/_/g," "));}
-    }
     setLoading(false);
   };
 
@@ -483,7 +411,7 @@ function Signup({onGoLogin}) {
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:360,width:"100%",textAlign:"center",border:"1px solid #2a3050"}}>
         <img src={LOGO} alt="" style={{width:170,maxWidth:"100%",marginBottom:20}}/>
         <div style={{fontSize:40,marginBottom:14}}>{submitMsg.includes("pending")?"⏳":"✅"}</div>
-        <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Registration Submitted!</div>
+        <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>{submitMsg.includes("already")?"Already Registered":"Registration Submitted!"}</div>
         <div style={{fontSize:13,color:"#6b7db3",lineHeight:1.7,marginBottom:20}}>{submitMsg}</div>
         <button onClick={onGoLogin} style={{background:`linear-gradient(135deg,${PC},${AC})`,border:"none",borderRadius:10,padding:"12px 24px",color:"#0a0d14",cursor:"pointer",fontSize:14,fontWeight:700}}>← Go to Login</button>
       </div>
@@ -496,27 +424,94 @@ function Signup({onGoLogin}) {
         <div style={{textAlign:"center",padding:"20px 0 16px"}}>
           <img src={LOGO} alt="" style={{width:160,maxWidth:"100%",marginBottom:12}}/>
           <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>Create Account</div>
-          <div style={{fontSize:12,color:"#6b7db3"}}>Step {step} of 2</div>
+          <div style={{fontSize:12,color:"#6b7db3"}}>Step {step} of 3</div>
           <div style={{display:"flex",gap:4,justifyContent:"center",marginTop:8}}>
-            {[1,2].map(s=><div key={s} style={{width:40,height:3,borderRadius:4,background:step>=s?PC:"#2a3050"}}/>)}
+            {[1,2,3].map(s=><div key={s} style={{width:40,height:3,borderRadius:4,background:step>=s?PC:"#2a3050"}}/>)}
           </div>
         </div>
+
         {step===1&&(
           <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:14}}>Choose Sign Up Method</div>
-            <GoogleBtn onSuccess={handleGoogleSuccess} onError={setErr}/>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-              <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or with email</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
-            </div>
-            <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
-            <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Password (min 6 chars)"
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:8}}>⚠ {err}</div>}
-            <button onClick={()=>setStep(2)} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginTop:4}}>Next →</button>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Verify Your Identity</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>Choose one way to verify it's really you</div>
+
+            {!verifyMethod&&<>
+              <button onClick={handleGoogleVerify}
+                style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
+                <svg width="20" height="20" viewBox="0 0 48 48">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                Continue with Google
+              </button>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+                <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
+              </div>
+              <button onClick={()=>{setVerifyMethod("phone");setPhoneErr("");}}
+                style={{width:"100%",padding:"13px",borderRadius:12,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",cursor:"pointer",fontWeight:600,fontSize:14}}>
+                📱 Verify with Phone Number
+              </button>
+              {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginTop:10}}>⚠ {err}</div>}
+            </>}
+
+            {verifyMethod==="phone"&&<>
+              {phoneStage==="phone"&&<>
+                <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:6}}>Mobile Number</div>
+                <div style={{display:"flex",gap:8,marginBottom:10}}>
+                  <div style={{padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:PC,fontSize:14,fontWeight:700}}>+91</div>
+                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))}
+                    onKeyDown={e=>e.key==="Enter"&&sendOtp()}
+                    placeholder="10-digit number" inputMode="numeric" maxLength={10}
+                    style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
+                <button onClick={sendOtp} disabled={phoneLoading||digitsOnly.length!==10}
+                  style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
+                  {phoneLoading?"Sending OTP...":"Send OTP"}
+                </button>
+                <button onClick={()=>{setVerifyMethod(null);setPhoneErr("");}} style={{width:"100%",background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>← Choose a different method</button>
+              </>}
+              {phoneStage==="otp"&&<>
+                <div style={{fontSize:12,color:"#b0b8d0",marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:"#fff"}}>+91 {digitsOnly}</b></div>
+                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()}
+                  placeholder="Enter OTP" inputMode="numeric" maxLength={6}
+                  style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+                {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
+                <button onClick={verifyOtp} disabled={phoneLoading||otp.trim().length<4}
+                  style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
+                  {phoneLoading?"Verifying...":"Verify OTP"}
+                </button>
+                <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>
+                  {resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}
+                </div>
+              </>}
+            </>}
           </div>
         )}
+
         {step===2&&(
+          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Set Your Login Password</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>You'll use this email and password to sign in from now on</div>
+            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"}
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)"
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password"
+              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            {credErr&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {credErr}</div>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
+              <button onClick={submitCredentials} disabled={credLoading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
+                {credLoading?"Saving...":"Continue →"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step===3&&(
           <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:14}}>Your Details</div>
             {[["fullName","👤 Full Name","Your full name",true],["country","🌍 Country","e.g. India",true],["state","🗺️ State","e.g. Maharashtra, Punjab",true],["city","🏙️ City","e.g. Mumbai, Delhi",true],["instagramId","📸 Instagram","@yourusername (optional)",false]].map(([f,label,ph,req])=>(
@@ -545,13 +540,14 @@ function Signup({onGoLogin}) {
             </div>
             {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {err}</div>}
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setStep(1)} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
+              <button onClick={()=>setStep(2)} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
               <button onClick={doSignup} disabled={loading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
                 {loading?"Submitting...":"Submit Registration"}
               </button>
             </div>
           </div>
         )}
+
         <div style={{textAlign:"center",fontSize:13,color:"#6b7db3",marginBottom:24}}>
           Already have an account?{" "}
           <button onClick={onGoLogin} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign In</button>
@@ -1521,7 +1517,7 @@ function AdminPanel({onLogout}) {
 // ── MAIN APP ───────────────────────────────────────────────────────────────────
 export default function PCBCare() {
   const [stage,setStage]=useState("intro");          // intro -> auth -> app
-  const [authView,setAuthView]=useState("login");     // login | signup | mobileVerify
+  const [authView,setAuthView]=useState("login");     // login | signup
   const [user,setUser]=useState(()=>DB.get("pcb_user",null));
   const [tab,setTab]=useState("home");
   const [pendingTab,setPendingTab]=useState(null);     // tab waiting behind the ad gate
@@ -1543,6 +1539,24 @@ export default function PCBCare() {
         }
       })
       .catch(()=>{}); // keep the local-mirror default on failure
+  },[]);
+
+  // ── Monetag MultiTag ad script. Loaded ONCE per app session here, not inside
+  // AdGate. MultiTag bundles Popunder, Push, In-Page Push, Interstitial, and
+  // Vignette formats — all page-wide overlay/popup formats, none of which
+  // render inside a specific container element. It earns ambiently in the
+  // background based on Monetag's own frequency-capping logic; it does not
+  // produce a literal "banner" anyone can place inside a div. If a contained
+  // banner inside the ad-gate box specifically is wanted, that requires a
+  // separate Banner/Native Banner zone created in the Monetag dashboard.
+  useEffect(()=>{
+    if(document.querySelector('script[data-zone="251377"]')) return;
+    const s=document.createElement("script");
+    s.src="https://quge5.com/88/tag.min.js";
+    s.async=true;
+    s.setAttribute("data-zone","251377");
+    s.setAttribute("data-cfasync","false");
+    document.head.appendChild(s);
   },[]);
 
   // ── Monetag site verification meta tag. Ideally this lives as a static tag in
@@ -1622,8 +1636,7 @@ export default function PCBCare() {
 
   if(stage==="auth"){
     if(authView==="signup") return <Signup onGoLogin={()=>setAuthView("login")}/>;
-    if(authView==="mobileVerify") return <MobileVerify onVerified={()=>setAuthView("login")} onCancel={()=>setAuthView("login")}/>;
-    return <Login onLogin={handleLogin} onGoSignup={()=>setAuthView("signup")} onGoMobileVerify={()=>setAuthView("mobileVerify")}/>;
+    return <Login onLogin={handleLogin} onGoSignup={()=>setAuthView("signup")}/>;
   }
 
   if(user?.isAdmin) return <AdminPanel onLogout={handleLogout}/>;
