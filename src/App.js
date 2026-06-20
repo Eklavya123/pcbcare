@@ -110,15 +110,24 @@ const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u
 
 // ── AD GATE ───────────────────────────────────────────────────────────────────
 // A short wait gate shown once every AD_FREE_WINDOW_MS before unlocking a
-// feature. This does NOT display a contained ad unit — Monetag's MultiTag
-// (loaded once globally in PCBCare, not here) earns ambiently in the
-// background via popunders/push/interstitials, independent of this screen.
-// If a real visible banner inside this gate is wanted, that needs a separate
-// Banner/Native Banner zone from Monetag wired in here specifically.
+// feature. The Monetag Vignette zone script is loaded ONLY while this screen
+// is mounted, and removed the instant it unmounts — so the ad network's code
+// is never present anywhere else on the site, and can only ever trigger here.
 function AdGate({onComplete}) {
   const AD_SECONDS = 15;
   const [secs,setSecs]=useState(AD_SECONDS);
   const [done,setDone]=useState(false);
+
+  useEffect(()=>{
+    // Exact embed Monetag provided, translated to React's DOM APIs (an inline
+    // <script> tag can't be used directly in JSX) — same self-appending logic.
+    const scriptEl=document.createElement("script");
+    scriptEl.dataset.zone="11178451";
+    scriptEl.src="https://n6wxm.com/vignette.min.js";
+    const target=[document.documentElement,document.body].filter(Boolean).pop();
+    target.appendChild(scriptEl);
+    return ()=>{ if(target.contains(scriptEl)) target.removeChild(scriptEl); };
+  },[]);
 
   useEffect(()=>{
     const t=setInterval(()=>setSecs(s=>{
@@ -181,6 +190,23 @@ function Login({onLogin,onGoSignup}) {
   const [pw,setPw]=useState("");
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
+  const [googleLoading,setGoogleLoading]=useState(false);
+
+  const doGoogleLogin=async()=>{
+    setErr("");setGoogleLoading(true);
+    try{
+      const auth=await initFirebase();
+      const provider=new window.firebase.auth.GoogleAuthProvider();
+      const result=await auth.signInWithPopup(provider);
+      const users=await api("users",{filter:`?firebase_uid=eq.${result.user.uid}&select=*`});
+      const user=Array.isArray(users)?users[0]:null;
+      if(!user){setErr("Account not found. Please sign up.");setGoogleLoading(false);return;}
+      if(user.status==="pending"){setErr("Account pending admin approval.");setGoogleLoading(false);return;}
+      if(user.status==="rejected"){setErr("Account rejected. Contact admin.");setGoogleLoading(false);return;}
+      DB.set("pcb_user",user);onLogin(user);
+    }catch(e){setErr(e.message||"Google sign-in failed");}
+    setGoogleLoading(false);
+  };
 
   const doLogin=async()=>{
     if(!email||!pw){setErr("Enter email and password");return;}
@@ -216,6 +242,21 @@ function Login({onLogin,onGoSignup}) {
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
           <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
+        </div>
+        <button onClick={doGoogleLogin} disabled={googleLoading}
+          style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:16,opacity:googleLoading?0.7:1}}>
+          {googleLoading?"Signing in...":<>
+            <svg width="20" height="20" viewBox="0 0 48 48">
+              <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+              <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+              <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            Continue with Google
+          </>}
+        </button>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
         </div>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
           style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
@@ -1541,23 +1582,9 @@ export default function PCBCare() {
       .catch(()=>{}); // keep the local-mirror default on failure
   },[]);
 
-  // ── Monetag MultiTag ad script. Loaded ONCE per app session here, not inside
-  // AdGate. MultiTag bundles Popunder, Push, In-Page Push, Interstitial, and
-  // Vignette formats — all page-wide overlay/popup formats, none of which
-  // render inside a specific container element. It earns ambiently in the
-  // background based on Monetag's own frequency-capping logic; it does not
-  // produce a literal "banner" anyone can place inside a div. If a contained
-  // banner inside the ad-gate box specifically is wanted, that requires a
-  // separate Banner/Native Banner zone created in the Monetag dashboard.
-  useEffect(()=>{
-    if(document.querySelector('script[data-zone="251377"]')) return;
-    const s=document.createElement("script");
-    s.src="https://quge5.com/88/tag.min.js";
-    s.async=true;
-    s.setAttribute("data-zone","251377");
-    s.setAttribute("data-cfasync","false");
-    document.head.appendChild(s);
-  },[]);
+  // ── Ad zone script lives inside AdGate only now (see AdGate component) —
+  // it loads strictly when that screen is shown, not globally here, so no ad
+  // network code runs anywhere else on the site.
 
   // ── Monetag site verification meta tag. Ideally this lives as a static tag in
   // public/index.html (more reliable for verification crawlers that don't run
