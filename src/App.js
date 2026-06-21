@@ -50,11 +50,6 @@ const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
 const PC = "#4caf50";
 const AC = "#ffd700";
-const MONETAG_VERIFICATION = "000f89c9b52d4227c9d7d01e91f62ea3";
-
-// How long (ms) a user who watched a FULL ad is exempt from seeing another one.
-const AD_FREE_WINDOW_MS = 4 * 60 * 1000; // 4 minutes
-
 // ════════════════════════════════════════════════════════════════════════════
 // PERSISTENT STORAGE
 // Settings/preferences are written synchronously and read back the same way on
@@ -119,58 +114,6 @@ const shouldPromptProfileCompletion = (u) => {
   return (Date.now()-skippedAt) >= 24*60*60*1000;
 };
 
-// ── AD GATE ───────────────────────────────────────────────────────────────────
-// A short wait gate shown once every AD_FREE_WINDOW_MS before unlocking a
-// feature. The Monetag Vignette zone script is loaded ONLY while this screen
-// is mounted, and removed the instant it unmounts — so the ad network's code
-// is never present anywhere else on the site, and can only ever trigger here.
-function AdGate({onComplete}) {
-  const AD_SECONDS = 15;
-  const [secs,setSecs]=useState(AD_SECONDS);
-  const [done,setDone]=useState(false);
-
-  useEffect(()=>{
-    // Exact embed Monetag provided, translated to React's DOM APIs (an inline
-    // <script> tag can't be used directly in JSX) — same self-appending logic.
-    const scriptEl=document.createElement("script");
-    scriptEl.dataset.zone="11178451";
-    scriptEl.src="https://n6wxm.com/vignette.min.js";
-    const target=[document.documentElement,document.body].filter(Boolean).pop();
-    target.appendChild(scriptEl);
-    return ()=>{ if(target.contains(scriptEl)) target.removeChild(scriptEl); };
-  },[]);
-
-  useEffect(()=>{
-    const t=setInterval(()=>setSecs(s=>{
-      if(s<=1){
-        clearInterval(t);
-        setDone(true);
-        // Remember that the user just completed the wait gate — they're free
-        // of it for the next AD_FREE_WINDOW_MS across the whole app.
-        DB.set("pcb_last_ad_watched", Date.now());
-        return 0;
-      }
-      return s-1;
-    }),1000);
-    return()=>clearInterval(t);
-  },[]);
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"#000",zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-      <div style={{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"6px 14px",fontSize:12,color:"#fff"}}>{done?"":secs+"s"}</div>
-      <div style={{width:"100%",maxWidth:380,padding:20,textAlign:"center"}}>
-        <div style={{fontSize:40,marginBottom:16}}>{done?"✅":"⏳"}</div>
-        <div style={{fontSize:15,color:"#fff",fontWeight:600,marginBottom:8}}>{done?"You're all set!":"Just a moment..."}</div>
-        <div style={{fontSize:12,color:"#888",marginBottom:20}}>{done?"":"Unlocking this feature for free"}</div>
-        <div style={{height:4,background:"#222",borderRadius:4,overflow:"hidden"}}>
-          <div style={{height:"100%",background:`linear-gradient(90deg,${PC},${AC})`,borderRadius:4,transition:"width 1s linear",width:`${((AD_SECONDS-secs)/AD_SECONDS)*100}%`}}/>
-        </div>
-      </div>
-      {done&&<button onClick={onComplete} style={{position:"absolute",bottom:40,padding:"14px 48px",borderRadius:14,background:`linear-gradient(135deg,${PC},${AC})`,color:"#000",border:"none",cursor:"pointer",fontWeight:700,fontSize:15}}>Continue →</button>}
-    </div>
-  );
-}
-
 // ── INTRO VIDEO ───────────────────────────────────────────────────────────────
 // Fits the video to ANY screen size: letterboxed/centered via objectFit:"contain"
 // instead of "cover", so nothing is cropped off the edges on tall, short, wide,
@@ -227,7 +170,10 @@ function Login({onLogin,onGoSignup}) {
       // the client bundle, so they can't be found by inspecting the code.
       const adminRes=await fetch("/api/admin-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password:pw})});
       const adminData=await adminRes.json().catch(()=>({}));
-      if(adminRes.ok&&adminData.isAdmin){onLogin({isAdmin:true,full_name:"Admin"});setLoading(false);return;}
+      if(adminRes.ok&&adminData.isAdmin){
+        DB.set("pcb_admin_session",{token:adminData.token,expiresAt:adminData.expiresAt});
+        onLogin({isAdmin:true,full_name:"Admin"});setLoading(false);return;
+      }
     }catch(e){/* admin check failing just falls through to normal login below */}
     try{
       const auth=await initFirebase();
@@ -637,6 +583,25 @@ function Signup({onGoLogin}) {
   );
 }
 
+// ── WATERMARK ──────────────────────────────────────────────────────────────────
+// This does NOT block screenshots (nothing on the web can — see the note in
+// PCBCare above). What it does instead: stamps the logged-in technician's name
+// and phone/email repeatedly across the screen at low opacity. If someone DOES
+// screenshot a wiring diagram or error code and shares it, the leak is traceable
+// back to who took it. Purely a deterrent + accountability layer, not a block.
+function Watermark({user}) {
+  if(!user||user.isAdmin) return null;
+  const label=`${user.full_name||"Technician"} · ${user.phone||user.email||""}`;
+  const tiles=Array.from({length:24});
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:8000,pointerEvents:"none",overflow:"hidden",display:"flex",flexWrap:"wrap",alignContent:"space-around",justifyContent:"space-around"}}>
+      {tiles.map((_,i)=>(
+        <div key={i} style={{transform:"rotate(-30deg)",color:"rgba(255,255,255,0.06)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",padding:"0 10px"}}>{label}</div>
+      ))}
+    </div>
+  );
+}
+
 // ── COMPLETE PROFILE POPUP ────────────────────────────────────────────────────
 // Shown the first time a user lands inside the app (post-login or post-signup)
 // if their city / state / country are missing. Saves straight to Supabase and
@@ -709,11 +674,12 @@ const moderate=(text)=>{
 };
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function Home({setAdGate,partsEnabled=true}) {
+function Home({setTab,partsEnabled=true,user}) {
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
     ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Find by model number",color:PC}]:[]),
+    {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
     {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     {id:"community",icon:"👥",title:"Community",desc:"Ask & share",color:"#7c5cfc"},
@@ -723,12 +689,12 @@ function Home({setAdGate,partsEnabled=true}) {
   return (
     <div style={{padding:16}}>
       <div style={{marginBottom:18}}>
-        <div style={{fontSize:20,fontWeight:700,color:"#fff",marginBottom:4}}>Welcome, Technician 👋</div>
+        <div style={{fontSize:20,fontWeight:700,color:"#fff",marginBottom:4}}>Welcome, {(user?.full_name||"Technician").split(" ")[0]} 👋</div>
         <div style={{fontSize:12,color:"#6b7db3"}}>Tap any feature to get started</div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
         {cards.map(c=>(
-          <div key={c.id} onClick={()=>setAdGate(c.id)} style={{background:"#1a1f2e",border:`1px solid ${c.color}22`,borderRadius:14,padding:16,cursor:"pointer"}}>
+          <div key={c.id} onClick={()=>setTab(c.id)} style={{background:"#1a1f2e",border:`1px solid ${c.color}22`,borderRadius:14,padding:16,cursor:"pointer"}}>
             <div style={{fontSize:26,marginBottom:8}}>{c.icon}</div>
             <div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:3}}>{c.title}</div>
             <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.4}}>{c.desc}</div>
@@ -859,6 +825,59 @@ function Parts() {
         </div>
       </div>}
       {result?.error&&<div style={{background:"#1a1f2e",borderRadius:14,padding:16,textAlign:"center",color:"#ff4757"}}>⚠ {result.error}</div>}
+    </div>
+  );
+}
+
+// ── FIND REMOTE ────────────────────────────────────────────────────────────────
+function FindRemote() {
+  const [query,setQuery]=useState("");
+  const [results,setResults]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [modal,setModal]=useState(null);
+
+  const search=async()=>{
+    if(!query.trim())return;
+    setLoading(true);
+    const d=await api("remotes",{filter:`?model_number=ilike.*${encodeURIComponent(query.trim())}*&select=*&order=model_number`});
+    setResults(d||[]);
+    setLoading(false);
+  };
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>🎮 Find Remote</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Enter the PCB model number to find its matching remote</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
+        <div style={{display:"flex",gap:8}}>
+          <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Enter Model Number of PCB"
+            style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={search} disabled={loading||!query.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
+        </div>
+      </div>
+
+      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Searching...</div>}
+      {!loading&&results!==null&&results.length===0&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:"#6b7db3"}}>No remote found for that model number.</div></div>}
+
+      {!loading&&results&&results.map(item=>(
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:14,border:"1px solid #2a3050",marginBottom:14,padding:16}}>
+          <div style={{fontWeight:700,fontSize:14,color:"#fff",marginBottom:2}}>{item.model_number}</div>
+          <div style={{fontSize:11,color:PC,marginBottom:12}}>{item.title||item.appliance}{item.brand?` · ${item.brand}`:""}</div>
+
+          <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>PCB</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+            {(item.pcb_images||[]).map((img,i)=><img key={i} src={img} alt="" onClick={()=>setModal(img)} style={{width:84,height:84,objectFit:"cover",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/>)}
+          </div>
+
+          <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote</div>
+          {item.remote_image&&<img src={item.remote_image} alt="" onClick={()=>setModal(item.remote_image)} style={{width:140,borderRadius:10,cursor:"pointer",border:`1px solid ${AC}44`}}/>}
+        </div>
+      ))}
+
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+      </div>}
     </div>
   );
 }
@@ -1513,6 +1532,121 @@ function AdminTips() {
   );
 }
 
+// ── ADMIN: FIND REMOTE ──────────────────────────────────────────────────────────
+function AdminRemotes() {
+  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_image:""};
+  const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
+  const [pcbSource,setPcbSource]=useState("upload");const [pcbUrl,setPcbUrl]=useState("");const [pcbUploading,setPcbUploading]=useState(false);
+  const [remoteSource,setRemoteSource]=useState("upload");const [remoteUploading,setRemoteUploading]=useState(false);
+
+  const load=async()=>{const d=await api("remotes",{filter:"?select=*&order=model_number"});setList(d||[]);};
+  useEffect(()=>{load();},[]);
+
+  const addPcbImageFromFile=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setPcbUploading(true);
+    const reader=new FileReader();
+    reader.onload=()=>{setForm(f=>({...f,pcb_images:[...f.pcb_images,reader.result]}));setPcbUploading(false);e.target.value="";};
+    reader.onerror=()=>{setMsg("⚠ Could not read file.");setPcbUploading(false);};
+    reader.readAsDataURL(file);
+  };
+  const addPcbImageFromUrl=()=>{
+    if(!pcbUrl.trim())return;
+    setForm(f=>({...f,pcb_images:[...f.pcb_images,pcbUrl.trim()]}));
+    setPcbUrl("");
+  };
+  const removePcbImage=(idx)=>{setForm(f=>({...f,pcb_images:f.pcb_images.filter((_,i)=>i!==idx)}));};
+
+  const handleRemoteFile=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setRemoteUploading(true);
+    const reader=new FileReader();
+    reader.onload=()=>{setForm(f=>({...f,remote_image:reader.result}));setRemoteUploading(false);};
+    reader.onerror=()=>{setMsg("⚠ Could not read file.");setRemoteUploading(false);};
+    reader.readAsDataURL(file);
+  };
+
+  const save=async()=>{
+    if(!form.model_number.trim()){setMsg("⚠ Model number required.");return;}
+    if(form.pcb_images.length===0){setMsg("⚠ Add at least one PCB image.");return;}
+    if(!form.remote_image){setMsg("⚠ Remote image required.");return;}
+    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_image:form.remote_image};
+    try{
+      if(editId){await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+      else{await api("remotes",{method:"POST",body:payload,prefer:"return=minimal"});}
+      setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
+    }catch(e){setMsg("⚠ Save failed: "+e.message);}
+  };
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_image:item.remote_image||""});setEditId(item.id);};
+  const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🎮 {editId?"Edit":"Add"} Remote Match</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}>
+            {["AC","Fridge","Washing","Other"].map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+        </div>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          {form.pcb_images.map((img,idx)=>(
+            <div key={idx} style={{position:"relative"}}>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050"}}/>
+              <button onClick={()=>removePcbImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+            </div>
+          ))}
+        </div>}
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setPcbSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:pcbSource===v?`2px solid ${AC}`:"1px solid #2a3050",background:pcbSource===v?`${AC}22`:"#0f1117",color:pcbSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
+        </div>
+        {pcbSource==="upload"&&<div style={{marginBottom:14}}>
+          <input type="file" accept="image/*" onChange={addPcbImageFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
+          {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
+        </div>}
+        {pcbSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
+          <input value={pcbUrl} onChange={e=>setPcbUrl(e.target.value)} placeholder="https://...pcb-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+        </div>}
+
+        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Remote Image (only one allowed)<span style={{color:"#ff4757"}}> *</span></div>
+        {form.remote_image&&<div style={{marginBottom:10}}><img src={form.remote_image} alt="" style={{maxWidth:140,maxHeight:160,borderRadius:8,border:"1px solid #2a3050"}}/><div><button onClick={()=>setForm(f=>({...f,remote_image:""}))} style={{marginTop:6,padding:"5px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button></div></div>}
+        {!form.remote_image&&<>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:"1px solid #2a3050",background:remoteSource===v?`${AC}22`:"#0f1117",color:remoteSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
+          </div>
+          {remoteSource==="upload"&&<div style={{marginBottom:14}}>
+            <input type="file" accept="image/*" onChange={handleRemoteFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
+            {remoteUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
+          </div>}
+          {remoteSource==="url"&&<input value={form.remote_image} onChange={e=>setForm(f=>({...f,remote_image:e.target.value}))} placeholder="https://...remote-image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
+        </>}
+
+        {msg&&<div style={{fontSize:12,marginBottom:10,marginTop:4,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+        <div style={{display:"flex",gap:8}}>
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
+        </div>
+      </div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Remote Matches ({list.length})</div>
+      {list.map(item=>(
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            {item.remote_image&&<img src={item.remote_image} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6}}/>}
+            <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.model_number}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.appliance}{item.brand?` · ${item.brand}`:""} · {(item.pcb_images||[]).length} PCB image{(item.pcb_images||[]).length===1?"":"s"}</div></div>
+          </div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── ADMIN: REQUESTS ───────────────────────────────────────────────────────────
 function AdminRequests() {
   const [list,setList]=useState([]);
@@ -1606,7 +1740,7 @@ function AdminUsers() {
 // storage) immediately on change, then re-reads from Supabase on mount so the
 // UI always reflects the true persisted state rather than a stale default.
 function AdminSettings() {
-  const blankSettings={id:null,auto_approve:false,parts_enabled:true,ad_free_window_min:4,ai_daily_limit:5};
+  const blankSettings={id:null,auto_approve:false,parts_enabled:true,ai_daily_limit:5};
   const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
   const [draft,setDraft]=useState(blankSettings);    // working copy the admin is editing
   const [loaded,setLoaded]=useState(false);
@@ -1617,14 +1751,13 @@ function AdminSettings() {
   loadSettingsRef.current=async()=>{
     let next=blankSettings;
     try{
-      const rows=await api("app_settings",{filter:"?select=id,auto_approve,parts_enabled,ad_free_window_min,ai_daily_limit&limit=1"});
+      const rows=await api("app_settings",{filter:"?select=id,auto_approve,parts_enabled,ai_daily_limit&limit=1"});
       const row=Array.isArray(rows)?rows[0]:null;
       if(row){
         next={
           id: row.id,
           auto_approve: !!row.auto_approve,
           parts_enabled: row.parts_enabled!==false,
-          ad_free_window_min: row.ad_free_window_min!=null?Number(row.ad_free_window_min):DB.get("pcb_ad_free_window_min",4),
           ai_daily_limit: row.ai_daily_limit!=null?Number(row.ai_daily_limit):DB.get("pcb_ai_daily_limit",5),
         };
       }
@@ -1635,7 +1768,6 @@ function AdminSettings() {
         id:null,
         auto_approve: DB.get("pcb_auto_approve",false),
         parts_enabled: DB.get("pcb_parts_identifier_enabled",true),
-        ad_free_window_min: DB.get("pcb_ad_free_window_min",4),
         ai_daily_limit: DB.get("pcb_ai_daily_limit",5),
       };
     }
@@ -1648,7 +1780,7 @@ function AdminSettings() {
   const saveAll=async()=>{
     setSaving(true);setMsg("");
     try{
-      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,ad_free_window_min:draft.ad_free_window_min,ai_daily_limit:draft.ai_daily_limit,updated_at:new Date().toISOString()};
+      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,ai_daily_limit:draft.ai_daily_limit,updated_at:new Date().toISOString()};
       let res;
       if(draft.id){
         res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
@@ -1664,7 +1796,6 @@ function AdminSettings() {
       const savedRow=Array.isArray(data)?data[0]:null;
       DB.set("pcb_auto_approve",draft.auto_approve);
       DB.set("pcb_parts_identifier_enabled",draft.parts_enabled);
-      DB.set("pcb_ad_free_window_min",draft.ad_free_window_min);
       DB.set("pcb_ai_daily_limit",draft.ai_daily_limit);
       const confirmed={...draft,id:savedRow?savedRow.id:draft.id};
       setSaved(confirmed);setDraft(confirmed);
@@ -1709,15 +1840,6 @@ function AdminSettings() {
       </div>
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Ad-free window after a completed ad</div>
-        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Minutes a user stays ad-free after finishing one full advertisement</div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <input type="range" min={1} max={30} value={draft.ad_free_window_min} onChange={e=>setDraft(d=>({...d,ad_free_window_min:Number(e.target.value)}))} style={{flex:1}}/>
-          <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:PC}}>{draft.ad_free_window_min} min</div>
-        </div>
-      </div>
-
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
         <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>PCB AI daily question limit</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -1747,6 +1869,7 @@ function AdminPanel({onLogout}) {
     {id:"errors",label:"Error Codes",icon:"🔴"},
     {id:"wiring",label:"Wiring",icon:"⚡"},
     {id:"sensors",label:"Sensors",icon:"📡"},
+    {id:"remote",label:"Remote",icon:"🎮"},
     {id:"tips",label:"Tips",icon:"💡"},
     {id:"requests",label:"Requests",icon:"📥"},
     {id:"community",label:"Community",icon:"👥"},
@@ -1773,6 +1896,7 @@ function AdminPanel({onLogout}) {
         {tab==="errors"&&<AdminErrors/>}
         {tab==="wiring"&&<AdminWiring/>}
         {tab==="sensors"&&<AdminSensorValues/>}
+        {tab==="remote"&&<AdminRemotes/>}
         {tab==="tips"&&<AdminTips/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="community"&&<AdminCommunity/>}
@@ -1785,17 +1909,57 @@ function AdminPanel({onLogout}) {
 
 // ── MAIN APP ───────────────────────────────────────────────────────────────────
 export default function PCBCare() {
+  // ── Screenshot/recording deterrents. Important to be upfront about what
+  // this actually does: NOTHING on the web can block OS-level screenshots or
+  // screen recording — browsers have zero access to or control over that.
+  // What this DOES do: disables right-click (stops easy "Save image"/inspect
+  // shortcuts) and text selection (stops casual copy-paste of content). These
+  // are deterrents only, not real protection. See the watermark below for the
+  // one thing that actually helps if a screenshot does get taken — tracing it
+  // back to whoever took it.
+  useEffect(()=>{
+    const blockContextMenu=(e)=>e.preventDefault();
+    document.addEventListener("contextmenu",blockContextMenu);
+    const prevUserSelect=document.body.style.userSelect;
+    document.body.style.userSelect="none";
+    return ()=>{
+      document.removeEventListener("contextmenu",blockContextMenu);
+      document.body.style.userSelect=prevUserSelect;
+    };
+  },[]);
+
+
   const [stage,setStage]=useState("intro");          // intro -> auth -> app
   const [authView,setAuthView]=useState("login");     // login | signup
   const [user,setUser]=useState(()=>DB.get("pcb_user",null));
   const [tab,setTab]=useState("home");
-  const [pendingTab,setPendingTab]=useState(null);     // tab waiting behind the ad gate
-  const [showAd,setShowAd]=useState(false);
   const [showProfilePopup,setShowProfilePopup]=useState(false);
   const profilePromptedRef=useRef(false);
   const userRef=useRef(user);
   userRef.current=user;
   const [partsEnabled,setPartsEnabled]=useState(()=>DB.get("pcb_parts_identifier_enabled",true));
+  const [adminSessionChecked,setAdminSessionChecked]=useState(false);
+
+  // ── Restore a verified admin session (if any) before deciding the route.
+  // We never trust a bare "isAdmin" flag pulled straight from localStorage —
+  // the stored token is re-verified against the server (which alone holds the
+  // signing secret), so this can't be spoofed by editing localStorage by hand.
+  useEffect(()=>{
+    const session=DB.get("pcb_admin_session",null);
+    if(session&&session.token&&session.expiresAt>Date.now()){
+      fetch("/api/admin-verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:session.token,expiresAt:session.expiresAt})})
+        .then(r=>r.json())
+        .then(d=>{
+          if(d.valid){ setUser({isAdmin:true,full_name:"Admin"}); }
+          else{ DB.remove("pcb_admin_session"); }
+        })
+        .catch(()=>{})
+        .finally(()=>setAdminSessionChecked(true));
+    }else{
+      if(session) DB.remove("pcb_admin_session"); // locally expired already — clean up
+      setAdminSessionChecked(true);
+    }
+  },[]);
 
   // ── Parts Identifier feature flag, controlled from Admin → Settings.
   useEffect(()=>{
@@ -1810,30 +1974,14 @@ export default function PCBCare() {
       .catch(()=>{}); // keep the local-mirror default on failure
   },[]);
 
-  // ── Ad zone script lives inside AdGate only now (see AdGate component) —
-  // it loads strictly when that screen is shown, not globally here, so no ad
-  // network code runs anywhere else on the site.
-
-  // ── Monetag site verification meta tag. Ideally this lives as a static tag in
-  // public/index.html (more reliable for verification crawlers that don't run
-  // JS), but is injected here too as a safety net since this app only has App.js
-  // in scope right now. See chat for the index.html snippet to add manually.
-  useEffect(()=>{
-    if(!document.querySelector('meta[name="monetag"]')){
-      const m=document.createElement("meta");
-      m.name="monetag";
-      m.content=MONETAG_VERIFICATION;
-      document.head.appendChild(m);
-    }
-  },[]);
-
   // ── Intro: always plays once per browser session, never shows a skip button.
   useEffect(()=>{
+    if(!adminSessionChecked) return; // wait for the admin session restore above to resolve first
     const seenIntro=DB.get("pcb_intro_seen_session",false);
     if(seenIntro){
       setStage(userRef.current?"app":"auth");
     }
-  },[]);
+  },[adminSessionChecked]);
 
   const finishIntro=()=>{
     DB.set("pcb_intro_seen_session",true);
@@ -1859,32 +2007,12 @@ export default function PCBCare() {
 
   const handleLogout=()=>{
     DB.remove("pcb_user");
+    DB.remove("pcb_admin_session");
     setUser(null);
     profilePromptedRef.current=false;
     setStage("auth");
     setAuthView("login");
     setTab("home");
-  };
-
-  // ── Ad-gate logic: a feature tap normally shows a full ad first. If the user
-  // already watched a complete ad within the configured window (default 4
-  // minutes, adjustable by the admin), the ad is skipped entirely and they go
-  // straight into the feature.
-  const requestTab=(targetTab)=>{
-    const windowMs = DB.get("pcb_ad_free_window_min",4)*60*1000 || AD_FREE_WINDOW_MS;
-    const lastWatched = DB.get("pcb_last_ad_watched",0);
-    const stillAdFree = lastWatched && (Date.now()-lastWatched)<windowMs;
-    if(stillAdFree){
-      setTab(targetTab);
-    }else{
-      setPendingTab(targetTab);
-      setShowAd(true);
-    }
-  };
-
-  const onAdComplete=()=>{
-    setShowAd(false);
-    if(pendingTab){ setTab(pendingTab); setPendingTab(null); }
   };
 
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
@@ -1912,10 +2040,11 @@ export default function PCBCare() {
       </div>
 
       <div style={{paddingBottom:74,minHeight:"calc(100vh - 56px)"}}>
-        {tab==="home"&&<Home setAdGate={requestTab} partsEnabled={partsEnabled}/>}
+        {tab==="home"&&<Home setTab={setTab} partsEnabled={partsEnabled} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
         {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:"#6b7db3"}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
+        {tab==="remote"&&<FindRemote/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
         {tab==="community"&&<Community user={user}/>}
@@ -1925,14 +2054,14 @@ export default function PCBCare() {
 
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:"1px solid #2a3050",display:"flex",padding:"8px 4px",zIndex:5}}>
         {NAV.map(n=>(
-          <button key={n.id} onClick={()=>requestTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
             <div style={{fontSize:9,color:tab===n.id?PC:"#6b7db3",fontWeight:tab===n.id?700:400}}>{n.label}</div>
           </button>
         ))}
       </div>
 
-      {showAd&&<AdGate onComplete={onAdComplete}/>}
+      <Watermark user={user}/>
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
     </div>
   );
