@@ -100,8 +100,8 @@ const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
 
 const getAutoApprove = async () => {
   try {
-    const res = await api("app_settings",{filter:"?key=eq.auto_approve&select=value"});
-    return Array.isArray(res)&&res[0]?res[0].value==="true":false;
+    const res = await api("app_settings",{filter:"?select=auto_approve&limit=1"});
+    return Array.isArray(res)&&res[0]?!!res[0].auto_approve:false;
   } catch { return false; }
 };
 
@@ -1606,7 +1606,7 @@ function AdminUsers() {
 // storage) immediately on change, then re-reads from Supabase on mount so the
 // UI always reflects the true persisted state rather than a stale default.
 function AdminSettings() {
-  const blankSettings={auto_approve:false,ad_free_window_min:4,ai_daily_limit:5,parts_identifier_enabled:true};
+  const blankSettings={id:null,auto_approve:false,parts_enabled:true,ad_free_window_min:4,ai_daily_limit:5};
   const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
   const [draft,setDraft]=useState(blankSettings);    // working copy the admin is editing
   const [loaded,setLoaded]=useState(false);
@@ -1617,22 +1617,26 @@ function AdminSettings() {
   loadSettingsRef.current=async()=>{
     let next=blankSettings;
     try{
-      const rows=await api("app_settings",{filter:"?select=key,value"});
-      const map={};(rows||[]).forEach(r=>{map[r.key]=r.value;});
-      next={
-        auto_approve: map.auto_approve==="true",
-        ad_free_window_min: map.ad_free_window_min?Number(map.ad_free_window_min):DB.get("pcb_ad_free_window_min",4),
-        ai_daily_limit: map.ai_daily_limit?Number(map.ai_daily_limit):DB.get("pcb_ai_daily_limit",5),
-        parts_identifier_enabled: map.parts_identifier_enabled!==undefined?map.parts_identifier_enabled==="true":DB.get("pcb_parts_identifier_enabled",true),
-      };
+      const rows=await api("app_settings",{filter:"?select=id,auto_approve,parts_enabled,ad_free_window_min,ai_daily_limit&limit=1"});
+      const row=Array.isArray(rows)?rows[0]:null;
+      if(row){
+        next={
+          id: row.id,
+          auto_approve: !!row.auto_approve,
+          parts_enabled: row.parts_enabled!==false,
+          ad_free_window_min: row.ad_free_window_min!=null?Number(row.ad_free_window_min):DB.get("pcb_ad_free_window_min",4),
+          ai_daily_limit: row.ai_daily_limit!=null?Number(row.ai_daily_limit):DB.get("pcb_ai_daily_limit",5),
+        };
+      }
     }catch(e){
       // Backend unreachable — fall back to whatever was last saved locally so
       // the admin still sees their real settings instead of hardcoded defaults.
       next={
+        id:null,
         auto_approve: DB.get("pcb_auto_approve",false),
+        parts_enabled: DB.get("pcb_parts_identifier_enabled",true),
         ad_free_window_min: DB.get("pcb_ad_free_window_min",4),
         ai_daily_limit: DB.get("pcb_ai_daily_limit",5),
-        parts_identifier_enabled: DB.get("pcb_parts_identifier_enabled",true),
       };
     }
     setSaved(next);setDraft(next);setLoaded(true);
@@ -1641,18 +1645,29 @@ function AdminSettings() {
 
   const isDirty = loaded && JSON.stringify(draft)!==JSON.stringify(saved);
 
-  const upsertSetting=async(key,value)=>{
-    await fetch(`${SB_URL}/rest/v1/app_settings`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({key,value:String(value)})});
-  };
-
   const saveAll=async()=>{
     setSaving(true);setMsg("");
     try{
-      const changedKeys=Object.keys(draft).filter(k=>draft[k]!==saved[k]);
-      await Promise.all(changedKeys.map(k=>upsertSetting(k,draft[k])));
-      const dbKeyFor={auto_approve:"pcb_auto_approve",ad_free_window_min:"pcb_ad_free_window_min",ai_daily_limit:"pcb_ai_daily_limit",parts_identifier_enabled:"pcb_parts_identifier_enabled"};
-      changedKeys.forEach(k=>DB.set(dbKeyFor[k],draft[k]));
-      setSaved(draft);
+      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,ad_free_window_min:draft.ad_free_window_min,ai_daily_limit:draft.ai_daily_limit,updated_at:new Date().toISOString()};
+      let res;
+      if(draft.id){
+        res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
+      }else{
+        // No row exists yet anywhere in the table — create the single settings row.
+        res=await fetch(`${SB_URL}/rest/v1/app_settings`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
+      }
+      const raw=await res.text();
+      let data=[];try{data=raw?JSON.parse(raw):[];}catch{}
+      if(!res.ok){
+        throw new Error((data&&data.message)||`Save failed (${res.status})`);
+      }
+      const savedRow=Array.isArray(data)?data[0]:null;
+      DB.set("pcb_auto_approve",draft.auto_approve);
+      DB.set("pcb_parts_identifier_enabled",draft.parts_enabled);
+      DB.set("pcb_ad_free_window_min",draft.ad_free_window_min);
+      DB.set("pcb_ai_daily_limit",draft.ai_daily_limit);
+      const confirmed={...draft,id:savedRow?savedRow.id:draft.id};
+      setSaved(confirmed);setDraft(confirmed);
       setMsg("✅ Changes saved.");
     }catch(e){
       setMsg("⚠ Save failed: "+e.message);
@@ -1687,8 +1702,8 @@ function AdminSettings() {
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Parts Identifier</div>
             <div style={{fontSize:11,color:"#6b7db3"}}>Show/hide the Part Finder feature for all users</div>
           </div>
-          <button onClick={()=>setDraft(d=>({...d,parts_identifier_enabled:!d.parts_identifier_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_identifier_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
-            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_identifier_enabled?25:3,transition:"left 0.2s"}}/>
+          <button onClick={()=>setDraft(d=>({...d,parts_enabled:!d.parts_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_enabled?25:3,transition:"left 0.2s"}}/>
           </button>
         </div>
       </div>
@@ -1784,10 +1799,10 @@ export default function PCBCare() {
 
   // ── Parts Identifier feature flag, controlled from Admin → Settings.
   useEffect(()=>{
-    api("app_settings",{filter:"?key=eq.parts_identifier_enabled&select=value"})
+    api("app_settings",{filter:"?select=parts_enabled&limit=1"})
       .then(rows=>{
-        if(Array.isArray(rows)&&rows[0]){
-          const enabled=rows[0].value==="true";
+        if(Array.isArray(rows)&&rows[0]&&rows[0].parts_enabled!=null){
+          const enabled=!!rows[0].parts_enabled;
           setPartsEnabled(enabled);
           DB.set("pcb_parts_identifier_enabled",enabled);
         }
