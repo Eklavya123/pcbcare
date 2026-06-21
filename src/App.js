@@ -108,6 +108,17 @@ const getAutoApprove = async () => {
 // A profile is "complete" once city, state and country are all filled in.
 const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u.state.trim() && u.country && u.country.trim());
 
+// Only prompt for the missing details once 24 hours have passed since the
+// person chose "I'll do this later" at signup — never prompts otherwise,
+// since a profile that's incomplete for any other reason isn't this flow.
+const shouldPromptProfileCompletion = (u) => {
+  if(isProfileComplete(u)) return false;
+  if(!u || !u.details_skipped_at) return false;
+  const skippedAt = new Date(u.details_skipped_at).getTime();
+  if(isNaN(skippedAt)) return false;
+  return (Date.now()-skippedAt) >= 24*60*60*1000;
+};
+
 // ── AD GATE ───────────────────────────────────────────────────────────────────
 // A short wait gate shown once every AD_FREE_WINDOW_MS before unlocking a
 // feature. The Monetag Vignette zone script is loaded ONLY while this screen
@@ -447,6 +458,33 @@ function Signup({onGoLogin}) {
     setLoading(false);
   };
 
+  // ── "I'll do this later" — creates the account immediately with the details
+  // form left blank, and stamps details_skipped_at so the app knows to prompt
+  // for the missing info again once 24 hours have passed (see
+  // shouldPromptProfileCompletion / CompleteProfilePopup).
+  const skipDetails=async()=>{
+    setLoading(true);setErr("");
+    try{
+      const autoApprove=await getAutoApprove();
+      const status=autoApprove?"approved":"pending";
+      await api("users",{method:"POST",body:{
+        firebase_uid:fbUser.uid,
+        full_name:form.fullName||fbUser.displayName||"",
+        email:fbUser.email,
+        phone:fbUser.phone||"",
+        country:"",state:"",city:"",
+        instagram_id:"",experience:"",specialization:"",
+        method:verifyMethod==="google"?"Google":"Phone",
+        status,
+        verified_at:new Date().toISOString(),
+        details_skipped_at:new Date().toISOString(),
+      },prefer:"return=minimal"});
+      setSubmitMsg(autoApprove?"Registration complete! You can now sign in. We'll ask for your remaining details in 24 hours.":"Your account is pending admin approval within 24-48 hours. We'll ask for your remaining details in 24 hours.");
+      setSubmitted(true);
+    }catch(e){setErr("Error: "+e.message);}
+    setLoading(false);
+  };
+
   if(submitted) return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:360,width:"100%",textAlign:"center",border:"1px solid #2a3050"}}>
@@ -580,12 +618,13 @@ function Signup({onGoLogin}) {
               {errors.specialization&&<div style={{color:"#ff4757",fontSize:11,marginTop:4}}>⚠ {errors.specialization}</div>}
             </div>
             {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {err}</div>}
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,marginBottom:10}}>
               <button onClick={()=>setStep(2)} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
               <button onClick={doSignup} disabled={loading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
                 {loading?"Submitting...":"Submit Registration"}
               </button>
             </div>
+            <button onClick={skipDetails} disabled={loading} style={{width:"100%",background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>I'll do the registration later</button>
           </div>
         )}
 
@@ -603,35 +642,52 @@ function Signup({onGoLogin}) {
 // if their city / state / country are missing. Saves straight to Supabase and
 // to local storage so it won't ask again once filled in.
 function CompleteProfilePopup({user,onSaved,onDismiss}) {
-  const [form,setForm]=useState({city:user?.city||"",state:user?.state||"",country:user?.country||"India"});
+  const [form,setForm]=useState({fullName:user?.full_name||"",city:user?.city||"",state:user?.state||"",country:user?.country||"India",experience:user?.experience||"",specialization:user?.specialization||""});
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState("");
+  const EXP=["< 1 year","1-3 years","3-5 years","5-10 years","10+ years"];
+  const SPEC=["Refrigerator","Washing Machine","Air Conditioner","All Appliances","Other Electronics"];
   const save=async()=>{
-    if(!form.city.trim()||!form.state.trim()||!form.country.trim()){setErr("Please fill in all three fields.");return;}
+    if(!form.fullName.trim()||!form.city.trim()||!form.state.trim()||!form.country.trim()||!form.experience||!form.specialization){setErr("Please fill in all fields.");return;}
     setSaving(true);setErr("");
     try{
+      const payload={full_name:form.fullName,city:form.city,state:form.state,country:form.country,experience:form.experience,specialization:form.specialization};
       if(user?.id){
-        await fetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(form)});
+        await fetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
       }
-      const updated={...user,...form};
+      const updated={...user,...payload};
       DB.set("pcb_user",updated);
       onSaved(updated);
     }catch(e){setErr("Could not save. Please try again.");}
     setSaving(false);
   };
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9997,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid #2a3050"}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9997,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+      <div style={{background:"#1a1f2e",borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid #2a3050",margin:"20px 0"}}>
         <div style={{fontSize:30,marginBottom:10,textAlign:"center"}}>📍</div>
         <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:6,textAlign:"center"}}>Complete Your Profile</div>
-        <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.6,marginBottom:18,textAlign:"center"}}>We're missing your location details. Please fill these in to continue.</div>
-        {[["city","🏙️ City"],["state","🗺️ State"],["country","🌍 Country"]].map(([f,label])=>(
+        <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.6,marginBottom:18,textAlign:"center"}}>You skipped these details at signup — please fill them in now to continue.</div>
+        {[["fullName","👤 Full Name"],["city","🏙️ City"],["state","🗺️ State"],["country","🌍 Country"]].map(([f,label])=>(
           <div key={f} style={{marginBottom:10}}>
             <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>{label}</div>
             <input value={form[f]} onChange={e=>setForm(x=>({...x,[f]:e.target.value}))}
               style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
           </div>
         ))}
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>🔧 Experience</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {EXP.map(e=><button key={e} onClick={()=>setForm(x=>({...x,experience:e}))}
+              style={{padding:"7px 12px",borderRadius:20,border:form.experience===e?`2px solid ${PC}`:"1px solid #2a3050",background:form.experience===e?`${PC}22`:"#0f1117",color:form.experience===e?PC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{e}</button>)}
+          </div>
+        </div>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>⚙️ Specialization</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {SPEC.map(s=><button key={s} onClick={()=>setForm(x=>({...x,specialization:s}))}
+              style={{padding:"7px 12px",borderRadius:20,border:form.specialization===s?`2px solid ${AC}`:"1px solid #2a3050",background:form.specialization===s?`${AC}22`:"#0f1117",color:form.specialization===s?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{s}</button>)}
+          </div>
+        </div>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
         <button onClick={save} disabled={saving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
           {saving?"Saving...":"Save & Continue"}
@@ -893,10 +949,22 @@ function SensorValues() {
                 <div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:2}}>{item.title}</div>
                 <div style={{fontSize:11,color:PC}}>{item.model_number}{item.brand?` · ${item.brand}`:""}</div>
               </div>
-              <div style={{color:PC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                {item.pcb_type&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:item.pcb_type==="Indoor"?"#4caf5022":"#00bcd422",color:item.pcb_type==="Indoor"?PC:"#00bcd4",fontWeight:600}}>{item.pcb_type}</span>}
+                <div style={{color:PC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
+              </div>
             </div>
             {sel===i&&<div style={{borderTop:"1px solid #2a3050",padding:"14px 16px"}}>
-              <div style={{fontSize:13,color:"#e8eaf0",lineHeight:1.7}}>{item.description}</div>
+              {item.pcb_type==="Indoor"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:item.description?12:0}}>
+                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Room Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.room_sensor_value}</div></div>
+                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Coil Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.coil_sensor_value}</div></div>
+              </div>}
+              {item.pcb_type==="Outdoor"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:item.description?12:0}}>
+                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Discharge Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.discharge_sensor_value}</div></div>
+                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Ambient Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.ambient_sensor_value}</div></div>
+                <div style={{background:"#0f1117",borderRadius:8,padding:10,gridColumn:"1 / -1"}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Condenser Coil Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.condenser_coil_sensor_value}</div></div>
+              </div>}
+              {item.description&&<div style={{fontSize:13,color:"#e8eaf0",lineHeight:1.7}}>{item.description}</div>}
               {item.image_url&&<img src={item.image_url} alt="" onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,marginTop:10,cursor:"pointer"}}/>}
             </div>}
           </div>
@@ -1288,7 +1356,7 @@ function AdminWiring() {
 
 // ── ADMIN: SENSOR VALUES ───────────────────────────────────────────────────────
 function AdminSensorValues() {
-  const blank={model_number:"",brand:"",appliance:"Fridge",title:"",description:"",image_url:"",image_source:"upload"};
+  const blank={model_number:"",brand:"",appliance:"Fridge",title:"",description:"",image_url:"",image_source:"upload",pcb_type:"",room_sensor_value:"",coil_sensor_value:"",discharge_sensor_value:"",ambient_sensor_value:"",condenser_coil_sensor_value:""};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
   const load=async()=>{const d=await api("sensor_values",{filter:"?select=*&order=model_number"});setList(d||[]);};
   useEffect(()=>{load();},[]);
@@ -1303,14 +1371,24 @@ function AdminSensorValues() {
   const save=async()=>{
     if(!form.model_number.trim()){setMsg("⚠ Model number required.");return;}
     if(!form.title.trim()){setMsg("⚠ Title required.");return;}
-    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,description:form.description,image_url:form.image_url};
+    if(form.pcb_type==="Indoor"&&(!form.room_sensor_value.trim()||!form.coil_sensor_value.trim())){setMsg("⚠ Both Room and Coil sensor values are required for Indoor.");return;}
+    if(form.pcb_type==="Outdoor"&&(!form.discharge_sensor_value.trim()||!form.ambient_sensor_value.trim()||!form.condenser_coil_sensor_value.trim())){setMsg("⚠ Discharge, Ambient and Condenser Coil sensor values are all required for Outdoor.");return;}
+    const payload={
+      model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,description:form.description,image_url:form.image_url,
+      pcb_type:form.pcb_type,
+      room_sensor_value:form.pcb_type==="Indoor"?form.room_sensor_value:"",
+      coil_sensor_value:form.pcb_type==="Indoor"?form.coil_sensor_value:"",
+      discharge_sensor_value:form.pcb_type==="Outdoor"?form.discharge_sensor_value:"",
+      ambient_sensor_value:form.pcb_type==="Outdoor"?form.ambient_sensor_value:"",
+      condenser_coil_sensor_value:form.pcb_type==="Outdoor"?form.condenser_coil_sensor_value:"",
+    };
     try{
       if(editId){await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("sensor_values",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"Fridge",title:item.title||"",description:item.description||"",image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url"});setEditId(item.id);};
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"Fridge",title:item.title||"",description:item.description||"",image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",pcb_type:item.pcb_type||"",room_sensor_value:item.room_sensor_value||"",coil_sensor_value:item.coil_sensor_value||"",discharge_sensor_value:item.discharge_sensor_value||"",ambient_sensor_value:item.ambient_sensor_value||"",condenser_coil_sensor_value:item.condenser_coil_sensor_value||""});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
@@ -1324,7 +1402,29 @@ function AdminSensorValues() {
           <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
         </div>
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (e.g. Compressor Overload Sensor)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Sensor values / readings / notes" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>PCB Type</div>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          {["Indoor","Outdoor"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,pcb_type:t}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.pcb_type===t?`2px solid ${PC}`:"1px solid #2a3050",background:form.pcb_type===t?`${PC}22`:"#0f1117",color:form.pcb_type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:600}}>{t==="Indoor"?"🏠 Indoor":"🌤️ Outdoor"}</button>)}
+        </div>
+
+        {form.pcb_type==="Indoor"&&<div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Room Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.room_sensor_value} onChange={e=>setForm(f=>({...f,room_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.coil_sensor_value} onChange={e=>setForm(f=>({...f,coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        </div>}
+
+        {form.pcb_type==="Outdoor"&&<div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Discharge Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.discharge_sensor_value} onChange={e=>setForm(f=>({...f,discharge_sensor_value:e.target.value}))} placeholder="e.g. 8kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Ambient Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.ambient_sensor_value} onChange={e=>setForm(f=>({...f,ambient_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Condenser Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.condenser_coil_sensor_value} onChange={e=>setForm(f=>({...f,condenser_coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        </div>}
+
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Additional notes (optional)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
         <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Image (optional)</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
@@ -1344,7 +1444,7 @@ function AdminSensorValues() {
       <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Sensor Values ({list.length})</div>
       {list.map(item=>(
         <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}</div></div>
+          <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}{item.pcb_type?` · ${item.pcb_type}`:""}</div></div>
           <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
@@ -1730,7 +1830,7 @@ export default function PCBCare() {
   useEffect(()=>{
     if(stage==="app"&&user&&!user.isAdmin&&!profilePromptedRef.current){
       profilePromptedRef.current=true;
-      if(!isProfileComplete(user)){
+      if(shouldPromptProfileCompletion(user)){
         setShowProfilePopup(true);
       }
     }
