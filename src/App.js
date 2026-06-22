@@ -170,11 +170,17 @@ function Login({onLogin,onGoSignup}) {
       // the client bundle, so they can't be found by inspecting the code.
       const adminRes=await fetch("/api/admin-login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,password:pw})});
       const adminData=await adminRes.json().catch(()=>({}));
+      if(adminRes.status===500){
+        // Server is missing env vars — surface the real error rather than
+        // silently falling through to Firebase and showing "wrong password".
+        setErr("⚙ Admin server error: "+( adminData.error||"ADMIN_EMAIL / ADMIN_PASSWORD / ADMIN_SESSION_SECRET not set in Vercel environment variables."));
+        setLoading(false);return;
+      }
       if(adminRes.ok&&adminData.isAdmin){
         DB.set("pcb_admin_session",{token:adminData.token,expiresAt:adminData.expiresAt});
         onLogin({isAdmin:true,full_name:"Admin"});setLoading(false);return;
       }
-    }catch(e){/* admin check failing just falls through to normal login below */}
+    }catch(e){/* network error — fall through to normal Firebase login */}
     try{
       const auth=await initFirebase();
       const result=await auth.signInWithEmailAndPassword(email,pw);
@@ -564,13 +570,21 @@ function Signup({onGoLogin}) {
               {errors.specialization&&<div style={{color:"#ff4757",fontSize:11,marginTop:4}}>⚠ {errors.specialization}</div>}
             </div>
             {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {err}</div>}
-            <div style={{display:"flex",gap:8,marginBottom:10}}>
+
+            {/* Skip option — prominent placement so it's not missed on mobile */}
+            <div style={{background:"#1a2a1a",borderRadius:10,padding:"12px 14px",border:`1px dashed ${PC}44`,marginBottom:12}}>
+              <div style={{fontSize:11,color:"#6b7db3",marginBottom:6}}>Don't have all details right now?</div>
+              <button onClick={skipDetails} disabled={loading} style={{width:"100%",padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${PC}55`,color:PC,cursor:"pointer",fontSize:13,fontWeight:600}}>
+                ⏩ Skip for now — I'll fill details within 24 hours
+              </button>
+            </div>
+
+            <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setStep(2)} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
               <button onClick={doSignup} disabled={loading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
                 {loading?"Submitting...":"Submit Registration"}
               </button>
             </div>
-            <button onClick={skipDetails} disabled={loading} style={{width:"100%",background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>I'll do the registration later</button>
           </div>
         )}
 
