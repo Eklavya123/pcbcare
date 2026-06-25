@@ -2075,6 +2075,5 @@ export default function PCBCare() {
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
     </div>
     </ThemeCtx.Provider>
-    </div>
   );
 }
