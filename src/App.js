@@ -50,6 +50,28 @@ const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
 const PC = "#4caf50";
 const AC = "#ffd700";
+
+// ── Theme tokens ──────────────────────────────────────────────────────────────
+// All components read from these. PCBCare root injects them via a React context
+// so child components can pick the active set without prop-drilling.
+const DARK = {
+  bg:"#0a0d14",card:"#1a1f2e",border:"#2a3050",
+  text:"#ffffff",subtext:"#6b7db3",muted:"#b0b8d0",
+  input:"#0f1117",inputText:"#ffffff",
+  navBg:"#1a1f2e",navBorder:"#2a3050",
+  tag:"#2a3050",tagText:"#e8eaf0",
+  shadow:"rgba(0,0,0,0.4)",
+};
+const LIGHT = {
+  bg:"#f0f4f8",card:"#ffffff",border:"#d1dae6",
+  text:"#0f172a",subtext:"#4b6075",muted:"#334155",
+  input:"#f8fafc",inputText:"#0f172a",
+  navBg:"#ffffff",navBorder:"#d1dae6",
+  tag:"#e8f0fe",tagText:"#1e3a5f",
+  shadow:"rgba(0,0,0,0.1)",
+};
+const ThemeCtx = React.createContext(DARK);
+const useTheme = () => React.useContext(ThemeCtx);
 // ════════════════════════════════════════════════════════════════════════════
 // PERSISTENT STORAGE
 // Settings/preferences are written synchronously and read back the same way on
@@ -103,6 +125,38 @@ const getAutoApprove = async () => {
 // A profile is "complete" once city, state and country are all filled in.
 const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u.state.trim() && u.country && u.country.trim());
 
+// ── Image compression utility ──────────────────────────────────────────────────
+// Used by every admin file-upload handler. Draws the image onto a canvas
+// at a max 1200px long edge (retains aspect ratio), then exports as JPEG at
+// quality 0.82. Typical result: a 3-5 MB phone photo → 150-400 KB, with no
+// perceptible quality loss at the sizes these images are displayed at.
+// If the input is already small or compression fails for any reason, the
+// original data URL is returned unchanged so uploads never silently break.
+const compressImage = (dataUrl, maxPx=1200, quality=0.82) => new Promise((resolve)=>{
+  try{
+    const img=new Image();
+    img.onload=()=>{
+      let {width:w,height:h}=img;
+      if(w>maxPx||h>maxPx){
+        if(w>h){h=Math.round(h*(maxPx/w));w=maxPx;}
+        else{w=Math.round(w*(maxPx/h));h=maxPx;}
+      }
+      const canvas=document.createElement("canvas");
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext("2d");
+      // White background so transparent PNGs don't go black on JPEG export
+      ctx.fillStyle="#ffffff";
+      ctx.fillRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+      const compressed=canvas.toDataURL("image/jpeg",quality);
+      // Safety net: if something went wrong and output is tiny/corrupt, keep original
+      resolve(compressed.length>500?compressed:dataUrl);
+    };
+    img.onerror=()=>resolve(dataUrl);
+    img.src=dataUrl;
+  }catch{resolve(dataUrl);}
+});
+
 // Only prompt for the missing details once 24 hours have passed since the
 // person chose "I'll do this later" at signup — never prompts otherwise,
 // since a profile that's incomplete for any other reason isn't this flow.
@@ -131,7 +185,7 @@ function Intro({onDone}) {
     return()=>clearTimeout(t);
   },[onDone]);
   return (
-    <div style={{position:"fixed",inset:0,background:"#0a0d14",zIndex:9999,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <video ref={videoRef} src={VIDEO_B64} autoPlay muted playsInline onEnded={onDone}
         style={{width:"100%",height:"100%",objectFit:"contain",objectPosition:"center center"}}/>
     </div>
@@ -200,11 +254,11 @@ function Login({onLogin,onGoSignup}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:"1px solid #2a3050"}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:T.card,borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${T.border}`}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
-          <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
+          <div style={{fontSize:13,color:T.subtext}}>Sign in to your account</div>
         </div>
         <button onClick={doGoogleLogin} disabled={googleLoading}
           style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:16,opacity:googleLoading?0.7:1}}>
@@ -219,18 +273,18 @@ function Login({onLogin,onGoSignup}) {
           </>}
         </button>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-          <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
+          <div style={{flex:1,height:1,background:T.tag}}/><div style={{fontSize:12,color:T.subtext}}>or</div><div style={{flex:1,height:1,background:T.tag}}/>
         </div>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="Password"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
         <button onClick={doLogin} disabled={loading}
           style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
           {loading?"Signing in...":"Sign In"}
         </button>
-        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3"}}>
+        <div style={{textAlign:"center",fontSize:13,color:T.subtext}}>
           Don't have an account?{" "}
           <button onClick={onGoSignup} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign Up</button>
         </div>
@@ -240,15 +294,15 @@ function Login({onLogin,onGoSignup}) {
 }
 
 // ── SIGNUP ────────────────────────────────────────────────────────────────────
-function Signup({onGoLogin}) {
-  const [step,setStep]=useState(1); // 1: choose verification method, 2: set login credentials, 3: details form
-  const [verifyMethod,setVerifyMethod]=useState(null); // "google" | "phone"
-  const [fbUser,setFbUser]=useState(null); // {uid, email, displayName} once verification succeeds
+function Signup({onGoLogin,onLogin}) {
+  const [step,setStep]=useState(1); // 1: verify (Google or Phone), 2: set password
+  const [verifyMethod,setVerifyMethod]=useState(null);
+  const [fbUser,setFbUser]=useState(null);
   const [err,setErr]=useState("");
 
-  // ── Phone sub-flow (step 1, phone branch) ──
+  // ── Phone sub-flow ──
   const [phone,setPhone]=useState("");
-  const [phoneStage,setPhoneStage]=useState("phone"); // phone -> otp -> done
+  const [phoneStage,setPhoneStage]=useState("phone");
   const [otp,setOtp]=useState("");
   const [phoneErr,setPhoneErr]=useState("");
   const [phoneLoading,setPhoneLoading]=useState(false);
@@ -261,36 +315,30 @@ function Signup({onGoLogin}) {
     return()=>clearInterval(t);
   },[resendIn]);
 
-  // ── Credentials sub-flow (step 2) ──
+  // ── Credentials (step 2) ──
   const [credEmail,setCredEmail]=useState("");
   const [credPw,setCredPw]=useState("");
   const [credPw2,setCredPw2]=useState("");
   const [credErr,setCredErr]=useState("");
   const [credLoading,setCredLoading]=useState(false);
 
-  // ── Details form (step 3) ──
-  const [form,setForm]=useState({fullName:"",country:"India",state:"",city:"",instagramId:"",experience:"",specialization:""});
-  const [errors,setErrors]=useState({});
-  const [loading,setLoading]=useState(false);
-  const [submitted,setSubmitted]=useState(false);
-  const [submitMsg,setSubmitMsg]=useState("");
-  const EXP=["< 1 year","1-3 years","3-5 years","5-10 years","10+ years"];
-  const SPEC=["Refrigerator","Washing Machine","Air Conditioner","All Appliances","Other Electronics"];
-
   const checkAlreadyRegistered=async(uid)=>{
     const existing=await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
-    return Array.isArray(existing)&&existing[0];
+    return Array.isArray(existing)&&existing[0]||null;
   };
 
-  // ── Step 1: Google branch ──
+  // ── Step 1: Google ──
   const handleGoogleVerify=async()=>{
     setErr("");
     try{
       const auth=await initFirebase();
       const provider=new window.firebase.auth.GoogleAuthProvider();
       const result=await auth.signInWithPopup(provider);
-      if(await checkAlreadyRegistered(result.user.uid)){
-        setSubmitMsg("Already registered! Please sign in.");setSubmitted(true);return;
+      const existing=await checkAlreadyRegistered(result.user.uid);
+      if(existing){
+        if(existing.status==="pending"){setErr("Account pending admin approval.");return;}
+        if(existing.status==="rejected"){setErr("Account rejected. Contact admin.");return;}
+        DB.set("pcb_user",existing);onLogin(existing);return;
       }
       setFbUser({uid:result.user.uid,email:result.user.email||"",displayName:result.user.displayName||""});
       setCredEmail(result.user.email||"");
@@ -299,7 +347,7 @@ function Signup({onGoLogin}) {
     }catch(e){setErr(e.message||"Google sign-in failed");}
   };
 
-  // ── Step 1: Phone branch ──
+  // ── Step 1: Phone OTP ──
   const sendOtp=async()=>{
     setPhoneErr("");
     if(digitsOnly.length!==10){setPhoneErr("Enter a valid 10-digit mobile number.");return;}
@@ -309,16 +357,9 @@ function Signup({onGoLogin}) {
       const res=await fetch(`${SB_URL}/auth/v1/otp`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({phone:fullNumber,channel:"sms"})});
       const raw=await res.text();let data={};try{data=raw?JSON.parse(raw):{};}catch{}
       if(!res.ok){
-        const friendly={
-          "sms_send_failed":"Couldn't deliver the SMS. Please try again shortly.",
-          "over_sms_send_rate_limit":"You can only request one OTP every 60 seconds. Please wait and try again.",
-          "phone_provider_disabled":"Phone sign-up isn't available right now.",
-          "validation_failed":"That phone number looks invalid.",
-        };
+        const friendly={"sms_send_failed":"Couldn\'t deliver the SMS. Please try again shortly.","over_sms_send_rate_limit":"You can only request one OTP every 60 seconds.","phone_provider_disabled":"Phone sign-up isn\'t available right now.","validation_failed":"That phone number looks invalid."};
         setPhoneErr(friendly[data.error_code]||data.msg||data.error_description||`Could not send OTP (status ${res.status}). Try again.`);
-      }else{
-        setPhoneStage("otp");setResendIn(60);
-      }
+      }else{setPhoneStage("otp");setResendIn(60);}
     }catch(e){setPhoneErr("Network error. Please check your connection and try again.");}
     setPhoneLoading(false);
   };
@@ -331,40 +372,59 @@ function Signup({onGoLogin}) {
       const fullNumber="+91"+digitsOnly;
       const res=await fetch(`${SB_URL}/auth/v1/verify`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({type:"sms",phone:fullNumber,token:otp.trim()})});
       const raw=await res.text();let data={};try{data=raw?JSON.parse(raw):{};}catch{}
-      if(!res.ok){
-        setPhoneErr(data.msg||data.error_description||"Incorrect OTP. Please try again.");
-      }else{
+      if(!res.ok){setPhoneErr(data.msg||data.error_description||"Incorrect OTP. Please try again.");}
+      else{
         const existingByPhone=await api("users",{filter:`?phone=eq.${fullNumber}&select=*`});
         if(Array.isArray(existingByPhone)&&existingByPhone[0]){
-          setSubmitMsg("This phone number is already registered! Please sign in.");setSubmitted(true);return;
+          const ex=existingByPhone[0];
+          if(ex.status==="pending"){setPhoneErr("Account pending admin approval.");setPhoneLoading(false);return;}
+          DB.set("pcb_user",ex);onLogin(ex);return;
         }
         setFbUser({uid:data.user?.id||"",email:"",displayName:"",phone:fullNumber});
-        setVerifyMethod("phone");
-        setPhoneStage("done");
-        setStep(2);
+        setVerifyMethod("phone");setPhoneStage("done");setStep(2);
       }
     }catch(e){setPhoneErr("Network error. Please check your connection and try again.");}
     setPhoneLoading(false);
   };
 
-  // ── Step 2: set the email+password that becomes the permanent login credential ──
+  // ── Step 2: create Firebase account + user row, then log straight in ──
   const submitCredentials=async()=>{
     setCredErr("");
     if(!credEmail.trim()){setCredErr("Enter an email address.");return;}
     if(!credPw||credPw.length<6){setCredErr("Password must be at least 6 characters.");return;}
-    if(credPw!==credPw2){setCredErr("Passwords don't match.");return;}
+    if(credPw!==credPw2){setCredErr("Passwords don\'t match.");return;}
     setCredLoading(true);
     try{
       const auth=await initFirebase();
+      let uid=fbUser.uid;
       if(verifyMethod==="google"){
         const credential=window.firebase.auth.EmailAuthProvider.credential(credEmail.trim(),credPw);
         await auth.currentUser.linkWithCredential(credential);
-        setFbUser(f=>({...f,email:credEmail.trim()}));
       }else{
         const result=await auth.createUserWithEmailAndPassword(credEmail.trim(),credPw);
-        setFbUser(f=>({...f,uid:result.user.uid,email:credEmail.trim()}));
+        uid=result.user.uid;
       }
-      setStep(3);
+      const autoApprove=await getAutoApprove();
+      const status=autoApprove?"approved":"pending";
+      const created=await api("users",{method:"POST",body:{
+        firebase_uid:uid,
+        full_name:fbUser.displayName||"",
+        email:credEmail.trim(),
+        phone:fbUser.phone||"",
+        country:"",state:"",city:"",
+        instagram_id:"",experience:"",specialization:"",
+        method:verifyMethod==="google"?"Google":"Phone",
+        status,
+        verified_at:new Date().toISOString(),
+        details_skipped_at:new Date().toISOString(),
+      },prefer:"return=representation"});
+      const newUser=Array.isArray(created)?created[0]:null;
+      if(status==="pending"){
+        setCredErr("Your account is pending admin approval. You\'ll be notified within 24-48 hours.");
+        setCredLoading(false);return;
+      }
+      if(newUser){DB.set("pcb_user",newUser);onLogin(newUser);}
+      else{setCredErr("Account created but could not log in automatically. Please sign in.");setCredLoading(false);}
     }catch(e){
       const m=e.message||"";
       if(m.includes("email-already-in-use")||m.includes("credential-already-in-use")){setCredErr("That email is already in use. Please sign in instead.");}
@@ -375,100 +435,24 @@ function Signup({onGoLogin}) {
     setCredLoading(false);
   };
 
-  // ── Step 3: details form ──
-  const validate=()=>{
-    const e={};
-    if(!form.fullName.trim())e.fullName="Required";
-    if(!form.city.trim())e.city="Required";
-    if(!form.state.trim())e.state="Required";
-    if(!form.country.trim())e.country="Required";
-    if(!form.experience)e.experience="Required";
-    if(!form.specialization)e.specialization="Required";
-    setErrors(e);return Object.keys(e).length===0;
-  };
-
-  const doSignup=async()=>{
-    if(!validate())return;
-    setLoading(true);setErr("");
-    try{
-      const autoApprove=await getAutoApprove();
-      const status=autoApprove?"approved":"pending";
-      await api("users",{method:"POST",body:{
-        firebase_uid:fbUser.uid,
-        full_name:form.fullName,
-        email:fbUser.email,
-        phone:fbUser.phone||"",
-        country:form.country,state:form.state,city:form.city,
-        instagram_id:form.instagramId,experience:form.experience,specialization:form.specialization,
-        method:verifyMethod==="google"?"Google":"Phone",
-        status,
-        verified_at:new Date().toISOString(),
-      },prefer:"return=minimal"});
-      setSubmitMsg(autoApprove?"Registration complete! You can now sign in.":"Your account is pending admin approval within 24-48 hours.");
-      setSubmitted(true);
-    }catch(e){setErr("Error: "+e.message);}
-    setLoading(false);
-  };
-
-  // ── "I'll do this later" — creates the account immediately with the details
-  // form left blank, and stamps details_skipped_at so the app knows to prompt
-  // for the missing info again once 24 hours have passed (see
-  // shouldPromptProfileCompletion / CompleteProfilePopup).
-  const skipDetails=async()=>{
-    setLoading(true);setErr("");
-    try{
-      const autoApprove=await getAutoApprove();
-      const status=autoApprove?"approved":"pending";
-      await api("users",{method:"POST",body:{
-        firebase_uid:fbUser.uid,
-        full_name:form.fullName||fbUser.displayName||"",
-        email:fbUser.email,
-        phone:fbUser.phone||"",
-        country:"",state:"",city:"",
-        instagram_id:"",experience:"",specialization:"",
-        method:verifyMethod==="google"?"Google":"Phone",
-        status,
-        verified_at:new Date().toISOString(),
-        details_skipped_at:new Date().toISOString(),
-      },prefer:"return=minimal"});
-      setSubmitMsg(autoApprove?"Registration complete! You can now sign in. We'll ask for your remaining details in 24 hours.":"Your account is pending admin approval within 24-48 hours. We'll ask for your remaining details in 24 hours.");
-      setSubmitted(true);
-    }catch(e){setErr("Error: "+e.message);}
-    setLoading(false);
-  };
-
-  if(submitted) return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:360,width:"100%",textAlign:"center",border:"1px solid #2a3050"}}>
-        <img src={LOGO} alt="" style={{width:170,maxWidth:"100%",marginBottom:20}}/>
-        <div style={{fontSize:40,marginBottom:14}}>{submitMsg.includes("pending")?"⏳":"✅"}</div>
-        <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>{submitMsg.includes("already")?"Already Registered":"Registration Submitted!"}</div>
-        <div style={{fontSize:13,color:"#6b7db3",lineHeight:1.7,marginBottom:20}}>{submitMsg}</div>
-        <button onClick={onGoLogin} style={{background:`linear-gradient(135deg,${PC},${AC})`,border:"none",borderRadius:10,padding:"12px 24px",color:"#0a0d14",cursor:"pointer",fontSize:14,fontWeight:700}}>← Go to Login</button>
-      </div>
-    </div>
-  );
-
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",overflowY:"auto",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",overflowY:"auto",padding:20}}>
       <div style={{maxWidth:420,margin:"0 auto"}}>
         <div style={{textAlign:"center",padding:"20px 0 16px"}}>
           <img src={LOGO} alt="" style={{width:160,maxWidth:"100%",marginBottom:12}}/>
-          <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>Create Account</div>
-          <div style={{fontSize:12,color:"#6b7db3"}}>Step {step} of 3</div>
+          <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>Create Account</div>
+          <div style={{fontSize:12,color:T.subtext}}>Step {step} of 2</div>
           <div style={{display:"flex",gap:4,justifyContent:"center",marginTop:8}}>
-            {[1,2,3].map(s=><div key={s} style={{width:40,height:3,borderRadius:4,background:step>=s?PC:"#2a3050"}}/>)}
+            {[1,2].map(s=><div key={s} style={{width:40,height:3,borderRadius:4,background:step>=s?PC:"#2a3050"}}/>)}
           </div>
         </div>
 
         {step===1&&(
-          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Verify Your Identity</div>
-            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>Choose one way to verify it's really you</div>
-
+          <div style={{background:T.card,borderRadius:16,padding:20,border:`1px solid ${T.border}`,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Verify Your Identity</div>
+            <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>Choose one way to verify it's really you</div>
             {!verifyMethod&&<>
-              <button onClick={handleGoogleVerify}
-                style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
+              <button onClick={handleGoogleVerify} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
                 <svg width="20" height="20" viewBox="0 0 48 48">
                   <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
                   <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -478,117 +462,53 @@ function Signup({onGoLogin}) {
                 Continue with Google
               </button>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
+                <div style={{flex:1,height:1,background:T.tag}}/><div style={{fontSize:12,color:T.subtext}}>or</div><div style={{flex:1,height:1,background:T.tag}}/>
               </div>
-              <button onClick={()=>{setVerifyMethod("phone");setPhoneErr("");}}
-                style={{width:"100%",padding:"13px",borderRadius:12,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",cursor:"pointer",fontWeight:600,fontSize:14}}>
+              <button onClick={()=>{setVerifyMethod("phone");setPhoneErr("");}} style={{width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.input,color:T.text,cursor:"pointer",fontWeight:600,fontSize:14}}>
                 📱 Verify with Phone Number
               </button>
               {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginTop:10}}>⚠ {err}</div>}
             </>}
-
             {verifyMethod==="phone"&&<>
               {phoneStage==="phone"&&<>
-                <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:6}}>Mobile Number</div>
+                <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:6}}>Mobile Number</div>
                 <div style={{display:"flex",gap:8,marginBottom:10}}>
-                  <div style={{padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:PC,fontSize:14,fontWeight:700}}>+91</div>
-                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))}
-                    onKeyDown={e=>e.key==="Enter"&&sendOtp()}
-                    placeholder="10-digit number" inputMode="numeric" maxLength={10}
-                    style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                  <div style={{padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:PC,fontSize:14,fontWeight:700}}>+91</div>
+                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="10-digit number" inputMode="numeric" maxLength={10} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box"}}/>
                 </div>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
-                <button onClick={sendOtp} disabled={phoneLoading||digitsOnly.length!==10}
-                  style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
-                  {phoneLoading?"Sending OTP...":"Send OTP"}
-                </button>
-                <button onClick={()=>{setVerifyMethod(null);setPhoneErr("");}} style={{width:"100%",background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>← Choose a different method</button>
+                <button onClick={sendOtp} disabled={phoneLoading||digitsOnly.length!==10} style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Sending OTP...":"Send OTP"}</button>
+                <button onClick={()=>{setVerifyMethod(null);setPhoneErr("");}} style={{width:"100%",background:"none",border:"none",color:T.subtext,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>← Choose a different method</button>
               </>}
               {phoneStage==="otp"&&<>
-                <div style={{fontSize:12,color:"#b0b8d0",marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:"#fff"}}>+91 {digitsOnly}</b></div>
-                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()}
-                  placeholder="Enter OTP" inputMode="numeric" maxLength={6}
-                  style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+                <div style={{fontSize:12,color:T.muted,marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:T.text}}>+91 {digitsOnly}</b></div>
+                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()} placeholder="Enter OTP" inputMode="numeric" maxLength={6} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
-                <button onClick={verifyOtp} disabled={phoneLoading||otp.trim().length<4}
-                  style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
-                  {phoneLoading?"Verifying...":"Verify OTP"}
-                </button>
-                <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>
-                  {resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}
-                </div>
+                <button onClick={verifyOtp} disabled={phoneLoading||otp.trim().length<4} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Verifying...":"Verify OTP"}</button>
+                <div style={{textAlign:"center",fontSize:12,color:T.subtext}}>{resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}</div>
               </>}
             </>}
           </div>
         )}
 
         {step===2&&(
-          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Set Your Login Password</div>
-            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>You'll use this email and password to sign in from now on</div>
-            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"}
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)"
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password"
-              style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{background:T.card,borderRadius:16,padding:20,border:`1px solid ${T.border}`,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Set Your Login Password</div>
+            <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>You'll use this email and password to sign in</div>
+            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
             {credErr&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {credErr}</div>}
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
+              <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
               <button onClick={submitCredentials} disabled={credLoading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
-                {credLoading?"Saving...":"Continue →"}
+                {credLoading?"Creating account...":"Create Account & Sign In"}
               </button>
             </div>
           </div>
         )}
 
-        {step===3&&(
-          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:"1px solid #2a3050",marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:14}}>Your Details</div>
-            {[["fullName","👤 Full Name","Your full name",true],["country","🌍 Country","e.g. India",true],["state","🗺️ State","e.g. Maharashtra, Punjab",true],["city","🏙️ City","e.g. Mumbai, Delhi",true],["instagramId","📸 Instagram","@yourusername (optional)",false]].map(([f,label,ph,req])=>(
-              <div key={f} style={{marginBottom:12}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>{label}{req&&<span style={{color:"#ff4757"}}> *</span>}</div>
-                <input value={form[f]} onChange={e=>setForm(x=>({...x,[f]:e.target.value}))} placeholder={ph}
-                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:`1px solid ${errors[f]?"#ff4757":"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
-                {errors[f]&&<div style={{color:"#ff4757",fontSize:11,marginTop:3}}>⚠ {errors[f]}</div>}
-              </div>
-            ))}
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>🔧 Experience<span style={{color:"#ff4757"}}> *</span></div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {EXP.map(e=><button key={e} onClick={()=>setForm(x=>({...x,experience:e}))}
-                  style={{padding:"7px 12px",borderRadius:20,border:form.experience===e?`2px solid ${PC}`:"1px solid #2a3050",background:form.experience===e?`${PC}22`:"#0f1117",color:form.experience===e?PC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{e}</button>)}
-              </div>
-              {errors.experience&&<div style={{color:"#ff4757",fontSize:11,marginTop:4}}>⚠ {errors.experience}</div>}
-            </div>
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>⚙️ Specialization<span style={{color:"#ff4757"}}> *</span></div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {SPEC.map(s=><button key={s} onClick={()=>setForm(x=>({...x,specialization:s}))}
-                  style={{padding:"7px 12px",borderRadius:20,border:form.specialization===s?`2px solid ${AC}`:"1px solid #2a3050",background:form.specialization===s?`${AC}22`:"#0f1117",color:form.specialization===s?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{s}</button>)}
-              </div>
-              {errors.specialization&&<div style={{color:"#ff4757",fontSize:11,marginTop:4}}>⚠ {errors.specialization}</div>}
-            </div>
-            {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {err}</div>}
-
-            {/* Skip option — prominent placement so it's not missed on mobile */}
-            <div style={{background:"#1a2a1a",borderRadius:10,padding:"12px 14px",border:`1px dashed ${PC}44`,marginBottom:12}}>
-              <div style={{fontSize:11,color:"#6b7db3",marginBottom:6}}>Don't have all details right now?</div>
-              <button onClick={skipDetails} disabled={loading} style={{width:"100%",padding:"10px",borderRadius:8,background:"transparent",border:`1px solid ${PC}55`,color:PC,cursor:"pointer",fontSize:13,fontWeight:600}}>
-                ⏩ Skip for now — I'll fill details within 24 hours
-              </button>
-            </div>
-
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>setStep(2)} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
-              <button onClick={doSignup} disabled={loading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
-                {loading?"Submitting...":"Submit Registration"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3",marginBottom:24}}>
+        <div style={{textAlign:"center",fontSize:13,color:T.subtext,marginBottom:24}}>
           Already have an account?{" "}
           <button onClick={onGoLogin} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign In</button>
         </div>
@@ -598,29 +518,22 @@ function Signup({onGoLogin}) {
 }
 
 // ── WATERMARK ──────────────────────────────────────────────────────────────────
-// This does NOT block screenshots (nothing on the web can — see the note in
-// PCBCare above). What it does instead: stamps the logged-in technician's name
-// and phone/email repeatedly across the screen at low opacity. If someone DOES
-// screenshot a wiring diagram or error code and shares it, the leak is traceable
-// back to who took it. Purely a deterrent + accountability layer, not a block.
 function Watermark({user}) {
+  const T=useTheme();
   if(!user||user.isAdmin) return null;
   const label=`${user.full_name||"Technician"} · ${user.phone||user.email||""}`;
   const tiles=Array.from({length:24});
   return (
     <div style={{position:"fixed",inset:0,zIndex:8000,pointerEvents:"none",overflow:"hidden",display:"flex",flexWrap:"wrap",alignContent:"space-around",justifyContent:"space-around"}}>
       {tiles.map((_,i)=>(
-        <div key={i} style={{transform:"rotate(-30deg)",color:"rgba(255,255,255,0.06)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",padding:"0 10px"}}>{label}</div>
+        <div key={i} style={{transform:"rotate(-30deg)",color:T===DARK?"rgba(255,255,255,0.06)":"rgba(0,0,0,0.05)",fontSize:12,fontWeight:600,whiteSpace:"nowrap",padding:"0 10px"}}>{label}</div>
       ))}
     </div>
   );
 }
 
-// ── COMPLETE PROFILE POPUP ────────────────────────────────────────────────────
-// Shown the first time a user lands inside the app (post-login or post-signup)
-// if their city / state / country are missing. Saves straight to Supabase and
-// to local storage so it won't ask again once filled in.
 function CompleteProfilePopup({user,onSaved,onDismiss}) {
+  const T=useTheme();
   const [form,setForm]=useState({fullName:user?.full_name||"",city:user?.city||"",state:user?.state||"",country:user?.country||"India",experience:user?.experience||"",specialization:user?.specialization||""});
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState("");
@@ -642,26 +555,26 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
   };
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9997,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:24,width:"100%",maxWidth:380,border:"1px solid #2a3050",margin:"20px 0"}}>
+      <div style={{background:T.card,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:`1px solid ${T.border}`,margin:"20px 0"}}>
         <div style={{fontSize:30,marginBottom:10,textAlign:"center"}}>📍</div>
-        <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:6,textAlign:"center"}}>Complete Your Profile</div>
-        <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.6,marginBottom:18,textAlign:"center"}}>You skipped these details at signup — please fill them in now to continue.</div>
+        <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,textAlign:"center"}}>Complete Your Profile</div>
+        <div style={{fontSize:12,color:T.muted,lineHeight:1.6,marginBottom:18,textAlign:"center"}}>You skipped these details at signup — please fill them in now to continue.</div>
         {[["fullName","👤 Full Name"],["city","🏙️ City"],["state","🗺️ State"],["country","🌍 Country"]].map(([f,label])=>(
           <div key={f} style={{marginBottom:10}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>{label}</div>
+            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>{label}</div>
             <input value={form[f]} onChange={e=>setForm(x=>({...x,[f]:e.target.value}))}
-              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"11px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
           </div>
         ))}
         <div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>🔧 Experience</div>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>🔧 Experience</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {EXP.map(e=><button key={e} onClick={()=>setForm(x=>({...x,experience:e}))}
               style={{padding:"7px 12px",borderRadius:20,border:form.experience===e?`2px solid ${PC}`:"1px solid #2a3050",background:form.experience===e?`${PC}22`:"#0f1117",color:form.experience===e?PC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{e}</button>)}
           </div>
         </div>
         <div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>⚙️ Specialization</div>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>⚙️ Specialization</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {SPEC.map(s=><button key={s} onClick={()=>setForm(x=>({...x,specialization:s}))}
               style={{padding:"7px 12px",borderRadius:20,border:form.specialization===s?`2px solid ${AC}`:"1px solid #2a3050",background:form.specialization===s?`${AC}22`:"#0f1117",color:form.specialization===s?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{s}</button>)}
@@ -672,7 +585,7 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
           {saving?"Saving...":"Save & Continue"}
         </button>
         <div style={{textAlign:"center"}}>
-          <button onClick={onDismiss} style={{background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Remind me later</button>
+          <button onClick={onDismiss} style={{background:"none",border:"none",color:T.subtext,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>Remind me later</button>
         </div>
       </div>
     </div>
@@ -688,7 +601,8 @@ const moderate=(text)=>{
 };
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function Home({setTab,partsEnabled=true,user}) {
+function Home({
+  const T=useTheme();setTab,partsEnabled=true,user}) {
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
@@ -703,21 +617,21 @@ function Home({setTab,partsEnabled=true,user}) {
   return (
     <div style={{padding:16}}>
       <div style={{marginBottom:18}}>
-        <div style={{fontSize:20,fontWeight:700,color:"#fff",marginBottom:4}}>Welcome, {(user?.full_name||"Technician").split(" ")[0]} 👋</div>
-        <div style={{fontSize:12,color:"#6b7db3"}}>Tap any feature to get started</div>
+        <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:4}}>Welcome, {(user?.full_name||"Technician").split(" ")[0]} 👋</div>
+        <div style={{fontSize:12,color:T.subtext}}>Tap any feature to get started</div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
         {cards.map(c=>(
-          <div key={c.id} onClick={()=>setTab(c.id)} style={{background:"#1a1f2e",border:`1px solid ${c.color}22`,borderRadius:14,padding:16,cursor:"pointer"}}>
+          <div key={c.id} onClick={()=>setTab(c.id)} style={{background:T.card,border:`1px solid ${c.color}22`,borderRadius:14,padding:16,cursor:"pointer"}}>
             <div style={{fontSize:26,marginBottom:8}}>{c.icon}</div>
-            <div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:3}}>{c.title}</div>
-            <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.4}}>{c.desc}</div>
+            <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.title}</div>
+            <div style={{fontSize:11,color:T.subtext,lineHeight:1.4}}>{c.desc}</div>
           </div>
         ))}
       </div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,border:`1px solid ${AC}22`}}>
+      <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${AC}22`}}>
         <div style={{fontSize:12,fontWeight:600,color:AC,marginBottom:8}}>⚡ Tip of the Day</div>
-        <div style={{fontSize:13,color:"#b0b8d0",lineHeight:1.6}}>Always test the start relay before replacing a compressor. Shake it near your ear — a rattling sound means it is dead. This fixes 40% of all compressor failure calls.</div>
+        <div style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Always test the start relay before replacing a compressor. Shake it near your ear — a rattling sound means it is dead. This fixes 40% of all compressor failure calls.</div>
       </div>
     </div>
   );
@@ -725,6 +639,7 @@ function Home({setTab,partsEnabled=true,user}) {
 
 // ── ERRORS ────────────────────────────────────────────────────────────────────
 function Errors() {
+  const T=useTheme();
   const [app,setApp]=useState("");
   const [brand,setBrand]=useState("");
   const [brands,setBrands]=useState([]);
@@ -735,32 +650,32 @@ function Errors() {
   const loadCodes=async(a,b)=>{setLoading(true);const data=await api("error_codes",{filter:`?appliance=eq.${a}&brand=eq.${encodeURIComponent(b)}&select=*`});setCodes(data||[]);setSel(null);setLoading(false);};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>🔴 Error Code Lookup</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Select appliance → brand → error code</div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔴 Error Code Lookup</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand → error code</div>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         {[{v:"fridge",l:"🧊 Fridge"},{v:"washing",l:"🌀 Washing"},{v:"ac",l:"❄️ AC"}].map(o=>(
           <button key={o.v} onClick={()=>{setApp(o.v);setBrand("");setCodes([]);setSel(null);loadBrands(o.v);}}
             style={{flex:1,padding:"10px 4px",borderRadius:10,border:app===o.v?`2px solid ${PC}`:"1px solid #2a3050",background:app===o.v?"#1a2a1a":"#1a1f2e",color:app===o.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{o.l}</button>
         ))}
       </div>
-      {brands.length>0&&<select value={brand} onChange={e=>{setBrand(e.target.value);loadCodes(app,e.target.value);}} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:brand?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:12}}>
+      {brands.length>0&&<select value={brand} onChange={e=>{setBrand(e.target.value);loadCodes(app,e.target.value);}} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:12}}>
         <option value="">-- Select Brand --</option>{brands.map(b=><option key={b} value={b}>{b}</option>)}
       </select>}
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading from database...</div>}
-      {codes.length>0&&<select value={sel?.id||""} onChange={e=>setSel(codes.find(c=>c.id===e.target.value)||null)} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:sel?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:14}}>
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading from database...</div>}
+      {codes.length>0&&<select value={sel?.id||""} onChange={e=>setSel(codes.find(c=>c.id===e.target.value)||null)} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:sel?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:14}}>
         <option value="">-- Select Error Code --</option>{codes.map(c=><option key={c.id} value={c.id}>{c.error_code} — {c.meaning}</option>)}
       </select>}
-      {!loading&&brand&&codes.length===0&&<div style={{background:"#1a1f2e",borderRadius:12,padding:14,textAlign:"center",color:"#6b7db3",fontSize:13}}>No codes yet for this brand.</div>}
+      {!loading&&brand&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:14,textAlign:"center",color:T.subtext,fontSize:13}}>No codes yet for this brand.</div>}
       {sel&&(
-        <div style={{background:"#1a1f2e",borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
-          <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:"1px solid #2a3050",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{background:T.card,borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
+          <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
             <div style={{background:"#ff475722",borderRadius:8,padding:"5px 11px",color:"#ff4757",fontWeight:700,fontSize:16}}>{sel.error_code}</div>
-            <div style={{fontWeight:600,fontSize:14,color:"#fff"}}>{sel.meaning}</div>
+            <div style={{fontWeight:600,fontSize:14,color:T.text}}>{sel.meaning}</div>
           </div>
           <div style={{padding:16}}>
-            {sel.indoor_led_blinks>0&&<div style={{background:"#0f1117",borderRadius:8,padding:10,marginBottom:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>LED Blinks</div><div style={{fontSize:12,color:"#e8eaf0"}}>Indoor: {sel.indoor_led_blinks} · Outdoor: {sel.outdoor_led_blinks}</div></div>}
-            <div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:6}}>🔍 Cause</div><div style={{fontSize:13,color:"#b0b8d0",lineHeight:1.6,background:"#0f1117",borderRadius:8,padding:12}}>{sel.cause}</div></div>
-            <div><div style={{fontSize:10,fontWeight:600,color:PC,textTransform:"uppercase",marginBottom:6}}>🔧 How to Fix</div><div style={{fontSize:13,color:"#b0b8d0",lineHeight:1.6,background:"#0f1117",borderRadius:8,padding:12}}>{sel.how_to_fix}</div></div>
+            {sel.indoor_led_blinks>0&&<div style={{background:T.input,borderRadius:8,padding:10,marginBottom:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>LED Blinks</div><div style={{fontSize:12,color:T.muted}}>Indoor: {sel.indoor_led_blinks} · Outdoor: {sel.outdoor_led_blinks}</div></div>}
+            <div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:6}}>🔍 Cause</div><div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:12}}>{sel.cause}</div></div>
+            <div><div style={{fontSize:10,fontWeight:600,color:PC,textTransform:"uppercase",marginBottom:6}}>🔧 How to Fix</div><div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:12}}>{sel.how_to_fix}</div></div>
           </div>
         </div>
       )}
@@ -770,6 +685,7 @@ function Errors() {
 
 // ── WIRING ────────────────────────────────────────────────────────────────────
 function Wiring() {
+  const T=useTheme();
   const [cat,setCat]=useState("Fridge");
   const [items,setItems]=useState([]);
   const [exp,setExp]=useState(null);
@@ -778,8 +694,8 @@ function Wiring() {
   useEffect(()=>{setLoading(true);api("wiring_diagrams",{filter:`?category=eq.${cat}&select=*`}).then(d=>{setItems(d||[]);setLoading(false);});},[cat]);
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>⚡ Wiring Diagrams</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Tap to view full image</div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>⚡ Wiring Diagrams</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Tap to view full image</div>
       <div style={{display:"flex",gap:8,marginBottom:16}}>
         {["Fridge","Washing","AC"].map(c=>(
           <button key={c} onClick={()=>{setCat(c);setExp(null);}} style={{flex:1,padding:"9px 4px",borderRadius:10,border:cat===c?`2px solid ${AC}`:"1px solid #2a3050",background:cat===c?"#1a2a0a":"#1a1f2e",color:cat===c?AC:"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>
@@ -787,27 +703,27 @@ function Wiring() {
           </button>
         ))}
       </div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading...</div>}
-      {!loading&&items.length===0&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>📂</div><div style={{fontSize:13,color:"#6b7db3"}}>No diagrams yet.</div></div>}
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>}
+      {!loading&&items.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>📂</div><div style={{fontSize:13,color:T.subtext}}>No diagrams yet.</div></div>}
       {items.map((item,i)=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:14,border:"1px solid #2a3050",marginBottom:12,overflow:"hidden"}}>
+        <div key={item.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:12,overflow:"hidden"}}>
           <div onClick={()=>setExp(exp===i?null:i)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{width:36,height:36,borderRadius:8,background:`${AC}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>⚡</div>
-              <div><div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:2}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.description}</div></div>
+              <div><div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.description}</div></div>
             </div>
             <div style={{color:PC,fontSize:16}}>{exp===i?"▲":"▼"}</div>
           </div>
-          {exp===i&&<div style={{borderTop:"1px solid #2a3050"}}>
-            {item.image_url?<div style={{padding:12,background:"#0a0d14"}}><img src={item.image_url} alt={item.title} onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/><div style={{textAlign:"center",marginTop:6,fontSize:11,color:"#6b7db3"}}>Tap to fullscreen</div></div>
-            :<div style={{padding:24,textAlign:"center",background:"#0a0d14"}}><div style={{fontSize:32,marginBottom:8}}>🖼️</div><div style={{fontSize:12,color:"#6b7db3"}}>Image coming soon</div></div>}
-            {item.tips&&item.tips.length>0&&<div style={{padding:14}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>💡 Tips</div>{item.tips.map((t,ti)=><div key={ti} style={{display:"flex",gap:8,marginBottom:6}}><div style={{width:18,height:18,borderRadius:"50%",background:`${AC}22`,color:AC,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ti+1}</div><div style={{fontSize:12,color:"#b0b8d0"}}>{t}</div></div>)}</div>}
+          {exp===i&&<div style={{borderTop:`1px solid ${T.border}`}}>
+            {item.image_url?<div style={{padding:12,background:T.bg}}><img src={item.image_url} alt={item.title} onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/><div style={{textAlign:"center",marginTop:6,fontSize:11,color:T.subtext}}>Tap to fullscreen</div></div>
+            :<div style={{padding:24,textAlign:"center",background:T.bg}}><div style={{fontSize:32,marginBottom:8}}>🖼️</div><div style={{fontSize:12,color:T.subtext}}>Image coming soon</div></div>}
+            {item.tips&&item.tips.length>0&&<div style={{padding:14}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>💡 Tips</div>{item.tips.map((t,ti)=><div key={ti} style={{display:"flex",gap:8,marginBottom:6}}><div style={{width:18,height:18,borderRadius:"50%",background:`${AC}22`,color:AC,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ti+1}</div><div style={{fontSize:12,color:T.muted}}>{t}</div></div>)}</div>}
           </div>}
         </div>
       ))}
       {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
-        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
     </div>
   );
@@ -815,7 +731,10 @@ function Wiring() {
 
 // ── PARTS ─────────────────────────────────────────────────────────────────────
 function Parts() {
+  const T=useTheme();
   const [model,setModel]=useState("");const [result,setResult]=useState(null);const [loading,setLoading]=useState(false);
+  const [brandHint,setBrandHint]=useState("");
+  const BRANDS=["Samsung","LG","Voltas","Daikin","Carrier","Hitachi","Blue Star","Whirlpool","IFB","Godrej","Bosch","Haier","Panasonic","Other"];
   const search=async()=>{
     if(!model.trim())return;setLoading(true);setResult(null);
     try{const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:800,response_format:{type:"json_object"},messages:[{role:"user",content:`Appliance parts advisor. Respond with ONLY valid JSON, no markdown, no commentary, in exactly this shape: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}. Model number: ${model}.`}]})});
@@ -823,59 +742,79 @@ function Parts() {
   };
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>🔩 Part Finder</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Enter model number to find common parts</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔩 Part Finder</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Enter model number to find common parts</div>
+      <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
         <div style={{display:"flex",gap:8}}>
-          <input value={model} onChange={e=>setModel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="e.g. RF28R7351SR, WM3900HWA..." style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <input value={model} onChange={e=>setModel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="e.g. RF28R7351SR, WM3900HWA..." style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
           <button onClick={search} disabled={loading||!model.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Find"}</button>
         </div>
       </div>
-      {result&&!result.error&&<div style={{background:"#1a1f2e",borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
-        <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:"1px solid #2a3050"}}><div style={{fontWeight:700,fontSize:14,color:"#fff"}}>{result.brand} — {result.model}</div><div style={{fontSize:11,color:"#6b7db3"}}>{result.appliance_type}</div></div>
+      {result&&!result.error&&<div style={{background:T.card,borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
+        <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:`1px solid ${T.border}`}}><div style={{fontWeight:700,fontSize:14,color:T.text}}>{result.brand} — {result.model}</div><div style={{fontSize:11,color:T.subtext}}>{result.appliance_type}</div></div>
         <div style={{padding:16}}>
-          {result.common_parts?.map((p,i)=><div key={i} style={{background:"#0f1117",borderRadius:10,padding:12,marginBottom:8,borderLeft:`3px solid ${PC}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}><div style={{fontWeight:600,fontSize:13,color:"#fff"}}>{p.part_name}</div><div style={{fontSize:10,color:PC,background:`${PC}22`,borderRadius:6,padding:"2px 7px",marginLeft:6,whiteSpace:"nowrap"}}>{p.part_number}</div></div><div style={{fontSize:12,color:"#6b7db3"}}>{p.why_needed}</div></div>)}
-          {result.search_tip&&<div style={{background:`${AC}11`,borderRadius:10,padding:12,border:`1px solid ${AC}33`,marginTop:4}}><div style={{fontSize:10,fontWeight:600,color:AC,marginBottom:4}}>💡 Tip</div><div style={{fontSize:12,color:"#b0b8d0"}}>{result.search_tip}</div></div>}
+          {result.common_parts?.map((p,i)=><div key={i} style={{background:T.input,borderRadius:10,padding:12,marginBottom:8,borderLeft:`3px solid ${PC}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}><div style={{fontWeight:600,fontSize:13,color:T.text}}>{p.part_name}</div><div style={{fontSize:10,color:PC,background:`${PC}22`,borderRadius:6,padding:"2px 7px",marginLeft:6,whiteSpace:"nowrap"}}>{p.part_number}</div></div><div style={{fontSize:12,color:T.subtext}}>{p.why_needed}</div></div>)}
+          {result.search_tip&&<div style={{background:`${AC}11`,borderRadius:10,padding:12,border:`1px solid ${AC}33`,marginTop:4}}><div style={{fontSize:10,fontWeight:600,color:AC,marginBottom:4}}>💡 Tip</div><div style={{fontSize:12,color:T.muted}}>{result.search_tip}</div></div>}
         </div>
       </div>}
-      {result?.error&&<div style={{background:"#1a1f2e",borderRadius:14,padding:16,textAlign:"center",color:"#ff4757"}}>⚠ {result.error}</div>}
+      {result?.error&&<div style={{background:T.card,borderRadius:14,padding:16,textAlign:"center",color:"#ff4757"}}>⚠ {result.error}</div>}
     </div>
   );
 }
 
 // ── FIND REMOTE ────────────────────────────────────────────────────────────────
 function FindRemote() {
+  const T=useTheme();
   const [query,setQuery]=useState("");
+  const [brandFilter,setBrandFilter]=useState("");
+  const [brands,setBrands]=useState([]);
   const [results,setResults]=useState(null);
   const [loading,setLoading]=useState(false);
   const [modal,setModal]=useState(null);
 
+  useEffect(()=>{
+    api("remotes",{filter:"?select=brand&order=brand"}).then(d=>{
+      const b=[...new Set((d||[]).map(r=>r.brand).filter(Boolean))];
+      setBrands(b);
+    });
+  },[]);
+
   const search=async()=>{
-    if(!query.trim())return;
+    if(!query.trim()&&!brandFilter)return;
     setLoading(true);
-    const d=await api("remotes",{filter:`?model_number=ilike.*${encodeURIComponent(query.trim())}*&select=*&order=model_number`});
+    let filter="?select=*&order=model_number";
+    if(query.trim()) filter+=`&model_number=ilike.*${encodeURIComponent(query.trim())}*`;
+    if(brandFilter) filter+=`&brand=eq.${encodeURIComponent(brandFilter)}`;
+    const d=await api("remotes",{filter});
     setResults(d||[]);
     setLoading(false);
   };
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>🎮 Find Remote</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Enter the PCB model number to find its matching remote</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
-        <div style={{display:"flex",gap:8}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🎮 Find Remote</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Search by model number or filter by brand</div>
+      <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
+        <div style={{display:"flex",gap:8,marginBottom:10}}>
           <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Enter Model Number of PCB"
-            style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
-          <button onClick={search} disabled={loading||!query.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
+            style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+          <button onClick={search} disabled={loading||(!query.trim()&&!brandFilter)} style={{padding:"11px 16px",borderRadius:10,background:loading?T.tag:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
         </div>
+        {brands.length>0&&<div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:6}}>🔽 Filter by Brand</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            <button onClick={()=>{setBrandFilter("");}} style={{padding:"6px 12px",borderRadius:20,border:!brandFilter?`2px solid ${PC}`:`1px solid ${T.border}`,background:!brandFilter?`${PC}22`:T.input,color:!brandFilter?PC:T.subtext,fontSize:11,cursor:"pointer"}}>All</button>
+            {brands.map(b=><button key={b} onClick={()=>setBrandFilter(b)} style={{padding:"6px 12px",borderRadius:20,border:brandFilter===b?`2px solid ${PC}`:`1px solid ${T.border}`,background:brandFilter===b?`${PC}22`:T.input,color:brandFilter===b?PC:T.subtext,fontSize:11,cursor:"pointer"}}>{b}</button>)}
+          </div>
+        </div>}
       </div>
 
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Searching...</div>}
-      {!loading&&results!==null&&results.length===0&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:"#6b7db3"}}>No remote found for that model number.</div></div>}
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Searching...</div>}
+      {!loading&&results!==null&&results.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:T.subtext}}>No remote found for that model number.</div></div>}
 
       {!loading&&results&&results.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:14,border:"1px solid #2a3050",marginBottom:14,padding:16}}>
-          <div style={{fontWeight:700,fontSize:14,color:"#fff",marginBottom:2}}>{item.model_number}</div>
+        <div key={item.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:14,padding:16}}>
+          <div style={{fontWeight:700,fontSize:14,color:T.text,marginBottom:2}}>{item.model_number}</div>
           <div style={{fontSize:11,color:PC,marginBottom:12}}>{item.title||item.appliance}{item.brand?` · ${item.brand}`:""}</div>
 
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>PCB</div>
@@ -883,14 +822,16 @@ function FindRemote() {
             {(item.pcb_images||[]).map((img,i)=><img key={i} src={img} alt="" onClick={()=>setModal(img)} style={{width:84,height:84,objectFit:"cover",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/>)}
           </div>
 
-          <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote</div>
-          {item.remote_image&&<img src={item.remote_image} alt="" onClick={()=>setModal(item.remote_image)} style={{width:140,borderRadius:10,cursor:"pointer",border:`1px solid ${AC}44`}}/>}
+          <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote{(item.remote_images||[]).length>1?"s":""}</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {(item.remote_images||[]).map((img,i)=><img key={i} src={img} alt="" onClick={()=>setModal(img)} style={{width:120,borderRadius:10,cursor:"pointer",border:`1px solid ${AC}44`}}/>)}
+          </div>
         </div>
       ))}
 
       {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
-        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
     </div>
   );
@@ -898,30 +839,36 @@ function FindRemote() {
 
 // ── TIPS ──────────────────────────────────────────────────────────────────────
 function TipsTricks() {
+  const T=useTheme();
   const [sub,setSub]=useState("All");const [tips,setTips]=useState([]);const [sel,setSel]=useState(null);const [loading,setLoading]=useState(true);
+  const [searchQ,setSearchQ]=useState("");
   const SUBS=["All","Wiring Connection","Sensor Values","General","Safety","Tools"];
   useEffect(()=>{api("tips_tricks",{filter:"?select=*&order=created_at.desc"}).then(d=>{setTips(d||[]);setLoading(false);});},[]);
-  const filtered=sub==="All"?tips:tips.filter(t=>t.sub_category===sub||t.category===sub);
+  const filtered=tips.filter(t=>{
+    const matchSub=sub==="All"||t.sub_category===sub||t.category===sub;
+    const matchSearch=!searchQ.trim()||t.title?.toLowerCase().includes(searchQ.toLowerCase())||t.description?.toLowerCase().includes(searchQ.toLowerCase());
+    return matchSub&&matchSearch;
+  });
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>💡 Tips & Tricks</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:12}}>Expert repair knowledge</div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>💡 Tips & Tricks</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:12}}>Expert repair knowledge</div>
       <div style={{overflowX:"auto",display:"flex",gap:8,marginBottom:16,paddingBottom:4}}>
         {SUBS.map(s=><button key={s} onClick={()=>{setSub(s);setSel(null);}} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:sub===s?`2px solid ${AC}`:"1px solid #2a3050",background:sub===s?`${AC}22`:"#1a1f2e",color:sub===s?AC:"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:sub===s?600:400}}>{s}</button>)}
       </div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading...</div>}
-      {!loading&&filtered.length===0&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>💡</div><div style={{fontSize:13,color:"#6b7db3"}}>No tips yet.</div></div>}
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>}
+      {!loading&&filtered.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>💡</div><div style={{fontSize:13,color:T.subtext}}>No tips yet.</div></div>}
       {filtered.map((tip,i)=>(
-        <div key={tip.id} style={{background:"#1a1f2e",borderRadius:14,border:`1px solid ${AC}22`,marginBottom:12,overflow:"hidden"}}>
+        <div key={tip.id} style={{background:T.card,borderRadius:14,border:`1px solid ${AC}22`,marginBottom:12,overflow:"hidden"}}>
           <div onClick={()=>setSel(sel===i?null:i)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,justifyContent:"space-between"}}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <div style={{width:38,height:38,borderRadius:10,background:`${AC}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>💡</div>
-              <div><div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:2}}>{tip.title}</div><div style={{fontSize:11,color:AC}}>{tip.sub_category||tip.category||"General"}</div></div>
+              <div><div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{tip.title}</div><div style={{fontSize:11,color:AC}}>{tip.sub_category||tip.category||"General"}</div></div>
             </div>
             <div style={{color:AC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
           </div>
-          {sel===i&&<div style={{borderTop:"1px solid #2a3050",padding:"14px 16px"}}>
-            <div style={{fontSize:13,color:"#e8eaf0",lineHeight:1.7,marginBottom:12}}>{tip.description}</div>
+          {sel===i&&<div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
+            <div style={{fontSize:13,color:T.muted,lineHeight:1.7,marginBottom:12}}>{tip.description}</div>
             {tip.media_type==="image"&&tip.media_url&&<img src={tip.media_url} alt="" style={{width:"100%",borderRadius:10,marginBottom:8}}/>}
             {tip.media_type==="video_url"&&tip.media_url&&<a href={tip.media_url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,background:`${AC}11`,borderRadius:10,padding:"12px 16px",border:`1px solid ${AC}33`,textDecoration:"none"}}><div style={{fontSize:24}}>▶️</div><div style={{fontSize:12,color:AC,fontWeight:600}}>Watch Video</div></a>}
             {tip.media_type==="upload"&&tip.media_data&&<img src={tip.media_data} alt="" style={{width:"100%",borderRadius:10}}/>}
@@ -934,6 +881,7 @@ function TipsTricks() {
 
 // ── SENSORS ───────────────────────────────────────────────────────────────────
 function SensorValues() {
+  const T=useTheme();
   const [hasData,setHasData]=useState(null); // null = checking, true/false once known
   const [query,setQuery]=useState("");
   const [results,setResults]=useState(null); // null = no search run yet
@@ -945,41 +893,61 @@ function SensorValues() {
     api("sensor_values",{filter:"?select=id&limit=1"}).then(d=>{setHasData(Array.isArray(d)&&d.length>0);});
   },[]);
 
+  const [brandFilter,setBrandFilter]=useState("");
+  const [brands,setBrands]=useState([]);
+
+  useEffect(()=>{
+    api("sensor_values",{filter:"?select=brand&order=brand"}).then(d=>{
+      const b=[...new Set((d||[]).map(r=>r.brand).filter(Boolean))];
+      setBrands(b);
+    });
+  },[]);
+
   const search=async()=>{
-    if(!query.trim())return;
+    if(!query.trim()&&!brandFilter)return;
     setLoading(true);setSel(null);
-    const d=await api("sensor_values",{filter:`?model_number=ilike.*${encodeURIComponent(query.trim())}*&select=*&order=model_number`});
+    let filter="?select=*&order=model_number";
+    if(query.trim()) filter+=`&model_number=ilike.*${encodeURIComponent(query.trim())}*`;
+    if(brandFilter) filter+=`&brand=eq.${encodeURIComponent(brandFilter)}`;
+    const d=await api("sensor_values",{filter});
     setResults(d||[]);
     setLoading(false);
   };
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>📡 Sensor Values</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Component test values and sensor readings</div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>📡 Sensor Values</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Component test values and sensor readings</div>
 
-      {hasData===null&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading...</div>}
+      {hasData===null&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>}
 
-      {hasData===false&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>📡</div><div style={{fontSize:13,color:"#6b7db3"}}>Sensor values coming soon!</div></div>}
+      {hasData===false&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>📡</div><div style={{fontSize:13,color:T.subtext}}>Sensor values coming soon!</div></div>}
 
       {hasData===true&&<>
-        <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
-          <div style={{display:"flex",gap:8}}>
+        <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",gap:8,marginBottom:brands.length>0?10:0}}>
             <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Enter Model Number of PCB"
-              style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
-            <button onClick={search} disabled={loading||!query.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
+              style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+            <button onClick={search} disabled={loading||(!query.trim()&&!brandFilter)} style={{padding:"11px 16px",borderRadius:10,background:loading?T.tag:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
           </div>
+          {brands.length>0&&<div>
+            <div style={{fontSize:11,color:T.subtext,marginBottom:6}}>🔽 Filter by Brand</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              <button onClick={()=>setBrandFilter("")} style={{padding:"6px 12px",borderRadius:20,border:!brandFilter?`2px solid ${PC}`:`1px solid ${T.border}`,background:!brandFilter?`${PC}22`:T.input,color:!brandFilter?PC:T.subtext,fontSize:11,cursor:"pointer"}}>All</button>
+              {brands.map(b=><button key={b} onClick={()=>setBrandFilter(b)} style={{padding:"6px 12px",borderRadius:20,border:brandFilter===b?`2px solid ${PC}`:`1px solid ${T.border}`,background:brandFilter===b?`${PC}22`:T.input,color:brandFilter===b?PC:T.subtext,fontSize:11,cursor:"pointer"}}>{b}</button>)}
+            </div>
+          </div>}
         </div>
 
-        {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Searching...</div>}
+        {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Searching...</div>}
 
-        {!loading&&results!==null&&results.length===0&&<div style={{background:"#1a1f2e",borderRadius:14,padding:24,textAlign:"center",border:"1px solid #2a3050"}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:"#6b7db3"}}>No sensor values found for that model number.</div></div>}
+        {!loading&&results!==null&&results.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:T.subtext}}>No sensor values found for that model number.</div></div>}
 
         {!loading&&results&&results.map((item,i)=>(
-          <div key={item.id} style={{background:"#1a1f2e",borderRadius:14,border:"1px solid #2a3050",marginBottom:10,overflow:"hidden"}}>
+          <div key={item.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:10,overflow:"hidden"}}>
             <div onClick={()=>setSel(sel===i?null:i)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <div>
-                <div style={{fontWeight:600,fontSize:13,color:"#fff",marginBottom:2}}>{item.title}</div>
+                <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{item.title}</div>
                 <div style={{fontSize:11,color:PC}}>{item.model_number}{item.brand?` · ${item.brand}`:""}</div>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -987,17 +955,17 @@ function SensorValues() {
                 <div style={{color:PC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
               </div>
             </div>
-            {sel===i&&<div style={{borderTop:"1px solid #2a3050",padding:"14px 16px"}}>
+            {sel===i&&<div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
               {item.pcb_type==="Indoor"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:item.description?12:0}}>
-                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Room Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.room_sensor_value}</div></div>
-                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Coil Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.coil_sensor_value}</div></div>
+                <div style={{background:T.input,borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Room Sensor</div><div style={{fontSize:13,color:T.muted,fontWeight:600}}>{item.room_sensor_value}</div></div>
+                <div style={{background:T.input,borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Coil Sensor</div><div style={{fontSize:13,color:T.muted,fontWeight:600}}>{item.coil_sensor_value}</div></div>
               </div>}
               {item.pcb_type==="Outdoor"&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:item.description?12:0}}>
-                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Discharge Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.discharge_sensor_value}</div></div>
-                <div style={{background:"#0f1117",borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Ambient Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.ambient_sensor_value}</div></div>
-                <div style={{background:"#0f1117",borderRadius:8,padding:10,gridColumn:"1 / -1"}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Condenser Coil Sensor</div><div style={{fontSize:13,color:"#e8eaf0",fontWeight:600}}>{item.condenser_coil_sensor_value}</div></div>
+                <div style={{background:T.input,borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Discharge Sensor</div><div style={{fontSize:13,color:T.muted,fontWeight:600}}>{item.discharge_sensor_value}</div></div>
+                <div style={{background:T.input,borderRadius:8,padding:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Ambient Sensor</div><div style={{fontSize:13,color:T.muted,fontWeight:600}}>{item.ambient_sensor_value}</div></div>
+                <div style={{background:T.input,borderRadius:8,padding:10,gridColumn:"1 / -1"}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>Condenser Coil Sensor</div><div style={{fontSize:13,color:T.muted,fontWeight:600}}>{item.condenser_coil_sensor_value}</div></div>
               </div>}
-              {item.description&&<div style={{fontSize:13,color:"#e8eaf0",lineHeight:1.7}}>{item.description}</div>}
+              {item.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.7}}>{item.description}</div>}
               {item.image_url&&<img src={item.image_url} alt="" onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,marginTop:10,cursor:"pointer"}}/>}
             </div>}
           </div>
@@ -1006,14 +974,15 @@ function SensorValues() {
 
       {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
-        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
     </div>
   );
 }
 
 // ── COMMUNITY ─────────────────────────────────────────────────────────────────
-function Community({user}) {
+function Community({
+  const T=useTheme();user}) {
   const [posts,setPosts]=useState([]);const [newPost,setNewPost]=useState("");const [replyTo,setReplyTo]=useState(null);const [replyText,setReplyText]=useState("");const [error,setError]=useState("");const [aiThinking,setAiThinking]=useState(null);const [loading,setLoading]=useState(true);
   useEffect(()=>{api("community_posts",{filter:"?select=*,community_replies(*)&order=created_at.desc"}).then(d=>{setPosts(d||[]);setLoading(false);});},[]);
   const submitPost=async()=>{
@@ -1034,37 +1003,37 @@ function Community({user}) {
   };
   return (
     <div style={{padding:16}}>
-      <div style={{marginBottom:14}}><div style={{fontSize:18,fontWeight:700,color:"#fff"}}>👥 Community</div><div style={{fontSize:11,color:PC}}>🤖 AI Bot Active · Monitoring Posts</div></div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:14,marginBottom:14,border:"1px solid #2a3050"}}>
-        <textarea value={newPost} onChange={e=>{setNewPost(e.target.value);setError("");}} placeholder="Ask a repair question..." rows={3} style={{width:"100%",padding:"10px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
+      <div style={{marginBottom:14}}><div style={{fontSize:18,fontWeight:700,color:T.text}}>👥 Community</div><div style={{fontSize:11,color:PC}}>🤖 AI Bot Active · Monitoring Posts</div></div>
+      <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
+        <textarea value={newPost} onChange={e=>{setNewPost(e.target.value);setError("");}} placeholder="Ask a repair question..." rows={3} style={{width:"100%",padding:"10px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
         {error&&<div style={{color:"#ff4757",fontSize:12,marginTop:4,padding:"6px 10px",background:"#ff475711",borderRadius:6}}>⚠ {error}</div>}
         <button onClick={submitPost} disabled={!newPost.trim()} style={{marginTop:8,padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Post</button>
       </div>
-      {loading&&<div style={{textAlign:"center",color:"#6b7db3",padding:20}}>Loading posts...</div>}
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading posts...</div>}
       {posts.map(post=>(
-        <div key={post.id} style={{background:"#1a1f2e",borderRadius:14,border:"1px solid #2a3050",marginBottom:12,overflow:"hidden"}}>
+        <div key={post.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:12,overflow:"hidden"}}>
           <div style={{padding:"14px 16px"}}>
             <div style={{display:"flex",gap:10,marginBottom:10}}>
               <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${PC},${AC})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#0a0d14",flexShrink:0}}>{post.author_name?.charAt(0)||"T"}</div>
-              <div><div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{post.author_name}</div><div style={{fontSize:10,color:"#6b7db3"}}>{new Date(post.created_at).toLocaleDateString()}</div></div>
+              <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{post.author_name}</div><div style={{fontSize:10,color:T.subtext}}>{new Date(post.created_at).toLocaleDateString()}</div></div>
             </div>
-            <div style={{fontSize:13,color:"#e8eaf0",lineHeight:1.6}}>{post.text}</div>
+            <div style={{fontSize:13,color:T.muted,lineHeight:1.6}}>{post.text}</div>
           </div>
-          {post.community_replies?.length>0&&<div style={{borderTop:"1px solid #2a3050"}}>{post.community_replies.map((r,i)=>(
+          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${T.border}`}}>{post.community_replies.map((r,i)=>(
             <div key={i} style={{padding:"10px 16px 10px 26px",background:r.is_ai?"#0f1117":"transparent",borderBottom:i<post.community_replies.length-1?"1px solid #1a1f2e":"none"}}>
               <div style={{display:"flex",gap:8,marginBottom:4}}><div style={{width:24,height:24,borderRadius:"50%",background:r.is_ai?"#4caf5033":"#2a3050",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:r.is_ai?"#4caf50":"#e8eaf0",flexShrink:0}}>{r.is_ai?"AI":r.author_name?.charAt(0)||"T"}</div><div style={{fontSize:11,fontWeight:600,color:r.is_ai?"#4caf50":"#fff"}}>{r.author_name}</div></div>
-              <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.5}}>{r.text}</div>
+              <div style={{fontSize:12,color:T.muted,lineHeight:1.5}}>{r.text}</div>
             </div>
           ))}</div>}
-          {aiThinking===post.id&&<div style={{padding:"10px 16px",borderTop:"1px solid #2a3050",background:"#0f1117",display:"flex",gap:8,alignItems:"center"}}><div style={{fontSize:14}}>🤖</div><div style={{fontSize:12,color:PC}}>PCB AI is thinking...</div></div>}
-          <div style={{padding:"8px 16px 12px",borderTop:"1px solid #2a3050"}}>
+          {aiThinking===post.id&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.input,display:"flex",gap:8,alignItems:"center"}}><div style={{fontSize:14}}>🤖</div><div style={{fontSize:12,color:PC}}>PCB AI is thinking...</div></div>}
+          <div style={{padding:"8px 16px 12px",borderTop:`1px solid ${T.border}`}}>
             {replyTo===post.id?<div>
-              <input value={replyText} onChange={e=>{setReplyText(e.target.value);setError("");}} placeholder="Write a reply..." style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:6}}/>
+              <input value={replyText} onChange={e=>{setReplyText(e.target.value);setError("");}} placeholder="Write a reply..." style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:6}}/>
               <div style={{display:"flex",gap:6}}>
                 <button onClick={()=>submitReply(post.id)} style={{padding:"7px 14px",borderRadius:8,background:PC,color:"#0a0d14",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Reply</button>
-                <button onClick={()=>setReplyTo(null)} style={{padding:"7px 14px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
+                <button onClick={()=>setReplyTo(null)} style={{padding:"7px 14px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
               </div>
-            </div>:<button onClick={()=>setReplyTo(post.id)} style={{background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12}}>💬 Reply ({post.community_replies?.length||0})</button>}
+            </div>:<button onClick={()=>setReplyTo(post.id)} style={{background:"none",border:"none",color:T.subtext,cursor:"pointer",fontSize:12}}>💬 Reply ({post.community_replies?.length||0})</button>}
           </div>
         </div>
       ))}
@@ -1080,6 +1049,7 @@ function Community({user}) {
 // one of their daily questions. Only a successfully-delivered reply consumes
 // a slot.
 function AIChat() {
+  const T=useTheme();
   const LIMIT=5;const today=new Date().toISOString().split("T")[0];
   const [usage,setUsage]=useState(()=>DB.get("ai_"+today,0));
   const [msgs,setMsgs]=useState([{role:"assistant",text:"Hi! I am PCB AI. I use our database of error codes, wiring diagrams, and repair knowledge to answer your questions. Ask me anything!"}]);
@@ -1118,23 +1088,23 @@ function AIChat() {
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
-      <div style={{padding:"14px 16px 10px",borderBottom:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{fontSize:18,fontWeight:700,color:"#fff"}}>🤖 PCB AI</div><div style={{fontSize:11,color:PC}}>Powered by database knowledge</div></div>
+      <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{fontSize:18,fontWeight:700,color:T.text}}>🤖 PCB AI</div><div style={{fontSize:11,color:PC}}>Powered by database knowledge</div></div>
         <div style={{background:remaining>2?"#4caf5022":remaining>0?"#ffa50222":"#ff475722",borderRadius:20,padding:"5px 10px",border:`1px solid ${remaining>2?"#4caf5044":remaining>0?"#ffa50244":"#ff475744"}`}}>
           <div style={{fontSize:11,fontWeight:700,color:remaining>2?"#4caf50":remaining>0?"#ffa502":"#ff4757"}}>{remaining}/{LIMIT} left today</div>
         </div>
       </div>
-      <div style={{padding:"6px 16px",borderBottom:"1px solid #2a3050",background:"#0f1117"}}>
-        <div style={{height:3,background:"#2a3050",borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${(usage/LIMIT)*100}%`,background:usage<3?"#4caf50":usage<5?"#ffa502":"#ff4757",borderRadius:4,transition:"width 0.3s"}}/></div>
+      <div style={{padding:"6px 16px",borderBottom:`1px solid ${T.border}`,background:T.input}}>
+        <div style={{height:3,background:T.tag,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${(usage/LIMIT)*100}%`,background:usage<3?"#4caf50":usage<5?"#ffa502":"#ff4757",borderRadius:4,transition:"width 0.3s"}}/></div>
         {remaining===0&&<div style={{fontSize:11,color:"#ff4757",textAlign:"center",marginTop:4}}>Daily limit reached. Resets at midnight 🔄</div>}
       </div>
       <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
-        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"83%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",fontSize:13,color:"#e8eaf0",lineHeight:1.6,border:m.role==="assistant"?"1px solid #2a3050":"none",whiteSpace:"pre-wrap"}}>{m.text}</div></div>)}
-        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}><div style={{background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:"14px 14px 14px 4px",padding:"10px 16px",color:"#6b7db3",fontSize:13}}>Thinking...</div></div>}
+        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"83%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",fontSize:13,color:T.muted,lineHeight:1.6,border:m.role==="assistant"?"1px solid #2a3050":"none",whiteSpace:"pre-wrap"}}>{m.text}</div></div>)}
+        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}><div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:"14px 14px 14px 4px",padding:"10px 16px",color:T.subtext,fontSize:13}}>Thinking...</div></div>}
         <div ref={bottomRef}/>
       </div>
-      <div style={{padding:"10px 14px",borderTop:"1px solid #2a3050",display:"flex",gap:8}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={remaining>0?"Ask about any appliance fault...":"Daily limit reached."} disabled={remaining===0} style={{flex:1,padding:"11px 14px",borderRadius:12,border:"1px solid #2a3050",background:remaining===0?"#0a0d14":"#1a1f2e",color:remaining===0?"#3a4060":"#fff",fontSize:13,outline:"none"}}/>
+      <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={remaining>0?"Ask about any appliance fault...":"Daily limit reached."} disabled={remaining===0} style={{flex:1,padding:"11px 14px",borderRadius:12,border:`1px solid ${T.border}`,background:remaining===0?"#0a0d14":"#1a1f2e",color:remaining===0?"#3a4060":"#fff",fontSize:13,outline:"none"}}/>
         <button onClick={send} disabled={loading||!input.trim()||remaining===0} style={{width:44,height:44,borderRadius:12,background:remaining===0?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,border:"none",cursor:"pointer",fontSize:16,color:"#0a0d14",display:"flex",alignItems:"center",justifyContent:"center"}}>➤</button>
       </div>
     </div>
@@ -1142,32 +1112,33 @@ function AIChat() {
 }
 
 // ── REQUESTS ──────────────────────────────────────────────────────────────────
-function Requests({user}) {
+function Requests({
+  const T=useTheme();user}) {
   const [type,setType]=useState("");const [form,setForm]=useState({appliance:"",brand:"",description:""});const [submitted,setSubmitted]=useState(false);const [loading,setLoading]=useState(false);
   const TYPES=["Error Code","Wiring Diagram","PCB Connection","Tips & Tricks","Sensor Values"];
   const submit=async()=>{if(!type||!form.description)return;setLoading(true);await api("user_requests",{method:"POST",body:{user_name:user?.full_name||"Anonymous",request_type:type,appliance:form.appliance,brand:form.brand,description:form.description,status:"pending"},prefer:"return=minimal"});setSubmitted(true);setLoading(false);};
   if(submitted) return (
     <div style={{padding:16,textAlign:"center",paddingTop:60}}>
       <div style={{fontSize:40,marginBottom:12}}>✅</div>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:8}}>Request Submitted!</div>
-      <div style={{fontSize:13,color:"#6b7db3",marginBottom:20}}>Admin will review and add the content soon.</div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8}}>Request Submitted!</div>
+      <div style={{fontSize:13,color:T.subtext,marginBottom:20}}>Admin will review and add the content soon.</div>
       <button onClick={()=>{setSubmitted(false);setType("");setForm({appliance:"",brand:"",description:""}); }} style={{padding:"12px 24px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>Submit Another</button>
     </div>
   );
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>📥 Request Content</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Request error codes, diagrams, sensor values, or tips</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
-        <div style={{fontSize:12,fontWeight:600,color:"#e8eaf0",marginBottom:10}}>Request Type<span style={{color:"#ff4757"}}> *</span></div>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>📥 Request Content</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Request error codes, diagrams, sensor values, or tips</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
+        <div style={{fontSize:12,fontWeight:600,color:T.muted,marginBottom:10}}>Request Type<span style={{color:"#ff4757"}}> *</span></div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
           {TYPES.map(t=><button key={t} onClick={()=>setType(t)} style={{padding:"8px 14px",borderRadius:20,border:type===t?`2px solid ${PC}`:"1px solid #2a3050",background:type===t?`${PC}22`:"#0f1117",color:type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:type===t?600:400}}>{t}</button>)}
         </div>
-        <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:form.appliance?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+        <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:form.appliance?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
           <option value="">-- Appliance (Optional) --</option>{["Fridge","Washing Machine","AC","Other"].map(a=><option key={a} value={a}>{a}</option>)}
         </select>
-        <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (Optional)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Describe what you need... *" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit",marginBottom:14}}/>
+        <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (Optional)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Describe what you need... *" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit",marginBottom:14}}/>
         <button onClick={submit} disabled={!type||!form.description||loading} style={{width:"100%",padding:"13px",borderRadius:10,background:!type||!form.description?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{loading?"Submitting...":"Submit Request"}</button>
       </div>
     </div>
@@ -1247,76 +1218,76 @@ function AdminErrors() {
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🔴 {editId?"Edit":"Add"} Error Code</div>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>🔴 {editId?"Edit":"Add"} Error Code</div>
 
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
         <div style={{display:"flex",gap:8,marginBottom:14}}>
           {APPLIANCES.map(a=><button key={a.v} onClick={()=>setForm(f=>({...f,appliance:a.v,brand:"",customBrand:""}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.appliance===a.v?`2px solid ${PC}`:"1px solid #2a3050",background:form.appliance===a.v?"#1a2a1a":"#0f1117",color:form.appliance===a.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{a.l}</button>)}
         </div>
 
         {form.appliance&&<>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
-          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:form.brand==="Other"?10:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
+          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:form.brand==="Other"?10:14}}>
             <option value="">-- Select Brand --</option>
             {COMMON_BRANDS[form.appliance].map(b=><option key={b} value={b}>{b}</option>)}
           </select>
-          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
+          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
 
           <div style={{display:"flex",gap:10,marginBottom:12}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Error Code<span style={{color:"#ff4757"}}> *</span></div>
-              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, 22" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Error Code<span style={{color:"#ff4757"}}> *</span></div>
+              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, 22" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Indoor LED Blinks</div>
-              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Indoor LED Blinks</div>
+              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Outdoor LED Blinks</div>
-              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Outdoor LED Blinks</div>
+              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
 
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Meaning<span style={{color:"#ff4757"}}> *</span></div>
-            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Meaning<span style={{color:"#ff4757"}}> *</span></div>
+            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
           </div>
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Cause<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Cause<span style={{color:"#ff4757"}}> *</span></div>
+            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
           </div>
           <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
+            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
           </div>
 
           {msg&&<div style={{fontSize:12,marginBottom:12,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
 
           <div style={{display:"flex",gap:8}}>
-            {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel Edit</button>}
+            {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel Edit</button>}
             <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving...":editId?"Update in Database":"Add to Database"}</button>
           </div>
         </>}
       </div>
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>All Error Codes ({list.length})</div>
-        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#e8eaf0",fontSize:12,outline:"none"}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.text}}>All Error Codes ({list.length})</div>
+        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.muted,fontSize:12,outline:"none"}}>
           <option value="">All</option>{APPLIANCES.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
         </select>
       </div>
       {filtered.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
           <div style={{minWidth:0}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:3}}>
               <span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{item.error_code}</span>
-              <span style={{fontSize:11,color:"#6b7db3"}}>{item.appliance} · {item.brand}</span>
+              <span style={{fontSize:11,color:T.subtext}}>{item.appliance} · {item.brand}</span>
             </div>
-            <div style={{fontSize:12,color:"#e8eaf0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.meaning}</div>
+            <div style={{fontSize:12,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.meaning}</div>
           </div>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
-            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
             <button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
           </div>
         </div>
@@ -1335,7 +1306,7 @@ function AdminWiring() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=()=>{setForm(f=>({...f,image_url:reader.result}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -1352,35 +1323,35 @@ function AdminWiring() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>⚡ {editId?"Edit":"Add"} Wiring Diagram</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>⚡ {editId?"Edit":"Add"} Wiring Diagram</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
           {["Fridge","Washing","AC"].map(c=><option key={c} value={c}>{c}</option>)}
         </select>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={2} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Image</div>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={2} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Image</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {form.image_source==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
+          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
         </div>}
-        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
+        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Diagrams ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Diagrams ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.category}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.category}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1397,7 +1368,7 @@ function AdminSensorValues() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=()=>{setForm(f=>({...f,image_url:reader.result}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -1425,60 +1396,60 @@ function AdminSensorValues() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📡 {editId?"Edit":"Add"} Sensor Value</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>📡 {editId?"Edit":"Add"} Sensor Value</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}>
             {["Fridge","Washing","AC","Other"].map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
         </div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (e.g. Compressor Overload Sensor)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (e.g. Compressor Overload Sensor)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>PCB Type</div>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>PCB Type</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {["Indoor","Outdoor"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,pcb_type:t}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.pcb_type===t?`2px solid ${PC}`:"1px solid #2a3050",background:form.pcb_type===t?`${PC}22`:"#0f1117",color:form.pcb_type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:600}}>{t==="Indoor"?"🏠 Indoor":"🌤️ Outdoor"}</button>)}
         </div>
 
         {form.pcb_type==="Indoor"&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Room Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.room_sensor_value} onChange={e=>setForm(f=>({...f,room_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.coil_sensor_value} onChange={e=>setForm(f=>({...f,coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Room Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.room_sensor_value} onChange={e=>setForm(f=>({...f,room_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.coil_sensor_value} onChange={e=>setForm(f=>({...f,coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         </div>}
 
         {form.pcb_type==="Outdoor"&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Discharge Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.discharge_sensor_value} onChange={e=>setForm(f=>({...f,discharge_sensor_value:e.target.value}))} placeholder="e.g. 8kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Ambient Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.ambient_sensor_value} onChange={e=>setForm(f=>({...f,ambient_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:5}}>Condenser Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.condenser_coil_sensor_value} onChange={e=>setForm(f=>({...f,condenser_coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Discharge Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.discharge_sensor_value} onChange={e=>setForm(f=>({...f,discharge_sensor_value:e.target.value}))} placeholder="e.g. 8kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Ambient Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.ambient_sensor_value} onChange={e=>setForm(f=>({...f,ambient_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Condenser Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.condenser_coil_sensor_value} onChange={e=>setForm(f=>({...f,condenser_coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         </div>}
 
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Additional notes (optional)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Image (optional)</div>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Additional notes (optional)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Image (optional)</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {form.image_source==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
+          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
         </div>}
-        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Sensor Values ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Sensor Values ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}{item.pcb_type?` · ${item.pcb_type}`:""}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}{item.pcb_type?` · ${item.pcb_type}`:""}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1496,7 +1467,7 @@ function AdminTips() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=()=>{setForm(f=>({...f,media_data:reader.result,media_type:"upload"}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,media_data:compressed,media_type:"upload"}));setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -1511,35 +1482,35 @@ function AdminTips() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/tips_tricks?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>💡 {editId?"Edit":"Add"} Tip</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>💡 {editId?"Edit":"Add"} Tip</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
           {SUBS.map(s=><option key={s} value={s}>{s}</option>)}
         </select>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Media (optional)</div>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Media (optional)</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["none","None"],["image","Image URL"],["video_url","Video Link"],["upload","Upload File"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,media_type:v}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.media_type===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.media_type===v?`${AC}22`:"#0f1117",color:form.media_type===v?AC:"#6b7db3",fontSize:10,cursor:"pointer"}}>{l}</button>)}
         </div>
-        {form.media_type==="image"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        {form.media_type==="video_url"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://youtube.com/..." style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.media_type==="image"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.media_type==="video_url"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://youtube.com/..." style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         {form.media_type==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
+          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.media_data&&<div style={{fontSize:11,color:PC}}>✓ File loaded ({Math.round(form.media_data.length/1024)}KB)</div>}
         </div>}
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Tips ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Tips ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.sub_category||item.category}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.sub_category||item.category}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1548,10 +1519,10 @@ function AdminTips() {
 
 // ── ADMIN: FIND REMOTE ──────────────────────────────────────────────────────────
 function AdminRemotes() {
-  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_image:""};
+  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
   const [pcbSource,setPcbSource]=useState("upload");const [pcbUrl,setPcbUrl]=useState("");const [pcbUploading,setPcbUploading]=useState(false);
-  const [remoteSource,setRemoteSource]=useState("upload");const [remoteUploading,setRemoteUploading]=useState(false);
+  const [remoteSource,setRemoteSource]=useState("upload");const [remoteUrl,setRemoteUrl]=useState("");const [remoteUploading,setRemoteUploading]=useState(false);
 
   const load=async()=>{const d=await api("remotes",{filter:"?select=*&order=model_number"});setList(d||[]);};
   useEffect(()=>{load();},[]);
@@ -1560,7 +1531,7 @@ function AdminRemotes() {
     const file=e.target.files[0];if(!file)return;
     setPcbUploading(true);
     const reader=new FileReader();
-    reader.onload=()=>{setForm(f=>({...f,pcb_images:[...f.pcb_images,reader.result]}));setPcbUploading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,pcb_images:[...f.pcb_images,compressed]}));setPcbUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setPcbUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -1571,48 +1542,54 @@ function AdminRemotes() {
   };
   const removePcbImage=(idx)=>{setForm(f=>({...f,pcb_images:f.pcb_images.filter((_,i)=>i!==idx)}));};
 
-  const handleRemoteFile=(e)=>{
+  const addRemoteImageFromFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
     setRemoteUploading(true);
     const reader=new FileReader();
-    reader.onload=()=>{setForm(f=>({...f,remote_image:reader.result}));setRemoteUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,remote_images:[...f.remote_images,compressed]}));setRemoteUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setRemoteUploading(false);};
     reader.readAsDataURL(file);
   };
+  const addRemoteImageFromUrl=()=>{
+    if(!remoteUrl.trim())return;
+    setForm(f=>({...f,remote_images:[...f.remote_images,remoteUrl.trim()]}));
+    setRemoteUrl("");
+  };
+  const removeRemoteImage=(idx)=>{setForm(f=>({...f,remote_images:f.remote_images.filter((_,i)=>i!==idx)}));};
 
   const save=async()=>{
     if(!form.model_number.trim()){setMsg("⚠ Model number required.");return;}
     if(form.pcb_images.length===0){setMsg("⚠ Add at least one PCB image.");return;}
-    if(!form.remote_image){setMsg("⚠ Remote image required.");return;}
-    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_image:form.remote_image};
+    if(form.remote_images.length===0){setMsg("⚠ Add at least one remote image.");return;}
+    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images};
     try{
       if(editId){await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("remotes",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_image:item.remote_image||""});setEditId(item.id);};
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[]});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🎮 {editId?"Edit":"Add"} Remote Match</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>🎮 {editId?"Edit":"Add"} Remote Match</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}>
             {["AC","Fridge","Washing","Other"].map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
         </div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
         {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.pcb_images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
-              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050"}}/>
-              <button onClick={()=>removePcbImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${T.border}`}}/>
+              <button onClick={()=>removePcbImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:T.text,border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>}
@@ -1620,41 +1597,49 @@ function AdminRemotes() {
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setPcbSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:pcbSource===v?`2px solid ${AC}`:"1px solid #2a3050",background:pcbSource===v?`${AC}22`:"#0f1117",color:pcbSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {pcbSource==="upload"&&<div style={{marginBottom:14}}>
-          <input type="file" accept="image/*" onChange={addPcbImageFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
+          <input type="file" accept="image/*" onChange={addPcbImageFromFile} style={{width:"100%",fontSize:12,color:T.subtext}}/>
           {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
         </div>}
         {pcbSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
-          <input value={pcbUrl} onChange={e=>setPcbUrl(e.target.value)} placeholder="https://...pcb-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
-          <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+          <input value={pcbUrl} onChange={e=>setPcbUrl(e.target.value)} placeholder="https://...pcb-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+          <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
         </div>}
 
-        <div style={{fontSize:11,fontWeight:600,color:"#e8eaf0",marginBottom:8}}>Remote Image (only one allowed)<span style={{color:"#ff4757"}}> *</span></div>
-        {form.remote_image&&<div style={{marginBottom:10}}><img src={form.remote_image} alt="" style={{maxWidth:140,maxHeight:160,borderRadius:8,border:"1px solid #2a3050"}}/><div><button onClick={()=>setForm(f=>({...f,remote_image:""}))} style={{marginTop:6,padding:"5px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button></div></div>}
-        {!form.remote_image&&<>
-          <div style={{display:"flex",gap:6,marginBottom:8}}>
-            {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:"1px solid #2a3050",background:remoteSource===v?`${AC}22`:"#0f1117",color:remoteSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
-          </div>
-          {remoteSource==="upload"&&<div style={{marginBottom:14}}>
-            <input type="file" accept="image/*" onChange={handleRemoteFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
-            {remoteUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
-          </div>}
-          {remoteSource==="url"&&<input value={form.remote_image} onChange={e=>setForm(f=>({...f,remote_image:e.target.value}))} placeholder="https://...remote-image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
-        </>}
+        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Remote Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        {form.remote_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          {form.remote_images.map((img,idx)=>(
+            <div key={idx} style={{position:"relative"}}>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${T.border}`}}/>
+              <button onClick={()=>removeRemoteImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:T.text,border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+            </div>
+          ))}
+        </div>}
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:`1px solid ${T.border}`,background:remoteSource===v?`${AC}22`:T.input,color:remoteSource===v?AC:T.subtext,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+        </div>
+        {remoteSource==="upload"&&<div style={{marginBottom:14}}>
+          <input type="file" accept="image/*" onChange={addRemoteImageFromFile} style={{width:"100%",fontSize:12,color:T.subtext}}/>
+          {remoteUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
+        </div>}
+        {remoteSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
+          <input value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="https://...remote-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+          <button onClick={addRemoteImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+        </div>}
 
         {msg&&<div style={{fontSize:12,marginBottom:10,marginTop:4,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Remote Matches ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Remote Matches ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
-            {item.remote_image&&<img src={item.remote_image} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6}}/>}
-            <div><div style={{fontSize:12,color:"#e8eaf0",fontWeight:600}}>{item.model_number}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.appliance}{item.brand?` · ${item.brand}`:""} · {(item.pcb_images||[]).length} PCB image{(item.pcb_images||[]).length===1?"":"s"}</div></div>
+            {item.remote_images&&item.remote_images[0]&&<img src={item.remote_images[0]} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6}}/>}
+            <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.model_number}</div><div style={{fontSize:11,color:T.subtext}}>{item.appliance}{item.brand?` · ${item.brand}`:""} · {(item.pcb_images||[]).length} PCB · {(item.remote_images||[]).length} remote img{(item.remote_images||[]).length===1?"":"s"}</div></div>
           </div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1669,19 +1654,19 @@ function AdminRequests() {
   const updateStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📥 User Requests ({list.length})</div>
-      {list.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No requests yet.</div>}
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>📥 User Requests ({list.length})</div>
+      {list.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:30}}>No requests yet.</div>}
       {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:10}}>
+        <div key={item.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{item.request_type}</div>
+            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{item.request_type}</div>
             <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:item.status==="pending"?"#ffa50222":item.status==="completed"?"#4caf5022":"#6b7db322",color:item.status==="pending"?"#ffa502":item.status==="completed"?PC:"#6b7db3"}}>{item.status}</div>
           </div>
-          <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
-          <div style={{fontSize:12,color:"#e8eaf0",marginBottom:10}}>{item.description}</div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
+          <div style={{fontSize:12,color:T.muted,marginBottom:10}}>{item.description}</div>
           <div style={{display:"flex",gap:6}}>
             <button onClick={()=>updateStatus(item.id,"completed")} style={{padding:"6px 12px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:11}}>Mark Completed</button>
-            <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
+            <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
           </div>
         </div>
       ))}
@@ -1697,15 +1682,15 @@ function AdminCommunity() {
   const delPost=async(id)=>{if(!window.confirm("Delete this post and all replies?"))return;await fetch(`${SB_URL}/rest/v1/community_posts?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👥 Community Moderation ({list.length})</div>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>👥 Community Moderation ({list.length})</div>
       {list.map(post=>(
-        <div key={post.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:10}}>
+        <div key={post.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{post.author_name}</div>
+            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{post.author_name}</div>
             <button onClick={()=>delPost(post.id)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:10}}>Delete</button>
           </div>
-          <div style={{fontSize:12,color:"#e8eaf0",marginBottom:8}}>{post.text}</div>
-          {post.community_replies?.length>0&&<div style={{borderTop:"1px solid #2a3050",paddingTop:8}}>{post.community_replies.map((r,i)=><div key={i} style={{fontSize:11,color:"#6b7db3",marginBottom:4}}><b style={{color:r.is_ai?PC:"#e8eaf0"}}>{r.author_name}:</b> {r.text}</div>)}</div>}
+          <div style={{fontSize:12,color:T.muted,marginBottom:8}}>{post.text}</div>
+          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:8}}>{post.community_replies.map((r,i)=><div key={i} style={{fontSize:11,color:T.subtext,marginBottom:4}}><b style={{color:r.is_ai?PC:"#e8eaf0"}}>{r.author_name}:</b> {r.text}</div>)}</div>}
         </div>
       ))}
     </div>
@@ -1721,25 +1706,25 @@ function AdminUsers() {
   const filtered=list.filter(u=>filter==="all"?true:u.status===filter);
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👤 User Approvals</div>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>👤 User Approvals</div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         {["pending","approved","rejected","all"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:"8px 4px",borderRadius:10,border:filter===f?`2px solid ${PC}`:"1px solid #2a3050",background:filter===f?"#1a2a1a":"#1a1f2e",color:filter===f?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",textTransform:"capitalize"}}>{f} ({f==="all"?list.length:list.filter(u=>u.status===f).length})</button>)}
       </div>
-      {filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No users in this category.</div>}
+      {filtered.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:30}}>No users in this category.</div>}
       {filtered.map(u=>(
-        <div key={u.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:10}}>
+        <div key={u.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{u.full_name}</div>
+            <div style={{fontSize:13,fontWeight:700,color:T.text}}>{u.full_name}</div>
             <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:u.status==="pending"?"#ffa50222":u.status==="approved"?"#4caf5022":"#ff475722",color:u.status==="pending"?"#ffa502":u.status==="approved"?PC:"#ff4757"}}>{u.status}</div>
           </div>
-          <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.5,marginBottom:10}}>
+          <div style={{fontSize:11,color:T.subtext,lineHeight:1.5,marginBottom:10}}>
             {u.email}<br/>{u.city}, {u.state}, {u.country}<br/>{u.experience} · {u.specialization} · via {u.method}
           </div>
           {u.status==="pending"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setStatus(u.id,"approved")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
             <button onClick={()=>setStatus(u.id,"rejected")} style={{flex:1,padding:"8px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✕ Reject</button>
           </div>}
-          {u.status!=="pending"&&<button onClick={()=>setStatus(u.id,"pending")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Reset to Pending</button>}
+          {u.status!=="pending"&&<button onClick={()=>setStatus(u.id,"pending")} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11}}>Reset to Pending</button>}
         </div>
       ))}
     </div>
@@ -1822,18 +1807,18 @@ function AdminSettings() {
 
   const discardAll=()=>{setDraft(saved);setMsg("");};
 
-  if(!loaded) return <div style={{padding:30,textAlign:"center",color:"#6b7db3"}}>Loading settings...</div>;
+  if(!loaded) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading settings...</div>;
 
   return (
     <div style={{padding:16,paddingBottom:isDirty?90:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>⚙️ App Settings</div>
-      <div style={{fontSize:11,color:"#6b7db3",marginBottom:18}}>Make your changes, then tap Save Changes below to publish them.</div>
+      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:4}}>⚙️ App Settings</div>
+      <div style={{fontSize:11,color:T.subtext,marginBottom:18}}>Make your changes, then tap Save Changes below to publish them.</div>
 
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Auto-approve new signups</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>Skip manual review for new accounts</div>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>Auto-approve new signups</div>
+            <div style={{fontSize:11,color:T.subtext}}>Skip manual review for new accounts</div>
           </div>
           <button onClick={()=>setDraft(d=>({...d,auto_approve:!d.auto_approve}))} style={{width:48,height:26,borderRadius:14,background:draft.auto_approve?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.auto_approve?25:3,transition:"left 0.2s"}}/>
@@ -1841,11 +1826,11 @@ function AdminSettings() {
         </div>
       </div>
 
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Parts Identifier</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>Show/hide the Part Finder feature for all users</div>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>Parts Identifier</div>
+            <div style={{fontSize:11,color:T.subtext}}>Show/hide the Part Finder feature for all users</div>
           </div>
           <button onClick={()=>setDraft(d=>({...d,parts_enabled:!d.parts_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_enabled?25:3,transition:"left 0.2s"}}/>
@@ -1853,25 +1838,25 @@ function AdminSettings() {
         </div>
       </div>
 
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>PCB AI daily question limit</div>
-        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
+      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>PCB AI daily question limit</div>
+        <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <input type="range" min={1} max={20} value={draft.ai_daily_limit} onChange={e=>setDraft(d=>({...d,ai_daily_limit:Number(e.target.value)}))} style={{flex:1}}/>
           <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:AC}}>{draft.ai_daily_limit}/day</div>
         </div>
       </div>
 
-      <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:"#b0b8d0",lineHeight:1.6}}>
+      <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:T.muted,lineHeight:1.6}}>
         💡 These settings are stored in the <code>app_settings</code> table in Supabase (the live backend), not just in this browser — so they stay correct after a refresh, after closing the app, and for every admin device.
       </div>
 
-      {isDirty&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${PC}55`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,zIndex:20,boxShadow:"0 -4px 16px rgba(0,0,0,0.4)"}}>
+      {isDirty&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:T.card,borderTop:`1px solid ${PC}55`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,zIndex:20,boxShadow:"0 -4px 16px rgba(0,0,0,0.4)"}}>
         <div style={{flex:1,fontSize:12,color:AC,fontWeight:600}}>You have unsaved changes</div>
-        <button onClick={discardAll} disabled={saving} style={{padding:"10px 16px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Discard</button>
+        <button onClick={discardAll} disabled={saving} style={{padding:"10px 16px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Discard</button>
         <button onClick={saveAll} disabled={saving} style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving...":"Save Changes"}</button>
       </div>}
-      {msg&&!isDirty&&<div style={{position:"fixed",bottom:16,left:16,right:16,textAlign:"center",fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"10px"}}>{msg}</div>}
+      {msg&&!isDirty&&<div style={{position:"fixed",bottom:16,left:16,right:16,textAlign:"center",fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px"}}>{msg}</div>}
     </div>
   );
 }
@@ -1891,15 +1876,15 @@ function AdminPanel({onLogout}) {
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh"}}>
-      <div style={{background:"#1a1f2e",borderBottom:"1px solid #2a3050",padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh"}}>
+      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO} alt="" style={{height:28}}/>
           <div style={{fontSize:13,fontWeight:700,color:AC}}>ADMIN</div>
         </div>
         <button onClick={onLogout} style={{padding:"7px 14px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Logout</button>
       </div>
-      <div style={{display:"flex",overflowX:"auto",background:"#1a1f2e",borderBottom:"1px solid #2a3050",padding:"0 8px"}}>
+      <div style={{display:"flex",overflowX:"auto",background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 8px"}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5}}>
             <span>{t.icon}</span>{t.label}
@@ -1953,6 +1938,9 @@ export default function PCBCare() {
   userRef.current=user;
   const [partsEnabled,setPartsEnabled]=useState(()=>DB.get("pcb_parts_identifier_enabled",true));
   const [adminSessionChecked,setAdminSessionChecked]=useState(false);
+  const [isDark,setIsDark]=useState(()=>DB.get("pcb_theme","dark")!=="light");
+  const T = isDark ? DARK : LIGHT;
+  const toggleTheme=()=>{ const next=!isDark; setIsDark(next); DB.set("pcb_theme",next?"dark":"light"); };
 
   // ── Restore a verified admin session (if any) before deciding the route.
   // We never trust a bare "isAdmin" flag pulled straight from localStorage —
@@ -2032,7 +2020,7 @@ export default function PCBCare() {
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
 
   if(stage==="auth"){
-    if(authView==="signup") return <Signup onGoLogin={()=>setAuthView("login")}/>;
+    if(authView==="signup") return <Signup onGoLogin={()=>setAuthView("login")} onLogin={handleLogin}/>;
     return <Login onLogin={handleLogin} onGoSignup={()=>setAuthView("signup")}/>;
   }
 
@@ -2047,17 +2035,25 @@ export default function PCBCare() {
   ];
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",color:"#fff"}}>
-      <div style={{background:"#1a1f2e",borderBottom:"1px solid #2a3050",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5}}>
+    <ThemeCtx.Provider value={T}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",color:T.text,transition:"background 0.2s,color 0.2s"}}>
+      <div style={{background:T.navBg,borderBottom:`1px solid ${T.navBorder}`,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${T.shadow}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
-        <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Logout</button>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {/* Day/Night theme toggle */}
+          <button onClick={toggleTheme} title={isDark?"Switch to light mode":"Switch to dark mode"}
+            style={{width:36,height:36,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.card,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.2s"}}>
+            {isDark?"🌙":"☀️"}
+          </button>
+          <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
+        </div>
       </div>
 
       <div style={{paddingBottom:74,minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={setTab} partsEnabled={partsEnabled} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
-        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:"#6b7db3"}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
+        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:T.subtext}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
         {tab==="remote"&&<FindRemote/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
@@ -2066,17 +2062,19 @@ export default function PCBCare() {
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:"1px solid #2a3050",display:"flex",padding:"8px 4px",zIndex:5}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:T.navBg,borderTop:`1px solid ${T.navBorder}`,display:"flex",padding:"8px 4px",zIndex:5}}>
         {NAV.map(n=>(
           <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
-            <div style={{fontSize:9,color:tab===n.id?PC:"#6b7db3",fontWeight:tab===n.id?700:400}}>{n.label}</div>
+            <div style={{fontSize:9,color:tab===n.id?PC:T.subtext,fontWeight:tab===n.id?700:400}}>{n.label}</div>
           </button>
         ))}
       </div>
 
       <Watermark user={user}/>
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
+    </div>
+    </ThemeCtx.Provider>
     </div>
   );
 }
