@@ -185,7 +185,7 @@ function Intro({onDone}) {
     return()=>clearTimeout(t);
   },[onDone]);
   return (
-    <div style={{position:"fixed",inset:0,background:T.bg,zIndex:9999,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+    <div style={{position:"fixed",inset:0,background:"#0a0d14",zIndex:9999,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <video ref={videoRef} src={VIDEO_B64} autoPlay muted playsInline onEnded={onDone}
         style={{width:"100%",height:"100%",objectFit:"contain",objectPosition:"center center"}}/>
     </div>
@@ -254,11 +254,11 @@ function Login({onLogin,onGoSignup}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:T.card,borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${T.border}`}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${"#2a3050"}`}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
-          <div style={{fontSize:13,color:T.subtext}}>Sign in to your account</div>
+          <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
         </div>
         <button onClick={doGoogleLogin} disabled={googleLoading}
           style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:16,opacity:googleLoading?0.7:1}}>
@@ -273,18 +273,18 @@ function Login({onLogin,onGoSignup}) {
           </>}
         </button>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-          <div style={{flex:1,height:1,background:T.tag}}/><div style={{fontSize:12,color:T.subtext}}>or</div><div style={{flex:1,height:1,background:T.tag}}/>
+          <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
         </div>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="Password"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
         <button onClick={doLogin} disabled={loading}
           style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
           {loading?"Signing in...":"Sign In"}
         </button>
-        <div style={{textAlign:"center",fontSize:13,color:T.subtext}}>
+        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3"}}>
           Don't have an account?{" "}
           <button onClick={onGoSignup} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign Up</button>
         </div>
@@ -436,21 +436,21 @@ function Signup({onGoLogin,onLogin}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",overflowY:"auto",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",overflowY:"auto",padding:20}}>
       <div style={{maxWidth:420,margin:"0 auto"}}>
         <div style={{textAlign:"center",padding:"20px 0 16px"}}>
           <img src={LOGO} alt="" style={{width:160,maxWidth:"100%",marginBottom:12}}/>
-          <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>Create Account</div>
-          <div style={{fontSize:12,color:T.subtext}}>Step {step} of 2</div>
+          <div style={{fontSize:18,fontWeight:700,color:"#fff",marginBottom:4}}>Create Account</div>
+          <div style={{fontSize:12,color:"#6b7db3"}}>Step {step} of 2</div>
           <div style={{display:"flex",gap:4,justifyContent:"center",marginTop:8}}>
             {[1,2].map(s=><div key={s} style={{width:40,height:3,borderRadius:4,background:step>=s?PC:"#2a3050"}}/>)}
           </div>
         </div>
 
         {step===1&&(
-          <div style={{background:T.card,borderRadius:16,padding:20,border:`1px solid ${T.border}`,marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Verify Your Identity</div>
-            <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>Choose one way to verify it's really you</div>
+          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Verify Your Identity</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>Choose one way to verify it's really you</div>
             {!verifyMethod&&<>
               <button onClick={handleGoogleVerify} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
                 <svg width="20" height="20" viewBox="0 0 48 48">
@@ -462,45 +462,45 @@ function Signup({onGoLogin,onLogin}) {
                 Continue with Google
               </button>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                <div style={{flex:1,height:1,background:T.tag}}/><div style={{fontSize:12,color:T.subtext}}>or</div><div style={{flex:1,height:1,background:T.tag}}/>
+                <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
               </div>
-              <button onClick={()=>{setVerifyMethod("phone");setPhoneErr("");}} style={{width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${T.border}`,background:T.input,color:T.text,cursor:"pointer",fontWeight:600,fontSize:14}}>
+              <button onClick={()=>{setVerifyMethod("phone");setPhoneErr("");}} style={{width:"100%",padding:"13px",borderRadius:12,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",cursor:"pointer",fontWeight:600,fontSize:14}}>
                 📱 Verify with Phone Number
               </button>
               {err&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginTop:10}}>⚠ {err}</div>}
             </>}
             {verifyMethod==="phone"&&<>
               {phoneStage==="phone"&&<>
-                <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:6}}>Mobile Number</div>
+                <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Mobile Number</div>
                 <div style={{display:"flex",gap:8,marginBottom:10}}>
-                  <div style={{padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:PC,fontSize:14,fontWeight:700}}>+91</div>
-                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="10-digit number" inputMode="numeric" maxLength={10} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                  <div style={{padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:PC,fontSize:14,fontWeight:700}}>+91</div>
+                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="10-digit number" inputMode="numeric" maxLength={10} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
                 </div>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
                 <button onClick={sendOtp} disabled={phoneLoading||digitsOnly.length!==10} style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Sending OTP...":"Send OTP"}</button>
-                <button onClick={()=>{setVerifyMethod(null);setPhoneErr("");}} style={{width:"100%",background:"none",border:"none",color:T.subtext,cursor:"pointer",fontSize:12,textDecoration:"underline"}}>← Choose a different method</button>
+                <button onClick={()=>{setVerifyMethod(null);setPhoneErr("");}} style={{width:"100%",background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:12,textDecoration:"underline"}}>← Choose a different method</button>
               </>}
               {phoneStage==="otp"&&<>
-                <div style={{fontSize:12,color:T.muted,marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:T.text}}>+91 {digitsOnly}</b></div>
-                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()} placeholder="Enter OTP" inputMode="numeric" maxLength={6} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+                <div style={{fontSize:12,color:"#b0b8d0",marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:"#fff"}}>+91 {digitsOnly}</b></div>
+                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()} placeholder="Enter OTP" inputMode="numeric" maxLength={6} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
                 <button onClick={verifyOtp} disabled={phoneLoading||otp.trim().length<4} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Verifying...":"Verify OTP"}</button>
-                <div style={{textAlign:"center",fontSize:12,color:T.subtext}}>{resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}</div>
+                <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>{resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}</div>
               </>}
             </>}
           </div>
         )}
 
         {step===2&&(
-          <div style={{background:T.card,borderRadius:16,padding:20,border:`1px solid ${T.border}`,marginBottom:14}}>
-            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>Set Your Login Password</div>
-            <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>You'll use this email and password to sign in</div>
-            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Set Your Login Password</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>You'll use this email and password to sign in</div>
+            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
             {credErr&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {credErr}</div>}
             <div style={{display:"flex",gap:8}}>
-              <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
+              <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
               <button onClick={submitCredentials} disabled={credLoading} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
                 {credLoading?"Creating account...":"Create Account & Sign In"}
               </button>
@@ -508,7 +508,7 @@ function Signup({onGoLogin,onLogin}) {
           </div>
         )}
 
-        <div style={{textAlign:"center",fontSize:13,color:T.subtext,marginBottom:24}}>
+        <div style={{textAlign:"center",fontSize:13,color:"#6b7db3",marginBottom:24}}>
           Already have an account?{" "}
           <button onClick={onGoLogin} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign In</button>
         </div>
@@ -601,8 +601,8 @@ const moderate=(text)=>{
 };
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function Home({
-  const T=useTheme();setTab,partsEnabled=true,user}) {
+function Home({setTab,partsEnabled=true,user}) {
+  const T=useTheme();
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
@@ -981,8 +981,8 @@ function SensorValues() {
 }
 
 // ── COMMUNITY ─────────────────────────────────────────────────────────────────
-function Community({
-  const T=useTheme();user}) {
+function Community({user}) {
+  const T=useTheme();
   const [posts,setPosts]=useState([]);const [newPost,setNewPost]=useState("");const [replyTo,setReplyTo]=useState(null);const [replyText,setReplyText]=useState("");const [error,setError]=useState("");const [aiThinking,setAiThinking]=useState(null);const [loading,setLoading]=useState(true);
   useEffect(()=>{api("community_posts",{filter:"?select=*,community_replies(*)&order=created_at.desc"}).then(d=>{setPosts(d||[]);setLoading(false);});},[]);
   const submitPost=async()=>{
@@ -1112,8 +1112,8 @@ function AIChat() {
 }
 
 // ── REQUESTS ──────────────────────────────────────────────────────────────────
-function Requests({
-  const T=useTheme();user}) {
+function Requests({user}) {
+  const T=useTheme();
   const [type,setType]=useState("");const [form,setForm]=useState({appliance:"",brand:"",description:""});const [submitted,setSubmitted]=useState(false);const [loading,setLoading]=useState(false);
   const TYPES=["Error Code","Wiring Diagram","PCB Connection","Tips & Tricks","Sensor Values"];
   const submit=async()=>{if(!type||!form.description)return;setLoading(true);await api("user_requests",{method:"POST",body:{user_name:user?.full_name||"Anonymous",request_type:type,appliance:form.appliance,brand:form.brand,description:form.description,status:"pending"},prefer:"return=minimal"});setSubmitted(true);setLoading(false);};
@@ -1218,76 +1218,76 @@ function AdminErrors() {
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>🔴 {editId?"Edit":"Add"} Error Code</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🔴 {editId?"Edit":"Add"} Error Code</div>
 
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
         <div style={{display:"flex",gap:8,marginBottom:14}}>
           {APPLIANCES.map(a=><button key={a.v} onClick={()=>setForm(f=>({...f,appliance:a.v,brand:"",customBrand:""}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.appliance===a.v?`2px solid ${PC}`:"1px solid #2a3050",background:form.appliance===a.v?"#1a2a1a":"#0f1117",color:form.appliance===a.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{a.l}</button>)}
         </div>
 
         {form.appliance&&<>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
-          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:form.brand==="Other"?10:14}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
+          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:form.brand==="Other"?10:14}}>
             <option value="">-- Select Brand --</option>
             {COMMON_BRANDS[form.appliance].map(b=><option key={b} value={b}>{b}</option>)}
           </select>
-          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
+          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
 
           <div style={{display:"flex",gap:10,marginBottom:12}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Error Code<span style={{color:"#ff4757"}}> *</span></div>
-              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, 22" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Code<span style={{color:"#ff4757"}}> *</span></div>
+              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, 22" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Indoor LED Blinks</div>
-              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor LED Blinks</div>
+              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Outdoor LED Blinks</div>
-              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor LED Blinks</div>
+              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
             </div>
           </div>
 
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Meaning<span style={{color:"#ff4757"}}> *</span></div>
-            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Meaning<span style={{color:"#ff4757"}}> *</span></div>
+            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
           </div>
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Cause<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Cause<span style={{color:"#ff4757"}}> *</span></div>
+            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
           </div>
           <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
+            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
           </div>
 
           {msg&&<div style={{fontSize:12,marginBottom:12,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
 
           <div style={{display:"flex",gap:8}}>
-            {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel Edit</button>}
+            {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel Edit</button>}
             <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving...":editId?"Update in Database":"Add to Database"}</button>
           </div>
         </>}
       </div>
 
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:T.text}}>All Error Codes ({list.length})</div>
-        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.muted,fontSize:12,outline:"none"}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>All Error Codes ({list.length})</div>
+        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#b0b8d0",fontSize:12,outline:"none"}}>
           <option value="">All</option>{APPLIANCES.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
         </select>
       </div>
       {filtered.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
           <div style={{minWidth:0}}>
             <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:3}}>
               <span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{item.error_code}</span>
-              <span style={{fontSize:11,color:T.subtext}}>{item.appliance} · {item.brand}</span>
+              <span style={{fontSize:11,color:"#6b7db3"}}>{item.appliance} · {item.brand}</span>
             </div>
-            <div style={{fontSize:12,color:T.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.meaning}</div>
+            <div style={{fontSize:12,color:"#b0b8d0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.meaning}</div>
           </div>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
-            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
             <button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
           </div>
         </div>
@@ -1323,35 +1323,35 @@ function AdminWiring() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>⚡ {editId?"Edit":"Add"} Wiring Diagram</div>
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
-        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>⚡ {editId?"Edit":"Add"} Wiring Diagram</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
           {["Fridge","Washing","AC"].map(c=><option key={c} value={c}>{c}</option>)}
         </select>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={2} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Image</div>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={2} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Image</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {form.image_source==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
+          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
         </div>}
-        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
+        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Diagrams ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Diagrams ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.category}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.category}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1396,60 +1396,60 @@ function AdminSensorValues() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>📡 {editId?"Edit":"Add"} Sensor Value</div>
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
-        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📡 {editId?"Edit":"Add"} Sensor Value</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}>
             {["Fridge","Washing","AC","Other"].map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
         </div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (e.g. Compressor Overload Sensor)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (e.g. Compressor Overload Sensor)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>PCB Type</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Type</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {["Indoor","Outdoor"].map(t=><button key={t} onClick={()=>setForm(f=>({...f,pcb_type:t}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.pcb_type===t?`2px solid ${PC}`:"1px solid #2a3050",background:form.pcb_type===t?`${PC}22`:"#0f1117",color:form.pcb_type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:600}}>{t==="Indoor"?"🏠 Indoor":"🌤️ Outdoor"}</button>)}
         </div>
 
         {form.pcb_type==="Indoor"&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Room Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.room_sensor_value} onChange={e=>setForm(f=>({...f,room_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.coil_sensor_value} onChange={e=>setForm(f=>({...f,coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Room Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.room_sensor_value} onChange={e=>setForm(f=>({...f,room_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.coil_sensor_value} onChange={e=>setForm(f=>({...f,coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         </div>}
 
         {form.pcb_type==="Outdoor"&&<div style={{marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Discharge Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.discharge_sensor_value} onChange={e=>setForm(f=>({...f,discharge_sensor_value:e.target.value}))} placeholder="e.g. 8kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Ambient Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.ambient_sensor_value} onChange={e=>setForm(f=>({...f,ambient_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-          <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:5}}>Condenser Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
-          <input value={form.condenser_coil_sensor_value} onChange={e=>setForm(f=>({...f,condenser_coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Discharge Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.discharge_sensor_value} onChange={e=>setForm(f=>({...f,discharge_sensor_value:e.target.value}))} placeholder="e.g. 8kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Ambient Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.ambient_sensor_value} onChange={e=>setForm(f=>({...f,ambient_sensor_value:e.target.value}))} placeholder="e.g. 10kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Condenser Coil Sensor Value<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={form.condenser_coil_sensor_value} onChange={e=>setForm(f=>({...f,condenser_coil_sensor_value:e.target.value}))} placeholder="e.g. 5kΩ at 25°C" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
         </div>}
 
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Additional notes (optional)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Image (optional)</div>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Additional notes (optional)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Image (optional)</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,image_source:v,image_url:""}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.image_source===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.image_source===v?`${AC}22`:"#0f1117",color:form.image_source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {form.image_source==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
+          <input type="file" accept="image/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
         </div>}
-        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Sensor Values ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Sensor Values ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}{item.pcb_type?` · ${item.pcb_type}`:""}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.model_number}{item.brand?` · ${item.brand}`:""} · {item.appliance}{item.pcb_type?` · ${item.pcb_type}`:""}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1482,35 +1482,35 @@ function AdminTips() {
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/tips_tricks?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>💡 {editId?"Edit":"Add"} Tip</div>
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>💡 {editId?"Edit":"Add"} Tip</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
           {SUBS.map(s=><option key={s} value={s}>{s}</option>)}
         </select>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Media (optional)</div>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Media (optional)</div>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["none","None"],["image","Image URL"],["video_url","Video Link"],["upload","Upload File"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,media_type:v}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.media_type===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.media_type===v?`${AC}22`:"#0f1117",color:form.media_type===v?AC:"#6b7db3",fontSize:10,cursor:"pointer"}}>{l}</button>)}
         </div>
-        {form.media_type==="image"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        {form.media_type==="video_url"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://youtube.com/..." style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.media_type==="image"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+        {form.media_type==="video_url"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://youtube.com/..." style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         {form.media_type==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:T.subtext,marginBottom:6}}/>
+          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
           {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
           {form.media_data&&<div style={{fontSize:11,color:PC}}>✓ File loaded ({Math.round(form.media_data.length/1024)}KB)</div>}
         </div>}
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Tips ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Tips ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:T.subtext}}>{item.sub_category||item.category}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.sub_category||item.category}</div></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1573,23 +1573,23 @@ function AdminRemotes() {
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>🎮 {editId?"Edit":"Add"} Remote Match</div>
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:18}}>
-        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🎮 {editId?"Edit":"Add"} Remote Match</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))} placeholder="PCB Model Number (e.g. DB93-12345A)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}>
             {["AC","Fridge","Washing","Other"].map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
         </div>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
+        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
         {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.pcb_images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
-              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${T.border}`}}/>
-              <button onClick={()=>removePcbImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:T.text,border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${"#2a3050"}`}}/>
+              <button onClick={()=>removePcbImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>}
@@ -1597,49 +1597,49 @@ function AdminRemotes() {
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setPcbSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:pcbSource===v?`2px solid ${AC}`:"1px solid #2a3050",background:pcbSource===v?`${AC}22`:"#0f1117",color:pcbSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {pcbSource==="upload"&&<div style={{marginBottom:14}}>
-          <input type="file" accept="image/*" onChange={addPcbImageFromFile} style={{width:"100%",fontSize:12,color:T.subtext}}/>
+          <input type="file" accept="image/*" onChange={addPcbImageFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
           {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
         </div>}
         {pcbSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
-          <input value={pcbUrl} onChange={e=>setPcbUrl(e.target.value)} placeholder="https://...pcb-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
-          <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+          <input value={pcbUrl} onChange={e=>setPcbUrl(e.target.value)} placeholder="https://...pcb-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
         </div>}
 
-        <div style={{fontSize:11,fontWeight:600,color:T.muted,marginBottom:8}}>Remote Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Remote Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
         {form.remote_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.remote_images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
-              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${T.border}`}}/>
-              <button onClick={()=>removeRemoteImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:T.text,border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:`1px solid ${"#2a3050"}`}}/>
+              <button onClick={()=>removeRemoteImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>}
         <div style={{display:"flex",gap:6,marginBottom:8}}>
-          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:`1px solid ${T.border}`,background:remoteSource===v?`${AC}22`:T.input,color:remoteSource===v?AC:T.subtext,fontSize:11,cursor:"pointer"}}>{l}</button>)}
+          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:`1px solid ${"#2a3050"}`,background:remoteSource===v?`${AC}22`:"#0f1117",color:remoteSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {remoteSource==="upload"&&<div style={{marginBottom:14}}>
-          <input type="file" accept="image/*" onChange={addRemoteImageFromFile} style={{width:"100%",fontSize:12,color:T.subtext}}/>
+          <input type="file" accept="image/*" onChange={addRemoteImageFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
           {remoteUploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file...</div>}
         </div>}
         {remoteSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
-          <input value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="https://...remote-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
-          <button onClick={addRemoteImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+          <input value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="https://...remote-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={addRemoteImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
         </div>}
 
         {msg&&<div style={{fontSize:12,marginBottom:10,marginTop:4,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
-          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>All Remote Matches ({list.length})</div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Remote Matches ({list.length})</div>
       {list.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",border:`1px solid ${T.border}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             {item.remote_images&&item.remote_images[0]&&<img src={item.remote_images[0]} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6}}/>}
-            <div><div style={{fontSize:12,color:T.muted,fontWeight:600}}>{item.model_number}</div><div style={{fontSize:11,color:T.subtext}}>{item.appliance}{item.brand?` · ${item.brand}`:""} · {(item.pcb_images||[]).length} PCB · {(item.remote_images||[]).length} remote img{(item.remote_images||[]).length===1?"":"s"}</div></div>
+            <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.model_number}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.appliance}{item.brand?` · ${item.brand}`:""} · {(item.pcb_images||[]).length} PCB · {(item.remote_images||[]).length} remote img{(item.remote_images||[]).length===1?"":"s"}</div></div>
           </div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:T.tag,color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
     </div>
@@ -1654,19 +1654,19 @@ function AdminRequests() {
   const updateStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>📥 User Requests ({list.length})</div>
-      {list.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:30}}>No requests yet.</div>}
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📥 User Requests ({list.length})</div>
+      {list.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No requests yet.</div>}
       {list.map(item=>(
-        <div key={item.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{item.request_type}</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{item.request_type}</div>
             <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:item.status==="pending"?"#ffa50222":item.status==="completed"?"#4caf5022":"#6b7db322",color:item.status==="pending"?"#ffa502":item.status==="completed"?PC:"#6b7db3"}}>{item.status}</div>
           </div>
-          <div style={{fontSize:11,color:T.subtext,marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:10}}>{item.description}</div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
+          <div style={{fontSize:12,color:"#b0b8d0",marginBottom:10}}>{item.description}</div>
           <div style={{display:"flex",gap:6}}>
             <button onClick={()=>updateStatus(item.id,"completed")} style={{padding:"6px 12px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:11}}>Mark Completed</button>
-            <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
+            <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
           </div>
         </div>
       ))}
@@ -1682,15 +1682,15 @@ function AdminCommunity() {
   const delPost=async(id)=>{if(!window.confirm("Delete this post and all replies?"))return;await fetch(`${SB_URL}/rest/v1/community_posts?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>👥 Community Moderation ({list.length})</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👥 Community Moderation ({list.length})</div>
       {list.map(post=>(
-        <div key={post.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
+        <div key={post.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.text}}>{post.author_name}</div>
+            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{post.author_name}</div>
             <button onClick={()=>delPost(post.id)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:10}}>Delete</button>
           </div>
-          <div style={{fontSize:12,color:T.muted,marginBottom:8}}>{post.text}</div>
-          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${T.border}`,paddingTop:8}}>{post.community_replies.map((r,i)=><div key={i} style={{fontSize:11,color:T.subtext,marginBottom:4}}><b style={{color:r.is_ai?PC:"#e8eaf0"}}>{r.author_name}:</b> {r.text}</div>)}</div>}
+          <div style={{fontSize:12,color:"#b0b8d0",marginBottom:8}}>{post.text}</div>
+          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${"#2a3050"}`,paddingTop:8}}>{post.community_replies.map((r,i)=><div key={i} style={{fontSize:11,color:"#6b7db3",marginBottom:4}}><b style={{color:r.is_ai?PC:"#e8eaf0"}}>{r.author_name}:</b> {r.text}</div>)}</div>}
         </div>
       ))}
     </div>
@@ -1706,25 +1706,25 @@ function AdminUsers() {
   const filtered=list.filter(u=>filter==="all"?true:u.status===filter);
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:14}}>👤 User Approvals</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👤 User Approvals</div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         {["pending","approved","rejected","all"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:"8px 4px",borderRadius:10,border:filter===f?`2px solid ${PC}`:"1px solid #2a3050",background:filter===f?"#1a2a1a":"#1a1f2e",color:filter===f?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",textTransform:"capitalize"}}>{f} ({f==="all"?list.length:list.filter(u=>u.status===f).length})</button>)}
       </div>
-      {filtered.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:30}}>No users in this category.</div>}
+      {filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No users in this category.</div>}
       {filtered.map(u=>(
-        <div key={u.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:10}}>
+        <div key={u.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:13,fontWeight:700,color:T.text}}>{u.full_name}</div>
+            <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{u.full_name}</div>
             <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:u.status==="pending"?"#ffa50222":u.status==="approved"?"#4caf5022":"#ff475722",color:u.status==="pending"?"#ffa502":u.status==="approved"?PC:"#ff4757"}}>{u.status}</div>
           </div>
-          <div style={{fontSize:11,color:T.subtext,lineHeight:1.5,marginBottom:10}}>
+          <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.5,marginBottom:10}}>
             {u.email}<br/>{u.city}, {u.state}, {u.country}<br/>{u.experience} · {u.specialization} · via {u.method}
           </div>
           {u.status==="pending"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setStatus(u.id,"approved")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
             <button onClick={()=>setStatus(u.id,"rejected")} style={{flex:1,padding:"8px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✕ Reject</button>
           </div>}
-          {u.status!=="pending"&&<button onClick={()=>setStatus(u.id,"pending")} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11}}>Reset to Pending</button>}
+          {u.status!=="pending"&&<button onClick={()=>setStatus(u.id,"pending")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Reset to Pending</button>}
         </div>
       ))}
     </div>
@@ -1807,18 +1807,18 @@ function AdminSettings() {
 
   const discardAll=()=>{setDraft(saved);setMsg("");};
 
-  if(!loaded) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading settings...</div>;
+  if(!loaded) return <div style={{padding:30,textAlign:"center",color:"#6b7db3"}}>Loading settings...</div>;
 
   return (
     <div style={{padding:16,paddingBottom:isDirty?90:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:T.text,marginBottom:4}}>⚙️ App Settings</div>
-      <div style={{fontSize:11,color:T.subtext,marginBottom:18}}>Make your changes, then tap Save Changes below to publish them.</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>⚙️ App Settings</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:18}}>Make your changes, then tap Save Changes below to publish them.</div>
 
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>Auto-approve new signups</div>
-            <div style={{fontSize:11,color:T.subtext}}>Skip manual review for new accounts</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Auto-approve new signups</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>Skip manual review for new accounts</div>
           </div>
           <button onClick={()=>setDraft(d=>({...d,auto_approve:!d.auto_approve}))} style={{width:48,height:26,borderRadius:14,background:draft.auto_approve?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.auto_approve?25:3,transition:"left 0.2s"}}/>
@@ -1826,11 +1826,11 @@ function AdminSettings() {
         </div>
       </div>
 
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
-            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>Parts Identifier</div>
-            <div style={{fontSize:11,color:T.subtext}}>Show/hide the Part Finder feature for all users</div>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Parts Identifier</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>Show/hide the Part Finder feature for all users</div>
           </div>
           <button onClick={()=>setDraft(d=>({...d,parts_enabled:!d.parts_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_enabled?25:3,transition:"left 0.2s"}}/>
@@ -1838,25 +1838,25 @@ function AdminSettings() {
         </div>
       </div>
 
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`,marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:3}}>PCB AI daily question limit</div>
-        <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>PCB AI daily question limit</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Questions each user may ask per day (failed answers are never counted)</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <input type="range" min={1} max={20} value={draft.ai_daily_limit} onChange={e=>setDraft(d=>({...d,ai_daily_limit:Number(e.target.value)}))} style={{flex:1}}/>
           <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:AC}}>{draft.ai_daily_limit}/day</div>
         </div>
       </div>
 
-      <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:T.muted,lineHeight:1.6}}>
+      <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:"#b0b8d0",lineHeight:1.6}}>
         💡 These settings are stored in the <code>app_settings</code> table in Supabase (the live backend), not just in this browser — so they stay correct after a refresh, after closing the app, and for every admin device.
       </div>
 
-      {isDirty&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:T.card,borderTop:`1px solid ${PC}55`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,zIndex:20,boxShadow:"0 -4px 16px rgba(0,0,0,0.4)"}}>
+      {isDirty&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${PC}55`,padding:"12px 16px",display:"flex",alignItems:"center",gap:10,zIndex:20,boxShadow:"0 -4px 16px rgba(0,0,0,0.4)"}}>
         <div style={{flex:1,fontSize:12,color:AC,fontWeight:600}}>You have unsaved changes</div>
-        <button onClick={discardAll} disabled={saving} style={{padding:"10px 16px",borderRadius:10,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Discard</button>
+        <button onClick={discardAll} disabled={saving} style={{padding:"10px 16px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Discard</button>
         <button onClick={saveAll} disabled={saving} style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving...":"Save Changes"}</button>
       </div>}
-      {msg&&!isDirty&&<div style={{position:"fixed",bottom:16,left:16,right:16,textAlign:"center",fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"10px"}}>{msg}</div>}
+      {msg&&!isDirty&&<div style={{position:"fixed",bottom:16,left:16,right:16,textAlign:"center",fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",background:"#1a1f2e",border:`1px solid ${"#2a3050"}`,borderRadius:10,padding:"10px"}}>{msg}</div>}
     </div>
   );
 }
@@ -1876,15 +1876,15 @@ function AdminPanel({onLogout}) {
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh"}}>
-      <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO} alt="" style={{height:28}}/>
           <div style={{fontSize:13,fontWeight:700,color:AC}}>ADMIN</div>
         </div>
         <button onClick={onLogout} style={{padding:"7px 14px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Logout</button>
       </div>
-      <div style={{display:"flex",overflowX:"auto",background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 8px"}}>
+      <div style={{display:"flex",overflowX:"auto",background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"0 8px"}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5}}>
             <span>{t.icon}</span>{t.label}
@@ -2036,16 +2036,16 @@ export default function PCBCare() {
 
   return (
     <ThemeCtx.Provider value={T}>
-    <div style={{fontFamily:"'Inter',sans-serif",background:T.bg,minHeight:"100vh",color:T.text,transition:"background 0.2s,color 0.2s"}}>
-      <div style={{background:T.navBg,borderBottom:`1px solid ${T.navBorder}`,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${T.shadow}`}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",color:"#fff",transition:"background 0.2s,color 0.2s"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {/* Day/Night theme toggle */}
           <button onClick={toggleTheme} title={isDark?"Switch to light mode":"Switch to dark mode"}
-            style={{width:36,height:36,borderRadius:"50%",border:`1px solid ${T.border}`,background:T.card,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.2s"}}>
+            style={{width:36,height:36,borderRadius:"50%",border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.2s"}}>
             {isDark?"🌙":"☀️"}
           </button>
-          <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
+          <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
         </div>
       </div>
 
@@ -2053,7 +2053,7 @@ export default function PCBCare() {
         {tab==="home"&&<Home setTab={setTab} partsEnabled={partsEnabled} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
-        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:T.subtext}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
+        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:"#6b7db3"}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
         {tab==="remote"&&<FindRemote/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
@@ -2062,11 +2062,11 @@ export default function PCBCare() {
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:T.navBg,borderTop:`1px solid ${T.navBorder}`,display:"flex",padding:"8px 4px",zIndex:5}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",zIndex:5}}>
         {NAV.map(n=>(
           <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
-            <div style={{fontSize:9,color:tab===n.id?PC:T.subtext,fontWeight:tab===n.id?700:400}}>{n.label}</div>
+            <div style={{fontSize:9,color:tab===n.id?PC:"#6b7db3",fontWeight:tab===n.id?700:400}}>{n.label}</div>
           </button>
         ))}
       </div>
