@@ -324,7 +324,7 @@ function Signup({onGoLogin,onLogin}) {
 
   const checkAlreadyRegistered=async(uid)=>{
     const existing=await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
-    return Array.isArray(existing)&&existing[0]||null;
+    return (Array.isArray(existing)&&existing[0])||null;
   };
 
   // ── Step 1: Google ──
@@ -357,7 +357,7 @@ function Signup({onGoLogin,onLogin}) {
       const res=await fetch(`${SB_URL}/auth/v1/otp`,{method:"POST",headers:{apikey:SB_KEY,"Content-Type":"application/json"},body:JSON.stringify({phone:fullNumber,channel:"sms"})});
       const raw=await res.text();let data={};try{data=raw?JSON.parse(raw):{};}catch{}
       if(!res.ok){
-        const friendly={"sms_send_failed":"Couldn\'t deliver the SMS. Please try again shortly.","over_sms_send_rate_limit":"You can only request one OTP every 60 seconds.","phone_provider_disabled":"Phone sign-up isn\'t available right now.","validation_failed":"That phone number looks invalid."};
+        const friendly={"sms_send_failed":"Couldn't deliver the SMS. Please try again shortly.","over_sms_send_rate_limit":"You can only request one OTP every 60 seconds.","phone_provider_disabled":"Phone sign-up isn't available right now.","validation_failed":"That phone number looks invalid."};
         setPhoneErr(friendly[data.error_code]||data.msg||data.error_description||`Could not send OTP (status ${res.status}). Try again.`);
       }else{setPhoneStage("otp");setResendIn(60);}
     }catch(e){setPhoneErr("Network error. Please check your connection and try again.");}
@@ -392,7 +392,7 @@ function Signup({onGoLogin,onLogin}) {
     setCredErr("");
     if(!credEmail.trim()){setCredErr("Enter an email address.");return;}
     if(!credPw||credPw.length<6){setCredErr("Password must be at least 6 characters.");return;}
-    if(credPw!==credPw2){setCredErr("Passwords don\'t match.");return;}
+    if(credPw!==credPw2){setCredErr("Passwords don't match.");return;}
     setCredLoading(true);
     try{
       const auth=await initFirebase();
@@ -420,7 +420,7 @@ function Signup({onGoLogin,onLogin}) {
       },prefer:"return=representation"});
       const newUser=Array.isArray(created)?created[0]:null;
       if(status==="pending"){
-        setCredErr("Your account is pending admin approval. You\'ll be notified within 24-48 hours.");
+        setCredErr("Your account is pending admin approval. You'll be notified within 24-48 hours.");
         setCredLoading(false);return;
       }
       if(newUser){DB.set("pcb_user",newUser);onLogin(newUser);}
@@ -733,8 +733,6 @@ function Wiring() {
 function Parts() {
   const T=useTheme();
   const [model,setModel]=useState("");const [result,setResult]=useState(null);const [loading,setLoading]=useState(false);
-  const [brandHint,setBrandHint]=useState("");
-  const BRANDS=["Samsung","LG","Voltas","Daikin","Carrier","Hitachi","Blue Star","Whirlpool","IFB","Godrej","Bosch","Haier","Panasonic","Other"];
   const search=async()=>{
     if(!model.trim())return;setLoading(true);setResult(null);
     try{const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:800,response_format:{type:"json_object"},messages:[{role:"user",content:`Appliance parts advisor. Respond with ONLY valid JSON, no markdown, no commentary, in exactly this shape: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}. Model number: ${model}.`}]})});
@@ -841,7 +839,7 @@ function FindRemote() {
 function TipsTricks() {
   const T=useTheme();
   const [sub,setSub]=useState("All");const [tips,setTips]=useState([]);const [sel,setSel]=useState(null);const [loading,setLoading]=useState(true);
-  const [searchQ,setSearchQ]=useState("");
+  const [searchQ]=useState("");
   const SUBS=["All","Wiring Connection","Sensor Values","General","Safety","Tools"];
   useEffect(()=>{api("tips_tricks",{filter:"?select=*&order=created_at.desc"}).then(d=>{setTips(d||[]);setLoading(false);});},[]);
   const filtered=tips.filter(t=>{
