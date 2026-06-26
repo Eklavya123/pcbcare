@@ -320,7 +320,7 @@ function Login({onLogin,onGoSignup}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${"#2a3050"}`}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
@@ -403,10 +403,6 @@ function Signup({onGoLogin,onLogin}) {
   const [credErr,setCredErr]=useState("");
   const [credLoading,setCredLoading]=useState(false);
 
-  const checkAlreadyRegistered=async(uid)=>{
-    const existing=await api("users",{filter:`?firebase_uid=eq.${uid}&select=*`});
-    return (Array.isArray(existing)&&existing[0])||null;
-  };
 
   // ── Step 1: Google ──
   const handleGoogleVerify=async()=>{
@@ -526,7 +522,7 @@ function Signup({onGoLogin,onLogin}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100dvh",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:20}}>
       <div style={{maxWidth:420,margin:"0 auto"}}>
         <div style={{textAlign:"center",padding:"20px 0 16px"}}>
           <img src={LOGO} alt="" style={{width:160,maxWidth:"100%",marginBottom:12}}/>
@@ -1175,7 +1171,7 @@ function AIChat() {
   };
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)",height:"calc(-webkit-fill-available - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
       <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{fontSize:18,fontWeight:700,color:T.text}}>🤖 PCB AI</div><div style={{fontSize:11,color:PC}}>Powered by database knowledge</div></div>
         <div style={{background:remaining>2?"#4caf5022":remaining>0?"#ffa50222":"#ff475722",borderRadius:20,padding:"5px 10px",border:`1px solid ${remaining>2?"#4caf5044":remaining>0?"#ffa50244":"#ff475744"}`}}>
@@ -2228,8 +2224,8 @@ function AdminPanel({onLogout}) {
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available"}}>
-      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"14px 16px",paddingTop:"max(14px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",position:"-webkit-sticky",top:0,zIndex:10}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100dvh"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"14px 16px",paddingTop:"max(14px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO} alt="" style={{height:28}}/>
           <div style={{fontSize:13,fontWeight:700,color:AC}}>ADMIN</div>
@@ -2389,8 +2385,8 @@ export default function PCBCare() {
 
   return (
     <ThemeCtx.Provider value={T}>
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",color:"#fff",transition:"background 0.2s,color 0.2s",WebkitUserSelect:"none",userSelect:"none"}}>
-      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",paddingTop:"max(12px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",position:"-webkit-sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100dvh",color:"#fff",transition:"background 0.2s,color 0.2s",WebkitUserSelect:"none",userSelect:"none"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",paddingTop:"max(12px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
