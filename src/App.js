@@ -3,6 +3,32 @@ import React, { useState, useEffect, useRef } from "react";
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
+// ── iOS / Safari detection ────────────────────────────────────────────────────
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+  (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const isSafari = () => /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+const needsRedirect = () => isIOS() || isSafari();
+
+// ── CSS helpers injected once at boot ────────────────────────────────────────
+const injectGlobalCSS = () => {
+  if(document.getElementById("pcb-ios-global")) return;
+  // Ensure correct viewport meta — covers-safe-area needed for iPhone notch/home bar
+  let vm = document.querySelector("meta[name='viewport']");
+  if(!vm){ vm=document.createElement("meta"); vm.name="viewport"; document.head.appendChild(vm); }
+  vm.content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover";
+  const s = document.createElement("style");
+  s.id = "pcb-ios-global";
+  s.textContent = `
+    *{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;}
+    input,textarea,select{font-size:16px!important;}
+    body{-webkit-text-size-adjust:100%;overscroll-behavior-y:none;}
+    .ios-scroll{-webkit-overflow-scrolling:touch;overflow-y:auto;}
+    .ios-scroll-x{-webkit-overflow-scrolling:touch;overflow-x:auto;}
+  `;
+  document.head.appendChild(s);
+};
+injectGlobalCSS();
+
 let _fbAuth = null;
 let _fbAuthPromise = null;
 const initFirebase = () => {
@@ -31,7 +57,10 @@ const initFirebase = () => {
     function go() {
       if (!window.firebase) { _fbAuthPromise = null; return; } // safety net, shouldn't happen now
       try { window.firebase.initializeApp({apiKey:"AIzaSyAn1mLFmN-0eOkgzVj_eZ1-Nr4AVX8IAOg",authDomain:"pcb-care.firebaseapp.com",projectId:"pcb-care",storageBucket:"pcb-care.firebasestorage.app",messagingSenderId:"849256587515",appId:"1:849256587515:web:3577e0896e6642000f905e",measurementId:"G-7LJ17PXJ8C"}); } catch(e) { if (window.firebase.apps && window.firebase.apps.length) window.firebase.app(); }
-      _fbAuth = window.firebase.auth(); resolve(_fbAuth);
+      _fbAuth = window.firebase.auth();
+      // iOS Safari blocks popups — persist auth state across the redirect round-trip
+      _fbAuth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+      resolve(_fbAuth);
     }
   });
   return _fbAuthPromise;
@@ -61,14 +90,6 @@ const DARK = {
   navBg:"#1a1f2e",navBorder:"#2a3050",
   tag:"#2a3050",tagText:"#e8eaf0",
   shadow:"rgba(0,0,0,0.4)",
-};
-const LIGHT = {
-  bg:"#f0f4f8",card:"#ffffff",border:"#d1dae6",
-  text:"#0f172a",subtext:"#4b6075",muted:"#334155",
-  input:"#f8fafc",inputText:"#0f172a",
-  navBg:"#ffffff",navBorder:"#d1dae6",
-  tag:"#e8f0fe",tagText:"#1e3a5f",
-  shadow:"rgba(0,0,0,0.1)",
 };
 const ThemeCtx = React.createContext(DARK);
 const useTheme = () => React.useContext(ThemeCtx);
@@ -100,7 +121,22 @@ const DB = {
   remove:(k)=>{try{localStorage.removeItem(k);}catch{}}
 };
 
-const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
+// ── Shared Google sign-in: popup on desktop, redirect on iOS/Safari ───────────
+// iOS Safari hard-blocks window.open() popups from async callbacks, so
+// signInWithPopup always throws "auth/popup-blocked". The fix is to use
+// signInWithRedirect (which reloads the page) on those platforms and pick up
+// the result via getRedirectResult on the next mount.
+const googleSignIn = async (auth) => {
+  const provider = new window.firebase.auth.GoogleAuthProvider();
+  if (needsRedirect()) {
+    await auth.signInWithRedirect(provider);
+    return null; // page will reload; caller should not proceed
+  }
+  return auth.signInWithPopup(provider);
+};
+
+// Stored callback key used to resume after redirect
+const REDIRECT_CB_KEY = "pcb_google_redirect_cb"; // "login" | "signup"
   const url = `${SB_URL}/rest/v1/${table}${filter}`;
   const h = {apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"};
   if(prefer) h["Prefer"]=prefer;
@@ -192,6 +228,16 @@ function Intro({onDone}) {
   );
 }
 
+// ── Shared handler: processes a Google sign-in result for the Login flow ──────
+const _processGoogleLoginResult = async (result, onLogin, setErr) => {
+  const users=await api("users",{filter:`?firebase_uid=eq.${result.user.uid}&select=*`});
+  const user=Array.isArray(users)?users[0]:null;
+  if(!user){setErr("Account not found. Please sign up.");return;}
+  if(user.status==="pending"){setErr("Account pending admin approval.");return;}
+  if(user.status==="rejected"){setErr("Account rejected. Contact admin.");return;}
+  DB.set("pcb_user",user);onLogin(user);
+};
+
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
 function Login({onLogin,onGoSignup}) {
   const [email,setEmail]=useState("");
@@ -204,17 +250,34 @@ function Login({onLogin,onGoSignup}) {
     setErr("");setGoogleLoading(true);
     try{
       const auth=await initFirebase();
-      const provider=new window.firebase.auth.GoogleAuthProvider();
-      const result=await auth.signInWithPopup(provider);
-      const users=await api("users",{filter:`?firebase_uid=eq.${result.user.uid}&select=*`});
-      const user=Array.isArray(users)?users[0]:null;
-      if(!user){setErr("Account not found. Please sign up.");setGoogleLoading(false);return;}
-      if(user.status==="pending"){setErr("Account pending admin approval.");setGoogleLoading(false);return;}
-      if(user.status==="rejected"){setErr("Account rejected. Contact admin.");setGoogleLoading(false);return;}
-      DB.set("pcb_user",user);onLogin(user);
+      // On iOS/Safari signInWithPopup is blocked — use redirect instead.
+      // Store intent so getRedirectResult handler knows which flow to resume.
+      if(needsRedirect()){
+        DB.set(REDIRECT_CB_KEY,"login");
+        await googleSignIn(auth); // triggers page reload; nothing runs after this
+        return;
+      }
+      const result=await googleSignIn(auth);
+      await _processGoogleLoginResult(result,onLogin,setErr);
     }catch(e){setErr(e.message||"Google sign-in failed");}
     setGoogleLoading(false);
   };
+
+  // Handle the redirect result when we land back after iOS redirect
+  useEffect(()=>{
+    if(DB.get(REDIRECT_CB_KEY,null)!=="login") return;
+    DB.remove(REDIRECT_CB_KEY);
+    (async()=>{
+      setGoogleLoading(true);
+      try{
+        const auth=await initFirebase();
+        const result=await auth.getRedirectResult();
+        if(result&&result.user) await _processGoogleLoginResult(result,onLogin,setErr);
+      }catch(e){setErr(e.message||"Google sign-in failed");}
+      setGoogleLoading(false);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   const doLogin=async()=>{
     if(!email||!pw){setErr("Enter email and password");return;}
@@ -254,7 +317,7 @@ function Login({onLogin,onGoSignup}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${"#2a3050"}`}}>
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
@@ -276,9 +339,9 @@ function Login({onLogin,onGoSignup}) {
           <div style={{flex:1,height:1,background:"#2a3050"}}/><div style={{fontSize:12,color:"#6b7db3"}}>or</div><div style={{flex:1,height:1,background:"#2a3050"}}/>
         </div>
         <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email address"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         <input type="password" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==="Enter"&&doLogin()} placeholder="Password"
-          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
         <button onClick={doLogin} disabled={loading}
           style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
@@ -292,6 +355,21 @@ function Login({onLogin,onGoSignup}) {
     </div>
   );
 }
+
+// ── Shared handler: processes a Google result for the Signup flow ─────────────
+const _processGoogleSignupResult = async (result, {setFbUser,setCredEmail,setVerifyMethod,setStep,setErr,onLogin}) => {
+  const existing=await api("users",{filter:`?firebase_uid=eq.${result.user.uid}&select=*`});
+  const found=(Array.isArray(existing)&&existing[0])||null;
+  if(found){
+    if(found.status==="pending"){setErr("Account pending admin approval.");return;}
+    if(found.status==="rejected"){setErr("Account rejected. Contact admin.");return;}
+    DB.set("pcb_user",found);onLogin(found);return;
+  }
+  setFbUser({uid:result.user.uid,email:result.user.email||"",displayName:result.user.displayName||""});
+  setCredEmail(result.user.email||"");
+  setVerifyMethod("google");
+  setStep(2);
+};
 
 // ── SIGNUP ────────────────────────────────────────────────────────────────────
 function Signup({onGoLogin,onLogin}) {
@@ -332,20 +410,29 @@ function Signup({onGoLogin,onLogin}) {
     setErr("");
     try{
       const auth=await initFirebase();
-      const provider=new window.firebase.auth.GoogleAuthProvider();
-      const result=await auth.signInWithPopup(provider);
-      const existing=await checkAlreadyRegistered(result.user.uid);
-      if(existing){
-        if(existing.status==="pending"){setErr("Account pending admin approval.");return;}
-        if(existing.status==="rejected"){setErr("Account rejected. Contact admin.");return;}
-        DB.set("pcb_user",existing);onLogin(existing);return;
+      if(needsRedirect()){
+        DB.set(REDIRECT_CB_KEY,"signup");
+        await googleSignIn(auth);
+        return;
       }
-      setFbUser({uid:result.user.uid,email:result.user.email||"",displayName:result.user.displayName||""});
-      setCredEmail(result.user.email||"");
-      setVerifyMethod("google");
-      setStep(2);
+      const result=await googleSignIn(auth);
+      await _processGoogleSignupResult(result,{setFbUser,setCredEmail,setVerifyMethod,setStep,setErr,onLogin});
     }catch(e){setErr(e.message||"Google sign-in failed");}
   };
+
+  // Handle redirect result when landing back from iOS Google redirect
+  useEffect(()=>{
+    if(DB.get(REDIRECT_CB_KEY,null)!=="signup") return;
+    DB.remove(REDIRECT_CB_KEY);
+    (async()=>{
+      try{
+        const auth=await initFirebase();
+        const result=await auth.getRedirectResult();
+        if(result&&result.user) await _processGoogleSignupResult(result,{setFbUser,setCredEmail,setVerifyMethod,setStep,setErr,onLogin});
+      }catch(e){setErr(e.message||"Google sign-in failed");}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   // ── Step 1: Phone OTP ──
   const sendOtp=async()=>{
@@ -436,7 +523,7 @@ function Signup({onGoLogin,onLogin}) {
   };
 
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",overflowY:"auto",padding:20}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",overflowY:"auto",WebkitOverflowScrolling:"touch",padding:20}}>
       <div style={{maxWidth:420,margin:"0 auto"}}>
         <div style={{textAlign:"center",padding:"20px 0 16px"}}>
           <img src={LOGO} alt="" style={{width:160,maxWidth:"100%",marginBottom:12}}/>
@@ -474,7 +561,7 @@ function Signup({onGoLogin,onLogin}) {
                 <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Mobile Number</div>
                 <div style={{display:"flex",gap:8,marginBottom:10}}>
                   <div style={{padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:PC,fontSize:14,fontWeight:700}}>+91</div>
-                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="10-digit number" inputMode="numeric" maxLength={10} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                  <input value={digitsOnly} onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))} onKeyDown={e=>e.key==="Enter"&&sendOtp()} placeholder="10-digit number" inputMode="numeric" maxLength={10} style={{flex:1,padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box"}}/>
                 </div>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
                 <button onClick={sendOtp} disabled={phoneLoading||digitsOnly.length!==10} style={{width:"100%",padding:"13px",borderRadius:10,background:digitsOnly.length===10?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:digitsOnly.length===10?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Sending OTP...":"Send OTP"}</button>
@@ -482,7 +569,7 @@ function Signup({onGoLogin,onLogin}) {
               </>}
               {phoneStage==="otp"&&<>
                 <div style={{fontSize:12,color:"#b0b8d0",marginBottom:14,textAlign:"center"}}>OTP sent to <b style={{color:"#fff"}}>+91 {digitsOnly}</b></div>
-                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()} placeholder="Enter OTP" inputMode="numeric" maxLength={6} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:18,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+                <input value={otp} onChange={e=>setOtp(e.target.value.replace(/\D/g,"").slice(0,6))} onKeyDown={e=>e.key==="Enter"&&verifyOtp()} placeholder="Enter OTP" inputMode="numeric" maxLength={6} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:20,letterSpacing:4,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:10}}/>
                 {phoneErr&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {phoneErr}</div>}
                 <button onClick={verifyOtp} disabled={phoneLoading||otp.trim().length<4} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>{phoneLoading?"Verifying...":"Verify OTP"}</button>
                 <div style={{textAlign:"center",fontSize:12,color:"#6b7db3"}}>{resendIn>0?`Resend OTP in ${resendIn}s`:<button onClick={sendOtp} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:12,fontWeight:600,textDecoration:"underline"}}>Resend OTP</button>}</div>
@@ -495,9 +582,9 @@ function Signup({onGoLogin,onLogin}) {
           <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Set Your Login Password</div>
             <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>You'll use this email and password to sign in</div>
-            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input value={credEmail} onChange={e=>setCredEmail(e.target.value)} placeholder="Email address" readOnly={verifyMethod==="google"} style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:verifyMethod==="google"?"#161b28":"#0f1117",color:verifyMethod==="google"?"#9aa5c0":"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw} onChange={e=>setCredPw(e.target.value)} placeholder="Password (min 6 chars)" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+            <input type="password" value={credPw2} onChange={e=>setCredPw2(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submitCredentials()} placeholder="Confirm password" style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
             {credErr&&<div style={{color:"#ff4757",fontSize:12,padding:"8px 12px",background:"#ff475711",borderRadius:8,marginBottom:10}}>⚠ {credErr}</div>}
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>{setStep(1);setVerifyMethod(null);setFbUser(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>← Back</button>
@@ -554,7 +641,7 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
     setSaving(false);
   };
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9997,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9997,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
       <div style={{background:T.card,borderRadius:20,padding:24,width:"100%",maxWidth:380,border:`1px solid ${T.border}`,margin:"20px 0"}}>
         <div style={{fontSize:30,marginBottom:10,textAlign:"center"}}>📍</div>
         <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:6,textAlign:"center"}}>Complete Your Profile</div>
@@ -721,7 +808,7 @@ function Wiring() {
           </div>}
         </div>
       ))}
-      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
         <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
@@ -827,7 +914,7 @@ function FindRemote() {
         </div>
       ))}
 
-      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
         <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
@@ -970,7 +1057,7 @@ function SensorValues() {
         ))}
       </>}
 
-      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
         <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
@@ -1085,7 +1172,7 @@ function AIChat() {
   };
 
   return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)",height:"calc(-webkit-fill-available - 130px)"}}>
       <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div><div style={{fontSize:18,fontWeight:700,color:T.text}}>🤖 PCB AI</div><div style={{fontSize:11,color:PC}}>Powered by database knowledge</div></div>
         <div style={{background:remaining>2?"#4caf5022":remaining>0?"#ffa50222":"#ff475722",borderRadius:20,padding:"5px 10px",border:`1px solid ${remaining>2?"#4caf5044":remaining>0?"#ffa50244":"#ff475744"}`}}>
@@ -1096,7 +1183,7 @@ function AIChat() {
         <div style={{height:3,background:T.tag,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${(usage/LIMIT)*100}%`,background:usage<3?"#4caf50":usage<5?"#ffa502":"#ff4757",borderRadius:4,transition:"width 0.3s"}}/></div>
         {remaining===0&&<div style={{fontSize:11,color:"#ff4757",textAlign:"center",marginTop:4}}>Daily limit reached. Resets at midnight 🔄</div>}
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:14,display:"flex",flexDirection:"column",gap:10}}>
         {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"83%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",fontSize:13,color:T.muted,lineHeight:1.6,border:m.role==="assistant"?"1px solid #2a3050":"none",whiteSpace:"pre-wrap"}}>{m.text}</div></div>)}
         {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}><div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:"14px 14px 14px 4px",padding:"10px 16px",color:T.subtext,fontSize:13}}>Thinking...</div></div>}
         <div ref={bottomRef}/>
@@ -1144,65 +1231,183 @@ function Requests({user}) {
 }
 
 // ── ADMIN: ERROR CODES ────────────────────────────────────────────────────────
-// The admin picks the appliance type, then the brand, fills in the error code
-// fields, and on Save it is written straight to the error_codes table — no
-// manual DB step required, it auto-updates the live database immediately.
-function AdminErrors() {
+// ── FRIDGE ERROR CODE ENTRY (model-based, multi-error, LED blink image upload) ─
+const FRIDGE_BRANDS=["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Hitachi","Voltas","Other"];
+
+// A single fridge error entry row with PCB image, error image, LED blink image, description, fix
+function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
+  const [pcbUploading,setPcbUploading]=useState(false);
+  const [errUploading,setErrUploading]=useState(false);
+  const [ledUploading,setLedUploading]=useState(false);
+
+  const uploadImg=(field,setLoading,e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setLoading(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);setLoading(false);e.target.value="";};
+    reader.onerror=()=>setLoading(false);
+    reader.readAsDataURL(file);
+  };
+
+  const inp=(field,placeholder,type="text",rows)=>{
+    const base={width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
+    if(rows) return <textarea value={entry[field]} onChange={e=>onChange(index,field,e.target.value)} placeholder={placeholder} rows={rows} style={{...base,resize:"vertical",fontFamily:"inherit"}}/>;
+    return <input type={type} value={entry[field]} onChange={e=>onChange(index,field,e.target.value)} placeholder={placeholder} style={base}/>;
+  };
+
+  return (
+    <div style={{background:"#0f1117",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:12,position:"relative"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:12,fontWeight:700,color:AC}}>Error #{index+1}</div>
+        {canRemove&&<button onClick={()=>onRemove(index)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button>}
+      </div>
+
+      {/* PCB Image */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>PCB Image</div>
+        {entry.pcb_image&&<div style={{marginBottom:6}}><img src={entry.pcb_image} alt="PCB" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"pcb_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+        <input type="file" accept="image/*" onChange={e=>uploadImg("pcb_image",setPcbUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+        {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+      </div>
+
+      {/* Error Image */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image<span style={{color:"#ff4757"}}> *</span></div>
+        {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="Error" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+        <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+        {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+      </div>
+
+      {/* LED Blink Pattern Image */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>LED Blink Pattern Image</div>
+        {entry.led_image&&<div style={{marginBottom:6}}><img src={entry.led_image} alt="LED" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"led_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+        <input type="file" accept="image/*" onChange={e=>uploadImg("led_image",setLedUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+        {ledUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+      </div>
+
+      {/* Description */}
+      <div style={{marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Description / Meaning<span style={{color:"#ff4757"}}> *</span></div>
+        {inp("description","e.g. Compressor overload, sensor fault…",undefined,2)}
+      </div>
+
+      {/* Fix */}
+      <div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
+        {inp("how_to_fix","Step-by-step fix…",undefined,3)}
+      </div>
+    </div>
+  );
+}
+
+// Blank fridge error entry
+const blankFridgeEntry=()=>({pcb_image:"",error_image:"",led_image:"",description:"",how_to_fix:""});
+
+// ── ADMIN ERRORS — main component ─────────────────────────────────────────────
+function AdminErrors(){
   const APPLIANCES=[{v:"fridge",l:"🧊 Refrigerator"},{v:"washing",l:"🌀 Washing Machine"},{v:"ac",l:"❄️ Air Conditioner"}];
   const COMMON_BRANDS={
-    fridge:["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Other"],
+    fridge:FRIDGE_BRANDS,
     washing:["Samsung","LG","Whirlpool","IFB","Bosch","Haier","Godrej","Other"],
     ac:["Samsung","LG","Daikin","Voltas","Carrier","Hitachi","Blue Star","Other"]
   };
-  const blank={appliance:"",brand:"",customBrand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
+
+  const [appliance,setAppliance]=useState("");
+
+  // ── Fridge-specific state ──
+  const [fridgeBrand,setFridgeBrand]=useState("");const [fridgeCustomBrand,setFridgeCustomBrand]=useState("");
+  const [fridgeModel,setFridgeModel]=useState("");
+  const [fridgeEntries,setFridgeEntries]=useState([blankFridgeEntry()]);
+  const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);
+
+  // ── AC / Washing state (unchanged flow) ──
+  const blank={brand:"",customBrand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
   const [form,setForm]=useState(blank);
-  const [list,setList]=useState([]);
   const [editId,setEditId]=useState(null);
   const [msg,setMsg]=useState("");
   const [saving,setSaving]=useState(false);
-  const [filterApp,setFilterApp]=useState("");
 
-  const load=async()=>{const d=await api("error_codes",{filter:"?select=*&order=appliance,brand,error_code"});setList(d||[]);};
+  // ── Shared list ──
+  const [list,setList]=useState([]);
+  const [filterApp,setFilterApp]=useState("");
+  const load=async()=>{const d=await api("error_codes",{filter:"?select=*&order=appliance,brand,model_number,error_code"});setList(d||[]);};
   useEffect(()=>{load();},[]);
 
-  const brandValue = form.brand==="Other" ? form.customBrand : form.brand;
+  // ── Fridge helpers ──
+  const fridgeBrandValue=fridgeBrand==="Other"?fridgeCustomBrand:fridgeBrand;
 
-  const reset=()=>{setForm(blank);setEditId(null);};
+  const updateEntry=(idx,field,val)=>{
+    setFridgeEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});
+  };
+  const addEntry=()=>setFridgeEntries(prev=>[...prev,blankFridgeEntry()]);
+  const removeEntry=(idx)=>setFridgeEntries(prev=>prev.filter((_,i)=>i!==idx));
+  const resetFridge=()=>{setFridgeBrand("");setFridgeCustomBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");};
+
+  const saveFridge=async()=>{
+    setFridgeMsg("");
+    if(!fridgeBrandValue.trim()){setFridgeMsg("⚠ Please select or enter a brand.");return;}
+    if(!fridgeModel.trim()){setFridgeMsg("⚠ Model number is required.");return;}
+    for(let i=0;i<fridgeEntries.length;i++){
+      const e=fridgeEntries[i];
+      if(!e.error_image){setFridgeMsg(`⚠ Error #${i+1}: Error image is required.`);return;}
+      if(!e.description.trim()){setFridgeMsg(`⚠ Error #${i+1}: Description is required.`);return;}
+      if(!e.how_to_fix.trim()){setFridgeMsg(`⚠ Error #${i+1}: How to fix is required.`);return;}
+    }
+    setFridgeSaving(true);
+    try{
+      for(const e of fridgeEntries){
+        const payload={
+          appliance:"fridge",
+          brand:fridgeBrandValue.trim(),
+          model_number:fridgeModel.trim().toUpperCase(),
+          error_code:"LED",
+          meaning:e.description.trim(),
+          cause:e.description.trim(),
+          how_to_fix:e.how_to_fix.trim(),
+          pcb_image:e.pcb_image||null,
+          error_image:e.error_image,
+          led_image:e.led_image||null,
+          indoor_led_blinks:0,
+          outdoor_led_blinks:0
+        };
+        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
+      setFridgeMsg(`✅ ${fridgeEntries.length} error code${fridgeEntries.length>1?"s":""} saved for ${fridgeModel.toUpperCase()}.`);
+      resetFridge();load();
+    }catch(err){setFridgeMsg("⚠ Save failed: "+err.message);}
+    setFridgeSaving(false);
+  };
+
+  // ── AC/Washing helpers ──
+  const brandValue=form.brand==="Other"?form.customBrand:form.brand;
+  const reset=()=>{setForm(blank);setEditId(null);setMsg("");};
 
   const save=async()=>{
     setMsg("");
-    if(!form.appliance){setMsg("⚠ Please choose an appliance type.");return;}
     if(!brandValue.trim()){setMsg("⚠ Please choose or enter a brand.");return;}
     if(!form.error_code.trim()){setMsg("⚠ Error code is required.");return;}
     if(!form.meaning.trim()||!form.cause.trim()||!form.how_to_fix.trim()){setMsg("⚠ Meaning, cause and fix are all required.");return;}
     setSaving(true);
-    const payload={
-      appliance:form.appliance,
-      brand:brandValue.trim(),
-      error_code:form.error_code.trim().toUpperCase(),
-      meaning:form.meaning.trim(),
-      cause:form.cause.trim(),
-      how_to_fix:form.how_to_fix.trim(),
-      indoor_led_blinks:Number(form.indoor_led_blinks)||0,
-      outdoor_led_blinks:Number(form.outdoor_led_blinks)||0
-    };
+    const payload={appliance,brand:brandValue.trim(),error_code:form.error_code.trim().toUpperCase(),meaning:form.meaning.trim(),cause:form.cause.trim(),how_to_fix:form.how_to_fix.trim(),indoor_led_blinks:Number(form.indoor_led_blinks)||0,outdoor_led_blinks:Number(form.outdoor_led_blinks)||0};
     try{
       if(editId){
         await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
-        setMsg("✅ Error code updated in database.");
+        setMsg("✅ Updated.");
       }else{
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
-        setMsg("✅ Error code added to database — live immediately.");
+        setMsg("✅ Added to database.");
       }
-      reset();
-      load();
+      reset();load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
     setSaving(false);
   };
 
   const edit=(item)=>{
+    setAppliance(item.appliance);
+    if(item.appliance==="fridge") return; // fridge entries not edited inline
     const knownBrand=COMMON_BRANDS[item.appliance]?.includes(item.brand);
-    setForm({appliance:item.appliance,brand:knownBrand?item.brand:"Other",customBrand:knownBrand?"":item.brand,error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
+    setForm({brand:knownBrand?item.brand:"Other",customBrand:knownBrand?"":item.brand,error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
     setEditId(item.id);setMsg("");
   };
 
@@ -1212,56 +1417,94 @@ function AdminErrors() {
     load();
   };
 
-  const filtered = filterApp ? list.filter(i=>i.appliance===filterApp) : list;
+  const filtered=filterApp?list.filter(i=>i.appliance===filterApp):list;
+  const INP={width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
 
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🔴 {editId?"Edit":"Add"} Error Code</div>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>🔴 Add Error Code</div>
 
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+      {/* Appliance selector */}
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
-        <div style={{display:"flex",gap:8,marginBottom:14}}>
-          {APPLIANCES.map(a=><button key={a.v} onClick={()=>setForm(f=>({...f,appliance:a.v,brand:"",customBrand:""}))} style={{flex:1,padding:"10px 4px",borderRadius:10,border:form.appliance===a.v?`2px solid ${PC}`:"1px solid #2a3050",background:form.appliance===a.v?"#1a2a1a":"#0f1117",color:form.appliance===a.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{a.l}</button>)}
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {APPLIANCES.map(a=>(
+            <button key={a.v} onClick={()=>{setAppliance(a.v);setForm(blank);setEditId(null);resetFridge();}}
+              style={{flex:1,padding:"10px 4px",borderRadius:10,border:appliance===a.v?`2px solid ${PC}`:"1px solid #2a3050",background:appliance===a.v?"#1a2a1a":"#0f1117",color:appliance===a.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>
+              {a.l}
+            </button>
+          ))}
         </div>
 
-        {form.appliance&&<>
-          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
-          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:form.brand==="Other"?10:14}}>
+        {/* ── FRIDGE FLOW ── */}
+        {appliance==="fridge"&&<>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
+          <select value={fridgeBrand} onChange={e=>setFridgeBrand(e.target.value)} style={{...INP,marginBottom:fridgeBrand==="Other"?10:14,color:fridgeBrand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
-            {COMMON_BRANDS[form.appliance].map(b=><option key={b} value={b}>{b}</option>)}
+            {FRIDGE_BRANDS.map(b=><option key={b} value={b}>{b}</option>)}
           </select>
-          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>}
+          {fridgeBrand==="Other"&&<input value={fridgeCustomBrand} onChange={e=>setFridgeCustomBrand(e.target.value)} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
+
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Model Number<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={fridgeModel} onChange={e=>setFridgeModel(e.target.value)} placeholder="e.g. RT28T3753S8, GR-H652HLHU" style={{...INP,marginBottom:16}}/>
+
+          <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:10}}>Error Codes for this Model</div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Each entry below is one error / LED blink pattern. Add as many as needed.</div>
+
+          {fridgeEntries.map((entry,idx)=>(
+            <FridgeErrorRow key={idx} entry={entry} index={idx} onChange={updateEntry} onRemove={removeEntry} canRemove={fridgeEntries.length>1}/>
+          ))}
+
+          {/* Add another error */}
+          <button onClick={addEntry} style={{width:"100%",padding:"11px",borderRadius:10,background:"#1a1f2e",color:AC,border:`1px dashed ${AC}`,cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:14}}>
+            + Add Another Error Code for {fridgeModel||"this Model"}
+          </button>
+
+          {fridgeMsg&&<div style={{fontSize:12,marginBottom:12,padding:"8px 12px",borderRadius:8,background:fridgeMsg.startsWith("✅")?"#4caf5022":"#ff475711",color:fridgeMsg.startsWith("✅")?PC:"#ff4757"}}>{fridgeMsg}</div>}
+
+          <button onClick={saveFridge} disabled={fridgeSaving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
+            {fridgeSaving?`Saving ${fridgeEntries.length} error${fridgeEntries.length>1?"s":""}…`:`Save All ${fridgeEntries.length} Error Code${fridgeEntries.length>1?"s":""} to Database`}
+          </button>
+        </>}
+
+        {/* ── AC / WASHING FLOW (unchanged) ── */}
+        {(appliance==="ac"||appliance==="washing")&&<>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
+          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{...INP,marginBottom:form.brand==="Other"?10:14,color:form.brand?"#fff":"#6b7db3"}}>
+            <option value="">-- Select Brand --</option>
+            {COMMON_BRANDS[appliance].map(b=><option key={b} value={b}>{b}</option>)}
+          </select>
+          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
 
           <div style={{display:"flex",gap:10,marginBottom:12}}>
             <div style={{flex:1}}>
               <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Code<span style={{color:"#ff4757"}}> *</span></div>
-              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, 22" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, F2" style={INP}/>
             </div>
             <div style={{flex:1}}>
               <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor LED Blinks</div>
-              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={INP}/>
             </div>
             <div style={{flex:1}}>
               <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor LED Blinks</div>
-              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+              <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={INP}/>
             </div>
           </div>
 
           <div style={{marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Meaning<span style={{color:"#ff4757"}}> *</span></div>
-            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+            <input value={form.meaning} onChange={e=>setForm(f=>({...f,meaning:e.target.value}))} placeholder="e.g. Compressor overload" style={INP}/>
           </div>
           <div style={{marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Cause<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <textarea value={form.cause} onChange={e=>setForm(f=>({...f,cause:e.target.value}))} rows={3} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
           </div>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
-            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/>
+            <textarea value={form.how_to_fix} onChange={e=>setForm(f=>({...f,how_to_fix:e.target.value}))} rows={3} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
           </div>
 
           {msg&&<div style={{fontSize:12,marginBottom:12,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
-
           <div style={{display:"flex",gap:8}}>
             {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel Edit</button>}
             <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving...":editId?"Update in Database":"Add to Database"}</button>
@@ -1269,23 +1512,33 @@ function AdminErrors() {
         </>}
       </div>
 
+      {/* List of all error codes */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
         <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>All Error Codes ({list.length})</div>
-        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#b0b8d0",fontSize:12,outline:"none"}}>
+        <select value={filterApp} onChange={e=>setFilterApp(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#b0b8d0",fontSize:12,outline:"none"}}>
           <option value="">All</option>{APPLIANCES.map(a=><option key={a.v} value={a.v}>{a.l}</option>)}
         </select>
       </div>
       {filtered.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-          <div style={{minWidth:0}}>
-            <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:3}}>
-              <span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{item.error_code}</span>
-              <span style={{fontSize:11,color:"#6b7db3"}}>{item.appliance} · {item.brand}</span>
+        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+              {item.appliance==="fridge"
+                ?<span style={{background:"#1a3a5a",color:"#4fc3f7",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>🧊 LED Pattern</span>
+                :<span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:12,fontWeight:700}}>{item.error_code}</span>
+              }
+              <span style={{fontSize:11,color:"#6b7db3"}}>{item.appliance} · {item.brand}{item.model_number?` · ${item.model_number}`:""}</span>
             </div>
-            <div style={{fontSize:12,color:"#b0b8d0",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.meaning}</div>
+            <div style={{fontSize:12,color:"#b0b8d0",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.meaning}</div>
+            {item.appliance==="fridge"&&(item.error_image||item.led_image)&&(
+              <div style={{display:"flex",gap:6,marginTop:6}}>
+                {item.error_image&&<img src={item.error_image} alt="" style={{height:40,borderRadius:6,border:"1px solid #2a3050"}}/>}
+                {item.led_image&&<img src={item.led_image} alt="" style={{height:40,borderRadius:6,border:"1px solid #2a3050"}}/>}
+              </div>
+            )}
           </div>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
-            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            {item.appliance!=="fridge"&&<button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>}
             <button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
           </div>
         </div>
@@ -1516,14 +1769,91 @@ function AdminTips() {
 }
 
 // ── ADMIN: FIND REMOTE ──────────────────────────────────────────────────────────
+// ── ADMIN: REMOTE IMAGE LIBRARY ──────────────────────────────────────────────
+function AdminRemoteImages() {
+  const [list,setList]=useState([]);const [msg,setMsg]=useState("");
+  const [uploading,setUploading]=useState(false);const [urlInput,setUrlInput]=useState("");const [source,setSource]=useState("upload");
+
+  const load=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setList(d||[]);};
+  useEffect(()=>{load();},[]);
+
+  const nextId=async()=>{
+    const d=await api("remote_images",{filter:"?select=image_id&order=id.desc&limit=1"});
+    if(!d||d.length===0)return "S-1";
+    const last=d[0].image_id||"S-0";
+    const num=parseInt(last.split("-")[1]||"0",10);
+    return `S-${num+1}`;
+  };
+
+  const addFromFile=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const compressed=await compressImage(reader.result);
+      try{
+        const id=await nextId();
+        await api("remote_images",{method:"POST",body:{image_id:id,image_data:compressed},prefer:"return=minimal"});
+        setMsg("✅ Image uploaded as "+id+".");load();
+      }catch(err){setMsg("⚠ Upload failed: "+err.message);}
+      setUploading(false);e.target.value="";
+    };
+    reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+  const addFromUrl=async()=>{
+    if(!urlInput.trim())return;
+    try{
+      const id=await nextId();
+      await api("remote_images",{method:"POST",body:{image_id:id,image_data:urlInput.trim()},prefer:"return=minimal"});
+      setMsg("✅ Image added as "+id+".");setUrlInput("");load();
+    }catch(err){setMsg("⚠ Failed: "+err.message);}
+  };
+  const del=async(id)=>{if(!window.confirm("Delete this image from library?"))return;await fetch(`${SB_URL}/rest/v1/remote_images?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🖼️ Remote Image Library</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:14}}>Each image gets an auto-assigned ID (S-1, S-2, …). Use this ID when adding remotes to avoid re-uploading the same image.</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:source===v?`2px solid ${AC}`:"1px solid #2a3050",background:source===v?`${AC}22`:"#0f1117",color:source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
+        </div>
+        {source==="upload"&&<div>
+          <input type="file" accept="image/*" onChange={addFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:8}}/>
+          {uploading&&<div style={{fontSize:11,color:AC}}>Uploading…</div>}
+        </div>}
+        {source==="url"&&<div style={{display:"flex",gap:6}}>
+          <input value={urlInput} onChange={e=>setUrlInput(e.target.value)} placeholder="https://…image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={addFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+        </div>}
+        {msg&&<div style={{fontSize:12,marginTop:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+      </div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>Library ({list.length} images)</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10}}>
+        {list.map(img=>(
+          <div key={img.id} style={{background:"#1a1f2e",borderRadius:10,padding:8,border:`1px solid ${"#2a3050"}`,position:"relative"}}>
+            <img src={img.image_data} alt={img.image_id} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:6,marginBottom:6}}/>
+            <div style={{fontSize:12,fontWeight:700,color:AC,textAlign:"center"}}>{img.image_id}</div>
+            <button onClick={()=>del(img.id)} style={{position:"absolute",top:4,right:4,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:10,lineHeight:1}}>✕</button>
+          </div>
+        ))}
+        {list.length===0&&<div style={{fontSize:12,color:"#6b7db3",gridColumn:"1/-1",textAlign:"center",padding:20}}>No images yet. Upload one above.</div>}
+      </div>
+    </div>
+  );
+}
+
 function AdminRemotes() {
   const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
   const [pcbSource,setPcbSource]=useState("upload");const [pcbUrl,setPcbUrl]=useState("");const [pcbUploading,setPcbUploading]=useState(false);
   const [remoteSource,setRemoteSource]=useState("upload");const [remoteUrl,setRemoteUrl]=useState("");const [remoteUploading,setRemoteUploading]=useState(false);
+  const [remoteIdInput,setRemoteIdInput]=useState("");const [imageLib,setImageLib]=useState([]);
 
   const load=async()=>{const d=await api("remotes",{filter:"?select=*&order=model_number"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
+  const loadLib=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setImageLib(d||[]);};
+  useEffect(()=>{load();loadLib();},[]);
 
   const addPcbImageFromFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
@@ -1552,6 +1882,14 @@ function AdminRemotes() {
     if(!remoteUrl.trim())return;
     setForm(f=>({...f,remote_images:[...f.remote_images,remoteUrl.trim()]}));
     setRemoteUrl("");
+  };
+  const addRemoteImageFromId=()=>{
+    const id=remoteIdInput.trim().toUpperCase();
+    if(!id)return;
+    const found=imageLib.find(x=>x.image_id===id);
+    if(!found){setMsg(`⚠ Image ID "${id}" not found in library.`);return;}
+    setForm(f=>({...f,remote_images:[...f.remote_images,found.image_data]}));
+    setRemoteIdInput("");setMsg("");
   };
   const removeRemoteImage=(idx)=>{setForm(f=>({...f,remote_images:f.remote_images.filter((_,i)=>i!==idx)}));};
 
@@ -1582,7 +1920,7 @@ function AdminRemotes() {
         </div>
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Images<span style={{color:"#ff4757"}}> *</span></div>
         {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.pcb_images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
@@ -1603,7 +1941,8 @@ function AdminRemotes() {
           <button onClick={addPcbImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
         </div>}
 
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Remote Images (add as many as needed)<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:4}}>Remote Images<span style={{color:"#ff4757"}}> *</span></div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:8}}>Use Image Library IDs (e.g. S-1) to reuse images without re-uploading.</div>
         {form.remote_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.remote_images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
@@ -1613,7 +1952,7 @@ function AdminRemotes() {
           ))}
         </div>}
         <div style={{display:"flex",gap:6,marginBottom:8}}>
-          {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:`1px solid ${"#2a3050"}`,background:remoteSource===v?`${AC}22`:"#0f1117",color:remoteSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
+          {[["upload","Upload File"],["url","Image URL"],["id","Image ID"]].map(([v,l])=><button key={v} onClick={()=>setRemoteSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:remoteSource===v?`2px solid ${AC}`:`1px solid ${"#2a3050"}`,background:remoteSource===v?`${AC}22`:"#0f1117",color:remoteSource===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
         </div>
         {remoteSource==="upload"&&<div style={{marginBottom:14}}>
           <input type="file" accept="image/*" onChange={addRemoteImageFromFile} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
@@ -1622,6 +1961,17 @@ function AdminRemotes() {
         {remoteSource==="url"&&<div style={{display:"flex",gap:6,marginBottom:14}}>
           <input value={remoteUrl} onChange={e=>setRemoteUrl(e.target.value)} placeholder="https://...remote-image.jpg" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
           <button onClick={addRemoteImageFromUrl} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+        </div>}
+        {remoteSource==="id"&&<div style={{marginBottom:14}}>
+          <div style={{display:"flex",gap:6,marginBottom:6}}>
+            <input value={remoteIdInput} onChange={e=>setRemoteIdInput(e.target.value)} placeholder="Enter Image ID e.g. S-1" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+            <button onClick={addRemoteImageFromId} style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+          </div>
+          {imageLib.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {imageLib.map(img=>(
+              <button key={img.id} onClick={()=>{setRemoteIdInput(img.image_id);}} style={{padding:"4px 8px",borderRadius:6,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>{img.image_id}</button>
+            ))}
+          </div>}
         </div>}
 
         {msg&&<div style={{fontSize:12,marginBottom:10,marginTop:4,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
@@ -1867,6 +2217,7 @@ function AdminPanel({onLogout}) {
     {id:"wiring",label:"Wiring",icon:"⚡"},
     {id:"sensors",label:"Sensors",icon:"📡"},
     {id:"remote",label:"Remote",icon:"🎮"},
+    {id:"images",label:"Image Library",icon:"🖼️"},
     {id:"tips",label:"Tips",icon:"💡"},
     {id:"requests",label:"Requests",icon:"📥"},
     {id:"community",label:"Community",icon:"👥"},
@@ -1874,8 +2225,8 @@ function AdminPanel({onLogout}) {
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh"}}>
-      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"14px 16px",paddingTop:"max(14px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",position:"-webkit-sticky",top:0,zIndex:10}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO} alt="" style={{height:28}}/>
           <div style={{fontSize:13,fontWeight:700,color:AC}}>ADMIN</div>
@@ -1894,6 +2245,7 @@ function AdminPanel({onLogout}) {
         {tab==="wiring"&&<AdminWiring/>}
         {tab==="sensors"&&<AdminSensorValues/>}
         {tab==="remote"&&<AdminRemotes/>}
+        {tab==="images"&&<AdminRemoteImages/>}
         {tab==="tips"&&<AdminTips/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="community"&&<AdminCommunity/>}
@@ -1919,9 +2271,11 @@ export default function PCBCare() {
     document.addEventListener("contextmenu",blockContextMenu);
     const prevUserSelect=document.body.style.userSelect;
     document.body.style.userSelect="none";
+    document.body.style.WebkitUserSelect="none";
     return ()=>{
       document.removeEventListener("contextmenu",blockContextMenu);
       document.body.style.userSelect=prevUserSelect;
+      document.body.style.WebkitUserSelect=prevUserSelect;
     };
   },[]);
 
@@ -1936,9 +2290,7 @@ export default function PCBCare() {
   userRef.current=user;
   const [partsEnabled,setPartsEnabled]=useState(()=>DB.get("pcb_parts_identifier_enabled",true));
   const [adminSessionChecked,setAdminSessionChecked]=useState(false);
-  const [isDark,setIsDark]=useState(()=>DB.get("pcb_theme","dark")!=="light");
-  const T = isDark ? DARK : LIGHT;
-  const toggleTheme=()=>{ const next=!isDark; setIsDark(next); DB.set("pcb_theme",next?"dark":"light"); };
+  const T = DARK;
 
   // ── Restore a verified admin session (if any) before deciding the route.
   // We never trust a bare "isAdmin" flag pulled straight from localStorage —
@@ -2034,20 +2386,15 @@ export default function PCBCare() {
 
   return (
     <ThemeCtx.Provider value={T}>
-    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",color:"#fff",transition:"background 0.2s,color 0.2s"}}>
-      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
+    <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100vh",minHeight:"-webkit-fill-available",color:"#fff",transition:"background 0.2s,color 0.2s",WebkitUserSelect:"none",userSelect:"none"}}>
+      <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",paddingTop:"max(12px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",position:"-webkit-sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {/* Day/Night theme toggle */}
-          <button onClick={toggleTheme} title={isDark?"Switch to light mode":"Switch to dark mode"}
-            style={{width:36,height:36,borderRadius:"50%",border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.2s"}}>
-            {isDark?"🌙":"☀️"}
-          </button>
           <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
         </div>
       </div>
 
-      <div style={{paddingBottom:74,minHeight:"calc(100vh - 56px)"}}>
+      <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={setTab} partsEnabled={partsEnabled} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
@@ -2060,7 +2407,7 @@ export default function PCBCare() {
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",zIndex:5}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",paddingBottom:"calc(8px + env(safe-area-inset-bottom))",zIndex:5}}>
         {NAV.map(n=>(
           <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
