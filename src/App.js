@@ -731,9 +731,18 @@ function Errors() {
   const [codes,setCodes]=useState([]);
   const [sel,setSel]=useState(null);
   const [loading,setLoading]=useState(false);
-  const [dynamicBrands] = useDynamicBrands(app);
-  // Filter out "Other" from user-facing dropdown — it's an admin-only option
-  const brands = dynamicBrands.filter(b=>b!=="Other");
+  const [universalBrands] = useUniversalBrands();
+  // All brands shown regardless of appliance — filtered to only those with data for selected appliance
+  const [brandsWithData, setBrandsWithData] = useState([]);
+  useEffect(()=>{
+    if(!app) return;
+    api("error_codes",{filter:`?appliance=eq.${app}&select=brand`})
+      .then(data=>{
+        const withData=new Set((data||[]).map(d=>d.brand).filter(Boolean));
+        setBrandsWithData(universalBrands.filter(b=>withData.has(b)));
+      }).catch(()=>{});
+  },[app, universalBrands]);
+  const brands = brandsWithData;
   const loadCodes=async(a,b)=>{setLoading(true);const data=await api("error_codes",{filter:`?appliance=eq.${a}&brand=eq.${encodeURIComponent(b)}&select=*`});setCodes(data||[]);setSel(null);setLoading(false);};
   return (
     <div style={{padding:16}}>
@@ -1232,47 +1241,94 @@ function Requests({user}) {
 
 // ── ADMIN: ERROR CODES ────────────────────────────────────────────────────────
 // ── FRIDGE ERROR CODE ENTRY (model-based, multi-error, LED blink image upload) ─
-// ── Default brand seeds per appliance ────────────────────────────────────────
-const DEFAULT_BRANDS={
-  fridge:  ["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Hitachi","Voltas"],
-  washing: ["Samsung","LG","Whirlpool","IFB","Bosch","Haier","Godrej"],
-  ac:      ["Samsung","LG","Daikin","Voltas","Carrier","Hitachi","Blue Star"]
+// ── Universal Brand System ────────────────────────────────────────────────────
+// All brands live in a dedicated `brands` table: { id, name, created_at }
+// They are shared across ALL appliances — no per-appliance separation.
+// A module-level cache avoids repeat fetches within the same session.
+
+let _universalBrands = null; // null = not loaded yet
+let _brandListeners  = [];   // components waiting for first load
+
+const fetchUniversalBrands = async () => {
+  const data = await api("brands", {filter:"?select=name&order=name"});
+  _universalBrands = (data||[]).map(d=>d.name).filter(Boolean);
+  _brandListeners.forEach(fn=>fn([..._universalBrands]));
+  _brandListeners = [];
+  return _universalBrands;
 };
 
-// useDynamicBrands — fetches brands saved in DB for an appliance,
-// merges with defaults, deduplicates, sorts, and always appends "Other".
-// Result is cached in module-level Map so multiple components share one fetch.
-const _brandCache = new Map(); // appliance -> {brands, ts}
-const BRAND_CACHE_TTL = 60000; // 60 s
+// Call after adding/deleting a brand to force all components to refresh
+const bustUniversalBrands = () => { _universalBrands = null; };
 
-function useDynamicBrands(appliance) {
-  const [brands, setBrands] = useState(
-    appliance ? [...(DEFAULT_BRANDS[appliance]||[]), "Other"] : []
-  );
-  useEffect(() => {
-    if (!appliance) return;
-    const cached = _brandCache.get(appliance);
-    if (cached && Date.now() - cached.ts < BRAND_CACHE_TTL) {
-      setBrands(cached.brands); return;
-    }
-    api("error_codes", {filter:`?appliance=eq.${appliance}&select=brand`})
-      .then(data => {
-        const dbBrands = [...new Set((data||[]).map(d=>d.brand).filter(Boolean))];
-        const defaults = DEFAULT_BRANDS[appliance] || [];
-        const merged = [...new Set([...defaults, ...dbBrands])]
-          .filter(b => b !== "Other")
-          .sort((a,b)=>a.localeCompare(b));
-        const result = [...merged, "Other"];
-        _brandCache.set(appliance, {brands: result, ts: Date.now()});
-        setBrands(result);
-      }).catch(()=>{});
-  }, [appliance]);
-  // Call this after saving a new brand to bust the cache
-  const bustCache = (app) => { _brandCache.delete(app||appliance); };
-  return [brands, bustCache];
+// Hook — returns [brands, refresh]
+function useUniversalBrands() {
+  const [brands, setBrands] = useState(_universalBrands ? [..._universalBrands] : []);
+  useEffect(()=>{
+    if(_universalBrands){ setBrands([..._universalBrands]); return; }
+    _brandListeners.push(setBrands);
+    if(_brandListeners.length===1) fetchUniversalBrands(); // only first caller fetches
+  },[]);
+  const refresh = async () => { bustUniversalBrands(); const b=await fetchUniversalBrands(); setBrands([...b]); };
+  return [brands, refresh];
 }
 
 
+
+// ── ADMIN: BRANDS ─────────────────────────────────────────────────────────────
+function AdminBrands(){
+  const [brands, refresh] = useUniversalBrands();
+  const [newBrand, setNewBrand] = useState("");
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const add = async () => {
+    const name = newBrand.trim();
+    if(!name){setMsg("⚠ Enter a brand name.");return;}
+    if(brands.map(b=>b.toLowerCase()).includes(name.toLowerCase())){setMsg(`⚠ "${name}" already exists.`);return;}
+    setSaving(true);
+    try{
+      await api("brands",{method:"POST",body:{name},prefer:"return=minimal"});
+      setMsg(`✅ "${name}" added successfully.`);
+      setNewBrand("");
+      await refresh();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const del = async (name) => {
+    if(!window.confirm(`Delete brand "${name}"? This won't delete existing error codes using this brand.`))return;
+    try{
+      await fetch(`${SB_URL}/rest/v1/brands?name=eq.${encodeURIComponent(name)}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+      setMsg(`✅ "${name}" removed.`);
+      await refresh();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+  };
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🏷️ Brands</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>All brands are universal — they appear in every appliance dropdown (Fridge, Washing Machine, AC).</div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:20}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>Register New Brand</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={newBrand} onChange={e=>setNewBrand(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="e.g. Carrier, IFB, Toshiba…" style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:16,outline:"none"}}/>
+          <button onClick={add} disabled={saving} style={{padding:"12px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>{saving?"Saving…":"Add Brand"}</button>
+        </div>
+        {msg&&<div style={{fontSize:12,marginTop:10,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+      </div>
+      <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>All Brands ({brands.length})</div>
+      {brands.length===0&&<div style={{fontSize:13,color:"#6b7db3",textAlign:"center",padding:30}}>No brands yet. Add one above.</div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:8}}>
+        {brands.map(b=>(
+          <div key={b} style={{background:"#1a1f2e",borderRadius:10,padding:"10px 14px",border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b}</div>
+            <button onClick={()=>del(b)} style={{flexShrink:0,width:22,height:22,borderRadius:"50%",background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,lineHeight:1}}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // A single fridge error entry — admin picks ONE of 3 error types per entry
 function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
@@ -1408,23 +1464,19 @@ const blankFridgeEntry=()=>({
 function AdminErrors(){
   const APPLIANCES=[{v:"fridge",l:"🧊 Refrigerator"},{v:"washing",l:"🌀 Washing Machine"},{v:"ac",l:"❄️ Air Conditioner"}];
 
-  // Dynamic brands — auto-updates when new brands are saved via Other
-  const [fridgeBrands, bustFridge] = useDynamicBrands("fridge");
-  const [washingBrands, bustWashing] = useDynamicBrands("washing");
-  const [acBrands, bustAC] = useDynamicBrands("ac");
-  const DYNAMIC_BRANDS = {fridge: fridgeBrands, washing: washingBrands, ac: acBrands};
-  const bustBrand = (app) => { if(app==="fridge") bustFridge(); else if(app==="washing") bustWashing(); else bustAC(); };
+  // Single universal brand list — same for all appliances
+  const [allBrands] = useUniversalBrands();
 
   const [appliance,setAppliance]=useState("");
 
   // ── Fridge-specific state ──
-  const [fridgeBrand,setFridgeBrand]=useState("");const [fridgeCustomBrand,setFridgeCustomBrand]=useState("");
+  const [fridgeBrand,setFridgeBrand]=useState("");
   const [fridgeModel,setFridgeModel]=useState("");
   const [fridgeEntries,setFridgeEntries]=useState([blankFridgeEntry()]);
   const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);
 
   // ── AC / Washing state (unchanged flow) ──
-  const blank={brand:"",customBrand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
+  const blank={brand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [msg,setMsg]=useState("");
@@ -1437,14 +1489,14 @@ function AdminErrors(){
   useEffect(()=>{load();},[]);
 
   // ── Fridge helpers ──
-  const fridgeBrandValue=fridgeBrand==="Other"?fridgeCustomBrand:fridgeBrand;
+  const fridgeBrandValue=fridgeBrand;
 
   const updateEntry=(idx,field,val)=>{
     setFridgeEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});
   };
   const addEntry=()=>setFridgeEntries(prev=>[...prev,blankFridgeEntry()]);
   const removeEntry=(idx)=>setFridgeEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetFridge=()=>{setFridgeBrand("");setFridgeCustomBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");};
+  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");};
 
   const saveFridge=async()=>{
     setFridgeMsg("");
@@ -1482,14 +1534,13 @@ function AdminErrors(){
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
       }
       setFridgeMsg(`✅ ${fridgeEntries.length} error code${fridgeEntries.length>1?"s":""} saved for ${fridgeModel.toUpperCase()}.`);
-      bustBrand("fridge");
       resetFridge();load();
     }catch(err){setFridgeMsg("⚠ Save failed: "+err.message);}
     setFridgeSaving(false);
   };
 
   // ── AC/Washing helpers ──
-  const brandValue=form.brand==="Other"?form.customBrand:form.brand;
+  const brandValue=form.brand;
   const reset=()=>{setForm(blank);setEditId(null);setMsg("");};
 
   const save=async()=>{
@@ -1506,7 +1557,6 @@ function AdminErrors(){
       }else{
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
         setMsg("✅ Added to database.");
-        bustBrand(appliance);
       }
       reset();load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
@@ -1516,8 +1566,8 @@ function AdminErrors(){
   const edit=(item)=>{
     setAppliance(item.appliance);
     if(item.appliance==="fridge") return;
-    const knownBrand=DYNAMIC_BRANDS[item.appliance]?.includes(item.brand);
-    setForm({brand:knownBrand?item.brand:"Other",customBrand:knownBrand?"":item.brand,error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
+
+    setForm({brand:item.brand||'',error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||'',outdoor_led_blinks:item.outdoor_led_blinks||''});
     setEditId(item.id);setMsg("");
   };
 
@@ -1549,11 +1599,10 @@ function AdminErrors(){
         {/* ── FRIDGE FLOW ── */}
         {appliance==="fridge"&&<>
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
-          <select value={fridgeBrand} onChange={e=>setFridgeBrand(e.target.value)} style={{...INP,marginBottom:fridgeBrand==="Other"?10:14,color:fridgeBrand?"#fff":"#6b7db3"}}>
+          <select value={fridgeBrand} onChange={e=>setFridgeBrand(e.target.value)} style={{...INP,marginBottom:14,color:fridgeBrand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
-            {fridgeBrands.map(b=><option key={b} value={b}>{b}</option>)}
+            {allBrands.map(b=><option key={b} value={b}>{b}</option>)}
           </select>
-          {fridgeBrand==="Other"&&<input value={fridgeCustomBrand} onChange={e=>setFridgeCustomBrand(e.target.value)} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
 
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Model Number<span style={{color:"#ff4757"}}> *</span></div>
           <input value={fridgeModel} onChange={e=>setFridgeModel(e.target.value)} placeholder="e.g. RT28T3753S8, GR-H652HLHU" style={{...INP,marginBottom:16}}/>
@@ -1580,11 +1629,10 @@ function AdminErrors(){
         {/* ── AC / WASHING FLOW (unchanged) ── */}
         {(appliance==="ac"||appliance==="washing")&&<>
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
-          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{...INP,marginBottom:form.brand==="Other"?10:14,color:form.brand?"#fff":"#6b7db3"}}>
+          <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{...INP,marginBottom:14,color:form.brand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
-            {(DYNAMIC_BRANDS[appliance]||[]).map(b=><option key={b} value={b}>{b}</option>)}
+            {allBrands.map(b=><option key={b} value={b}>{b}</option>)}
           </select>
-          {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
 
           <div style={{display:"flex",gap:10,marginBottom:12}}>
             <div style={{flex:1}}>
@@ -2323,6 +2371,7 @@ function AdminSettings() {
 function AdminPanel({onLogout}) {
   const [tab,setTab]=useState("errors");
   const TABS=[
+    {id:"brands",label:"Brands",icon:"🏷️"},
     {id:"errors",label:"Error Codes",icon:"🔴"},
     {id:"wiring",label:"Wiring",icon:"⚡"},
     {id:"sensors",label:"Sensors",icon:"📡"},
@@ -2351,6 +2400,7 @@ function AdminPanel({onLogout}) {
         ))}
       </div>
       <div style={{paddingBottom:40}}>
+        {tab==="brands"&&<AdminBrands/>}
         {tab==="errors"&&<AdminErrors/>}
         {tab==="wiring"&&<AdminWiring/>}
         {tab==="sensors"&&<AdminSensorValues/>}
