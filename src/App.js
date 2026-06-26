@@ -1233,7 +1233,7 @@ function Requests({user}) {
 // ── FRIDGE ERROR CODE ENTRY (model-based, multi-error, LED blink image upload) ─
 const FRIDGE_BRANDS=["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Hitachi","Voltas","Other"];
 
-// A single fridge error entry row with PCB image, error image, LED blink image, description, fix
+// A single fridge error entry — admin picks ONE of 3 error types per entry
 function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
   const [pcbUploading,setPcbUploading]=useState(false);
   const [errUploading,setErrUploading]=useState(false);
@@ -1248,60 +1248,120 @@ function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
     reader.readAsDataURL(file);
   };
 
-  const inp=(field,placeholder,type="text",rows)=>{
-    const base={width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
-    if(rows) return <textarea value={entry[field]} onChange={e=>onChange(index,field,e.target.value)} placeholder={placeholder} rows={rows} style={{...base,resize:"vertical",fontFamily:"inherit"}}/>;
-    return <input type={type} value={entry[field]} onChange={e=>onChange(index,field,e.target.value)} placeholder={placeholder} style={base}/>;
-  };
+  const INP={width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
+
+  const ERROR_TYPES=[
+    {v:"led_count",  l:"🔢 LED Blink Count",   desc:"Admin enters how many times the LED blinks"},
+    {v:"led_image",  l:"🖼️ LED Blink Pattern",  desc:"Upload a photo of the LED blink pattern"},
+    {v:"alpha_code", l:"🔤 Alphabetical / Numerical Code", desc:"e.g. E1, F3, 22, dF"}
+  ];
 
   return (
-    <div style={{background:"#0f1117",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:12,position:"relative"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+    <div style={{background:"#0f1117",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:12}}>
+
+      {/* Header */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
         <div style={{fontSize:12,fontWeight:700,color:AC}}>Error #{index+1}</div>
         {canRemove&&<button onClick={()=>onRemove(index)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button>}
       </div>
 
-      {/* PCB Image */}
-      <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>PCB Image</div>
-        {entry.pcb_image&&<div style={{marginBottom:6}}><img src={entry.pcb_image} alt="PCB" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"pcb_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+      {/* PCB Image — always available */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>PCB Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+        {entry.pcb_image&&<div style={{marginBottom:6}}><img src={entry.pcb_image} alt="PCB" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"pcb_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
         <input type="file" accept="image/*" onChange={e=>uploadImg("pcb_image",setPcbUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
         {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
       </div>
 
-      {/* Error Image */}
-      <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image<span style={{color:"#ff4757"}}> *</span></div>
-        {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="Error" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
-        <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
-        {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+      {/* Error Type Selector */}
+      <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Error Type <span style={{color:"#ff4757"}}>*</span></div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+        {ERROR_TYPES.map(t=>(
+          <button key={t.v} onClick={()=>onChange(index,"error_type",t.v)}
+            style={{padding:"10px 12px",borderRadius:10,border:entry.error_type===t.v?`2px solid ${AC}`:"1px solid #2a3050",background:entry.error_type===t.v?`${AC}18`:"#0a0d14",cursor:"pointer",textAlign:"left"}}>
+            <div style={{fontSize:12,fontWeight:700,color:entry.error_type===t.v?AC:"#b0b8d0"}}>{t.l}</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{t.desc}</div>
+          </button>
+        ))}
       </div>
 
-      {/* LED Blink Pattern Image */}
-      <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>LED Blink Pattern Image</div>
-        {entry.led_image&&<div style={{marginBottom:6}}><img src={entry.led_image} alt="LED" style={{height:80,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"led_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
-        <input type="file" accept="image/*" onChange={e=>uploadImg("led_image",setLedUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
-        {ledUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
-      </div>
+      {/* ── Type 1: LED Blink Count ── */}
+      {entry.error_type==="led_count"&&<>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+          {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="err" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+        <div style={{display:"flex",gap:10,marginBottom:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor LED Blinks <span style={{color:"#ff4757"}}>*</span></div>
+            <input type="number" min="0" value={entry.indoor_led_blinks} onChange={e=>onChange(index,"indoor_led_blinks",e.target.value)} placeholder="0" style={INP}/>
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor LED Blinks</div>
+            <input type="number" min="0" value={entry.outdoor_led_blinks} onChange={e=>onChange(index,"outdoor_led_blinks",e.target.value)} placeholder="0" style={INP}/>
+          </div>
+        </div>
+      </>}
 
-      {/* Description */}
-      <div style={{marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Description / Meaning<span style={{color:"#ff4757"}}> *</span></div>
-        {inp("description","e.g. Compressor overload, sensor fault…",undefined,2)}
-      </div>
+      {/* ── Type 2: LED Blink Pattern Image ── */}
+      {entry.error_type==="led_image"&&<>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>LED Blink Pattern Image <span style={{color:"#ff4757"}}>*</span></div>
+          {entry.led_image&&<div style={{marginBottom:6}}><img src={entry.led_image} alt="LED" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"led_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("led_image",setLedUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {ledUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+          {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="err" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+      </>}
 
-      {/* Fix */}
-      <div>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix<span style={{color:"#ff4757"}}> *</span></div>
-        {inp("how_to_fix","Step-by-step fix…",undefined,3)}
-      </div>
+      {/* ── Type 3: Alphabetical / Numerical Code ── */}
+      {entry.error_type==="alpha_code"&&<>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Code <span style={{color:"#ff4757"}}>*</span></div>
+          <input value={entry.error_code_val} onChange={e=>onChange(index,"error_code_val",e.target.value)} placeholder="e.g. E1, F3, 22, dF" style={INP}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+          {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="err" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+      </>}
+
+      {/* Description + Fix — shown once error type is chosen */}
+      {entry.error_type&&<>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Description / Meaning <span style={{color:"#ff4757"}}>*</span></div>
+          <textarea value={entry.description} onChange={e=>onChange(index,"description",e.target.value)} placeholder="e.g. Compressor overload, thermistor fault…" rows={2} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix <span style={{color:"#ff4757"}}>*</span></div>
+          <textarea value={entry.how_to_fix} onChange={e=>onChange(index,"how_to_fix",e.target.value)} placeholder="Step-by-step fix…" rows={3} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
+        </div>
+      </>}
     </div>
   );
 }
 
-// Blank fridge error entry
-const blankFridgeEntry=()=>({pcb_image:"",error_image:"",led_image:"",description:"",how_to_fix:""});
+// Blank fridge error entry — includes all fields for all 3 types
+const blankFridgeEntry=()=>({
+  error_type:"",           // "led_count" | "led_image" | "alpha_code"
+  pcb_image:"",
+  error_image:"",
+  led_image:"",
+  indoor_led_blinks:"",
+  outdoor_led_blinks:"",
+  error_code_val:"",       // for alpha_code type
+  description:"",
+  how_to_fix:""
+});
 
 // ── ADMIN ERRORS — main component ─────────────────────────────────────────────
 function AdminErrors(){
@@ -1349,7 +1409,10 @@ function AdminErrors(){
     if(!fridgeModel.trim()){setFridgeMsg("⚠ Model number is required.");return;}
     for(let i=0;i<fridgeEntries.length;i++){
       const e=fridgeEntries[i];
-      if(!e.error_image){setFridgeMsg(`⚠ Error #${i+1}: Error image is required.`);return;}
+      if(!e.error_type){setFridgeMsg(`⚠ Error #${i+1}: Please select an error type.`);return;}
+      if(e.error_type==="led_count"&&!String(e.indoor_led_blinks).trim()){setFridgeMsg(`⚠ Error #${i+1}: Indoor LED blink count is required.`);return;}
+      if(e.error_type==="led_image"&&!e.led_image){setFridgeMsg(`⚠ Error #${i+1}: LED blink pattern image is required.`);return;}
+      if(e.error_type==="alpha_code"&&!e.error_code_val.trim()){setFridgeMsg(`⚠ Error #${i+1}: Error code is required.`);return;}
       if(!e.description.trim()){setFridgeMsg(`⚠ Error #${i+1}: Description is required.`);return;}
       if(!e.how_to_fix.trim()){setFridgeMsg(`⚠ Error #${i+1}: How to fix is required.`);return;}
     }
@@ -1360,15 +1423,18 @@ function AdminErrors(){
           appliance:"fridge",
           brand:fridgeBrandValue.trim(),
           model_number:fridgeModel.trim().toUpperCase(),
-          error_code:"LED",
+          error_code: e.error_type==="alpha_code" ? e.error_code_val.trim().toUpperCase()
+                    : e.error_type==="led_count"  ? `BLINK-${e.indoor_led_blinks}`
+                    : "LED-PATTERN",
           meaning:e.description.trim(),
           cause:e.description.trim(),
           how_to_fix:e.how_to_fix.trim(),
           pcb_image:e.pcb_image||null,
-          error_image:e.error_image,
+          error_image:e.error_image||null,
           led_image:e.led_image||null,
-          indoor_led_blinks:0,
-          outdoor_led_blinks:0
+          indoor_led_blinks: e.error_type==="led_count" ? Number(e.indoor_led_blinks)||0 : 0,
+          outdoor_led_blinks: e.error_type==="led_count" ? Number(e.outdoor_led_blinks)||0 : 0,
+          fridge_error_type: e.error_type
         };
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
       }
