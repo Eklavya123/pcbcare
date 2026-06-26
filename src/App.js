@@ -1246,14 +1246,26 @@ function Requests({user}) {
 // They are shared across ALL appliances — no per-appliance separation.
 // A module-level cache avoids repeat fetches within the same session.
 
-let _universalBrands = null; // null = not loaded yet
-let _brandListeners  = [];   // components waiting for first load
+let _universalBrands = null; // null = not loaded, [] or [...] = loaded
+let _brandListeners  = [];   // setState callbacks waiting for first load
+let _fetchInProgress = false;
 
 const fetchUniversalBrands = async () => {
-  const data = await api("brands", {filter:"?select=name&order=name"});
-  _universalBrands = (data||[]).map(d=>d.name).filter(Boolean);
-  _brandListeners.forEach(fn=>fn([..._universalBrands]));
+  if(_fetchInProgress) return;
+  _fetchInProgress = true;
+  try {
+    const data = await api("brands", {filter:"?select=name&order=name"});
+    _universalBrands = (data||[]).map(d=>d.name).filter(Boolean);
+  } catch(e) {
+    // Table may not exist yet — keep empty array so dropdowns render without crashing
+    _universalBrands = [];
+    console.warn("brands table fetch failed:", e.message);
+  }
+  _fetchInProgress = false;
+  // Notify all waiting components
+  const listeners = [..._brandListeners];
   _brandListeners = [];
+  listeners.forEach(fn => fn([..._universalBrands]));
   return _universalBrands;
 };
 
@@ -1264,11 +1276,18 @@ const bustUniversalBrands = () => { _universalBrands = null; };
 function useUniversalBrands() {
   const [brands, setBrands] = useState(_universalBrands ? [..._universalBrands] : []);
   useEffect(()=>{
-    if(_universalBrands){ setBrands([..._universalBrands]); return; }
+    if(_universalBrands !== null){ setBrands([..._universalBrands]); return; }
+    // Register listener — will be called when fetch completes
     _brandListeners.push(setBrands);
-    if(_brandListeners.length===1) fetchUniversalBrands(); // only first caller fetches
+    // Kick off fetch if not already running
+    fetchUniversalBrands();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
-  const refresh = async () => { bustUniversalBrands(); const b=await fetchUniversalBrands(); setBrands([...b]); };
+  const refresh = async () => {
+    bustUniversalBrands();
+    const b = await fetchUniversalBrands();
+    setBrands([...(b||[])]);
+  };
   return [brands, refresh];
 }
 
