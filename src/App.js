@@ -138,6 +138,8 @@ const googleSignIn = async (auth) => {
 
 // Stored callback key used to resume after redirect
 const REDIRECT_CB_KEY = "pcb_google_redirect_cb"; // "login" | "signup"
+
+const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
   const url = `${SB_URL}/rest/v1/${table}${filter}`;
   const h = {apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"};
   if(prefer) h["Prefer"]=prefer;
