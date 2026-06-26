@@ -728,11 +728,12 @@ function Errors() {
   const T=useTheme();
   const [app,setApp]=useState("");
   const [brand,setBrand]=useState("");
-  const [brands,setBrands]=useState([]);
   const [codes,setCodes]=useState([]);
   const [sel,setSel]=useState(null);
   const [loading,setLoading]=useState(false);
-  const loadBrands=async(a)=>{setLoading(true);const data=await api("error_codes",{filter:`?appliance=eq.${a}&select=brand`});setBrands([...new Set((data||[]).map(d=>d.brand))]);setLoading(false);};
+  const [dynamicBrands] = useDynamicBrands(app);
+  // Filter out "Other" from user-facing dropdown — it's an admin-only option
+  const brands = dynamicBrands.filter(b=>b!=="Other");
   const loadCodes=async(a,b)=>{setLoading(true);const data=await api("error_codes",{filter:`?appliance=eq.${a}&brand=eq.${encodeURIComponent(b)}&select=*`});setCodes(data||[]);setSel(null);setLoading(false);};
   return (
     <div style={{padding:16}}>
@@ -740,11 +741,11 @@ function Errors() {
       <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand → error code</div>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
         {[{v:"fridge",l:"🧊 Fridge"},{v:"washing",l:"🌀 Washing"},{v:"ac",l:"❄️ AC"}].map(o=>(
-          <button key={o.v} onClick={()=>{setApp(o.v);setBrand("");setCodes([]);setSel(null);loadBrands(o.v);}}
+          <button key={o.v} onClick={()=>{setApp(o.v);setBrand("");setCodes([]);setSel(null);}}
             style={{flex:1,padding:"10px 4px",borderRadius:10,border:app===o.v?`2px solid ${PC}`:"1px solid #2a3050",background:app===o.v?"#1a2a1a":"#1a1f2e",color:app===o.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{o.l}</button>
         ))}
       </div>
-      {brands.length>0&&<select value={brand} onChange={e=>{setBrand(e.target.value);loadCodes(app,e.target.value);}} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:12}}>
+      {app&&brands.length>0&&<select value={brand} onChange={e=>{setBrand(e.target.value);loadCodes(app,e.target.value);}} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:12}}>
         <option value="">-- Select Brand --</option>{brands.map(b=><option key={b} value={b}>{b}</option>)}
       </select>}
       {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading from database...</div>}
@@ -1231,7 +1232,47 @@ function Requests({user}) {
 
 // ── ADMIN: ERROR CODES ────────────────────────────────────────────────────────
 // ── FRIDGE ERROR CODE ENTRY (model-based, multi-error, LED blink image upload) ─
-const FRIDGE_BRANDS=["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Hitachi","Voltas","Other"];
+// ── Default brand seeds per appliance ────────────────────────────────────────
+const DEFAULT_BRANDS={
+  fridge:  ["Samsung","LG","Whirlpool","Haier","Godrej","Bosch","Panasonic","Hitachi","Voltas"],
+  washing: ["Samsung","LG","Whirlpool","IFB","Bosch","Haier","Godrej"],
+  ac:      ["Samsung","LG","Daikin","Voltas","Carrier","Hitachi","Blue Star"]
+};
+
+// useDynamicBrands — fetches brands saved in DB for an appliance,
+// merges with defaults, deduplicates, sorts, and always appends "Other".
+// Result is cached in module-level Map so multiple components share one fetch.
+const _brandCache = new Map(); // appliance -> {brands, ts}
+const BRAND_CACHE_TTL = 60000; // 60 s
+
+function useDynamicBrands(appliance) {
+  const [brands, setBrands] = useState(
+    appliance ? [...(DEFAULT_BRANDS[appliance]||[]), "Other"] : []
+  );
+  useEffect(() => {
+    if (!appliance) return;
+    const cached = _brandCache.get(appliance);
+    if (cached && Date.now() - cached.ts < BRAND_CACHE_TTL) {
+      setBrands(cached.brands); return;
+    }
+    api("error_codes", {filter:`?appliance=eq.${appliance}&select=brand`})
+      .then(data => {
+        const dbBrands = [...new Set((data||[]).map(d=>d.brand).filter(Boolean))];
+        const defaults = DEFAULT_BRANDS[appliance] || [];
+        const merged = [...new Set([...defaults, ...dbBrands])]
+          .filter(b => b !== "Other")
+          .sort((a,b)=>a.localeCompare(b));
+        const result = [...merged, "Other"];
+        _brandCache.set(appliance, {brands: result, ts: Date.now()});
+        setBrands(result);
+      }).catch(()=>{});
+  }, [appliance]);
+  // Call this after saving a new brand to bust the cache
+  const bustCache = (app) => { _brandCache.delete(app||appliance); };
+  return [brands, bustCache];
+}
+
+
 
 // A single fridge error entry — admin picks ONE of 3 error types per entry
 function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
@@ -1366,11 +1407,13 @@ const blankFridgeEntry=()=>({
 // ── ADMIN ERRORS — main component ─────────────────────────────────────────────
 function AdminErrors(){
   const APPLIANCES=[{v:"fridge",l:"🧊 Refrigerator"},{v:"washing",l:"🌀 Washing Machine"},{v:"ac",l:"❄️ Air Conditioner"}];
-  const COMMON_BRANDS={
-    fridge:FRIDGE_BRANDS,
-    washing:["Samsung","LG","Whirlpool","IFB","Bosch","Haier","Godrej","Other"],
-    ac:["Samsung","LG","Daikin","Voltas","Carrier","Hitachi","Blue Star","Other"]
-  };
+
+  // Dynamic brands — auto-updates when new brands are saved via Other
+  const [fridgeBrands, bustFridge] = useDynamicBrands("fridge");
+  const [washingBrands, bustWashing] = useDynamicBrands("washing");
+  const [acBrands, bustAC] = useDynamicBrands("ac");
+  const DYNAMIC_BRANDS = {fridge: fridgeBrands, washing: washingBrands, ac: acBrands};
+  const bustBrand = (app) => { if(app==="fridge") bustFridge(); else if(app==="washing") bustWashing(); else bustAC(); };
 
   const [appliance,setAppliance]=useState("");
 
@@ -1439,6 +1482,7 @@ function AdminErrors(){
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
       }
       setFridgeMsg(`✅ ${fridgeEntries.length} error code${fridgeEntries.length>1?"s":""} saved for ${fridgeModel.toUpperCase()}.`);
+      bustBrand("fridge");
       resetFridge();load();
     }catch(err){setFridgeMsg("⚠ Save failed: "+err.message);}
     setFridgeSaving(false);
@@ -1462,6 +1506,7 @@ function AdminErrors(){
       }else{
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
         setMsg("✅ Added to database.");
+        bustBrand(appliance);
       }
       reset();load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
@@ -1470,8 +1515,8 @@ function AdminErrors(){
 
   const edit=(item)=>{
     setAppliance(item.appliance);
-    if(item.appliance==="fridge") return; // fridge entries not edited inline
-    const knownBrand=COMMON_BRANDS[item.appliance]?.includes(item.brand);
+    if(item.appliance==="fridge") return;
+    const knownBrand=DYNAMIC_BRANDS[item.appliance]?.includes(item.brand);
     setForm({brand:knownBrand?item.brand:"Other",customBrand:knownBrand?"":item.brand,error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
     setEditId(item.id);setMsg("");
   };
@@ -1506,7 +1551,7 @@ function AdminErrors(){
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
           <select value={fridgeBrand} onChange={e=>setFridgeBrand(e.target.value)} style={{...INP,marginBottom:fridgeBrand==="Other"?10:14,color:fridgeBrand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
-            {FRIDGE_BRANDS.map(b=><option key={b} value={b}>{b}</option>)}
+            {fridgeBrands.map(b=><option key={b} value={b}>{b}</option>)}
           </select>
           {fridgeBrand==="Other"&&<input value={fridgeCustomBrand} onChange={e=>setFridgeCustomBrand(e.target.value)} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
 
@@ -1537,7 +1582,7 @@ function AdminErrors(){
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
           <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{...INP,marginBottom:form.brand==="Other"?10:14,color:form.brand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
-            {COMMON_BRANDS[appliance].map(b=><option key={b} value={b}>{b}</option>)}
+            {(DYNAMIC_BRANDS[appliance]||[]).map(b=><option key={b} value={b}>{b}</option>)}
           </select>
           {form.brand==="Other"&&<input value={form.customBrand} onChange={e=>setForm(f=>({...f,customBrand:e.target.value}))} placeholder="Enter brand name" style={{...INP,marginBottom:14}}/>}
 
