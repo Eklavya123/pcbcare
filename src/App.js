@@ -728,53 +728,179 @@ function Errors() {
   const T=useTheme();
   const [app,setApp]=useState("");
   const [brand,setBrand]=useState("");
+  const [model,setModel]=useState("");       // fridge only
+  const [models,setModels]=useState([]);     // fridge only
   const [codes,setCodes]=useState([]);
   const [sel,setSel]=useState(null);
   const [loading,setLoading]=useState(false);
-  const [universalBrands] = useUniversalBrands();
-  // All brands shown regardless of appliance — filtered to only those with data for selected appliance
-  const [brandsWithData, setBrandsWithData] = useState([]);
+  const [modal,setModal]=useState(null);
+  const [universalBrands]=useUniversalBrands();
+  const [brandsWithData,setBrandsWithData]=useState([]);
+
+  // When appliance changes, fetch which brands have data
   useEffect(()=>{
-    if(!app) return;
+    if(!app)return;
+    setBrand("");setModel("");setModels([]);setCodes([]);setSel(null);
     api("error_codes",{filter:`?appliance=eq.${app}&select=brand`})
       .then(data=>{
         const withData=new Set((data||[]).map(d=>d.brand).filter(Boolean));
         setBrandsWithData(universalBrands.filter(b=>withData.has(b)));
       }).catch(()=>{});
-  },[app, universalBrands]);
-  const brands = brandsWithData;
-  const loadCodes=async(a,b)=>{setLoading(true);const data=await api("error_codes",{filter:`?appliance=eq.${a}&brand=eq.${encodeURIComponent(b)}&select=*`});setCodes(data||[]);setSel(null);setLoading(false);};
+  },[app,universalBrands]);
+
+  // When brand changes — for fridge AND washing load models
+  const onModelBrand=async(b)=>{
+    setBrand(b);setModel("");setModels([]);setCodes([]);setSel(null);
+    if(!b)return;
+    setLoading(true);
+    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(b)}&select=model_number`});
+    const distinct=[...new Set((data||[]).map(d=>d.model_number).filter(Boolean))].sort();
+    setModels(distinct);
+    setLoading(false);
+  };
+
+  // When model clicked — load all errors
+  const onModelClick=async(m)=>{
+    setModel(m);setCodes([]);setSel(null);
+    setLoading(true);
+    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(brand)}&model_number=eq.${encodeURIComponent(m)}&select=*`});
+    setCodes(data||[]);
+    setLoading(false);
+  };
+
+  // AC / Washing — load codes by brand
+  const loadCodes=async(a,b)=>{
+    setLoading(true);
+    const data=await api("error_codes",{filter:`?appliance=eq.${a}&brand=eq.${encodeURIComponent(b)}&select=*`});
+    setCodes(data||[]);setSel(null);setLoading(false);
+  };
+
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔴 Error Code Lookup</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand → error code</div>
-      <div style={{display:"flex",gap:8,marginBottom:12}}>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand{app==="fridge"?" → model → error":""}</div>
+
+      {/* Appliance tabs */}
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
         {[{v:"fridge",l:"🧊 Fridge"},{v:"washing",l:"🌀 Washing"},{v:"ac",l:"❄️ AC"}].map(o=>(
-          <button key={o.v} onClick={()=>{setApp(o.v);setBrand("");setCodes([]);setSel(null);}}
+          <button key={o.v} onClick={()=>setApp(o.v)}
             style={{flex:1,padding:"10px 4px",borderRadius:10,border:app===o.v?`2px solid ${PC}`:"1px solid #2a3050",background:app===o.v?"#1a2a1a":"#1a1f2e",color:app===o.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>{o.l}</button>
         ))}
       </div>
-      {app&&brands.length>0&&<select value={brand} onChange={e=>{setBrand(e.target.value);loadCodes(app,e.target.value);}} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:12}}>
-        <option value="">-- Select Brand --</option>{brands.map(b=><option key={b} value={b}>{b}</option>)}
+
+      {/* Brand dropdown */}
+      {app&&<select value={brand} onChange={e=>{
+          if(app==="fridge"||app==="washing") onModelBrand(e.target.value);
+          else{setBrand(e.target.value);setCodes([]);setSel(null);if(e.target.value)loadCodes(app,e.target.value);}
+        }} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:14,boxSizing:"border-box"}}>
+        <option value="">-- Select Brand --</option>
+        {brandsWithData.map(b=><option key={b} value={b}>{b}</option>)}
       </select>}
-      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading from database...</div>}
-      {codes.length>0&&<select value={sel?.id||""} onChange={e=>setSel(codes.find(c=>c.id===e.target.value)||null)} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:sel?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:14}}>
-        <option value="">-- Select Error Code --</option>{codes.map(c=><option key={c.id} value={c.id}>{c.error_code} — {c.meaning}</option>)}
-      </select>}
-      {!loading&&brand&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:14,textAlign:"center",color:T.subtext,fontSize:13}}>No codes yet for this brand.</div>}
-      {sel&&(
+
+      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>Loading…</div>}
+
+      {/* ── FRIDGE / WASHING: model grid ── */}
+      {(app==="fridge"||app==="washing")&&brand&&!loading&&models.length>0&&!model&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>Select Model ({models.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {models.map(m=>(
+              <button key={m} onClick={()=>onModelClick(m)}
+                style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span>{m}</span>
+                <span style={{fontSize:12,color:AC}}>▶</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Back to models */}
+      {(app==="fridge"||app==="washing")&&model&&(
+        <button onClick={()=>{setModel("");setCodes([]);setSel(null);}} style={{display:"flex",alignItems:"center",gap:6,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"8px 14px",color:AC,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:12}}>
+          ← {brand} · All Models
+        </button>
+      )}
+
+      {/* ── FRIDGE / WASHING: errors for selected model ── */}
+      {(app==="fridge"||app==="washing")&&model&&!loading&&codes.length>0&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>{model}</div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>{codes.length} error{codes.length>1?"s":""} found</div>
+          {codes.map((c)=>(
+            <div key={c.id} style={{background:T.card,borderRadius:14,border:`1px solid ${sel?.id===c.id?PC:T.border}`,marginBottom:10,overflow:"hidden"}}>
+              <div onClick={()=>setSel(sel?.id===c.id?null:c)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  {c.fridge_error_type==="led_count"&&<div style={{background:"#1a3a5a",color:"#4fc3f7",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🔢 {c.indoor_led_blinks} Blinks</div>}
+                  {c.fridge_error_type==="led_image"&&<div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>}
+                  {c.fridge_error_type==="alpha_code"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
+                  {!c.fridge_error_type&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
+                  <div style={{fontSize:13,color:T.text,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.meaning}</div>
+                </div>
+                <div style={{color:PC,fontSize:14,flexShrink:0,marginLeft:8}}>{sel?.id===c.id?"▲":"▼"}</div>
+              </div>
+              {sel?.id===c.id&&<div style={{borderTop:`1px solid ${T.border}`,padding:14}}>
+                {(c.pcb_image||c.error_image||c.led_image)&&(
+                  <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                    {c.pcb_image&&<div style={{textAlign:"center"}}><img src={c.pcb_image} alt="PCB" onClick={()=>setModal(c.pcb_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>PCB</div></div>}
+                    {c.error_image&&<div style={{textAlign:"center"}}><img src={c.error_image} alt="Error" onClick={()=>setModal(c.error_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>Error</div></div>}
+                    {c.led_image&&<div style={{textAlign:"center"}}><img src={c.led_image} alt="LED" onClick={()=>setModal(c.led_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>LED Pattern</div></div>}
+                  </div>
+                )}
+                {c.fridge_error_type==="led_count"&&c.indoor_led_blinks>0&&(
+                  <div style={{background:T.input,borderRadius:8,padding:"8px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:11,fontWeight:600,color:"#4fc3f7"}}>🔢 Blinks:</span>
+                    <span style={{fontSize:13,color:T.text,fontWeight:700}}>{c.indoor_led_blinks}</span>
+                  </div>
+                )}
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:5}}>🔍 Description</div>
+                  <div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:10}}>{c.meaning}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:PC,textTransform:"uppercase",marginBottom:5}}>🔧 How to Fix</div>
+                  <div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:10}}>{c.how_to_fix}</div>
+                </div>
+              </div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(app==="fridge"||app==="washing")&&brand&&!loading&&models.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No models found for {brand}.</div>}
+      {(app==="fridge"||app==="washing")&&model&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No errors found for {model}.</div>}
+
+      {/* ── AC: error code dropdown + detail ── */}
+      {app==="ac"&&!loading&&codes.length>0&&(
+        <select value={sel?.id||""} onChange={e=>setSel(codes.find(c=>c.id===e.target.value)||null)}
+          style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:sel?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:14}}>
+          <option value="">-- Select Error Code --</option>
+          {codes.map(c=><option key={c.id} value={c.id}>{c.error_code} — {c.meaning}</option>)}
+        </select>
+      )}
+      {app==="ac"&&!loading&&brand&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:14,textAlign:"center",color:T.subtext,fontSize:13}}>No codes yet for this brand.</div>}
+      {app==="ac"&&sel&&(
         <div style={{background:T.card,borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
           <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
             <div style={{background:"#ff475722",borderRadius:8,padding:"5px 11px",color:"#ff4757",fontWeight:700,fontSize:16}}>{sel.error_code}</div>
             <div style={{fontWeight:600,fontSize:14,color:T.text}}>{sel.meaning}</div>
           </div>
           <div style={{padding:16}}>
-            {sel.indoor_led_blinks>0&&<div style={{background:T.input,borderRadius:8,padding:10,marginBottom:10}}><div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>LED Blinks</div><div style={{fontSize:12,color:T.muted}}>Indoor: {sel.indoor_led_blinks} · Outdoor: {sel.outdoor_led_blinks}</div></div>}
+            {sel.indoor_led_blinks>0&&<div style={{background:T.input,borderRadius:8,padding:10,marginBottom:10}}>
+              <div style={{fontSize:10,color:AC,fontWeight:600,textTransform:"uppercase",marginBottom:4}}>LED Blinks</div>
+              <div style={{fontSize:12,color:T.muted}}>Indoor: {sel.indoor_led_blinks} · Outdoor: {sel.outdoor_led_blinks}</div>
+            </div>}
             <div style={{marginBottom:12}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:6}}>🔍 Cause</div><div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:12}}>{sel.cause}</div></div>
             <div><div style={{fontSize:10,fontWeight:600,color:PC,textTransform:"uppercase",marginBottom:6}}>🔧 How to Fix</div><div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:12}}>{sel.how_to_fix}</div></div>
           </div>
         </div>
       )}
+
+      {/* Fullscreen image modal */}
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12,objectFit:"contain"}}/>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+      </div>}
     </div>
   );
 }
@@ -1349,7 +1475,111 @@ function AdminBrands(){
   );
 }
 
-// A single fridge error entry — admin picks ONE of 3 error types per entry
+// ── WASHING MACHINE ERROR ROW — 2 types only: LED Blink Pattern + Error Code ──
+function WashingErrorRow({entry,index,onChange,onRemove,canRemove}){
+  const [pcbUploading,setPcbUploading]=useState(false);
+  const [errUploading,setErrUploading]=useState(false);
+  const [ledUploading,setLedUploading]=useState(false);
+
+  const uploadImg=(field,setLoading,e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setLoading(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);setLoading(false);e.target.value="";};
+    reader.onerror=()=>setLoading(false);
+    reader.readAsDataURL(file);
+  };
+
+  const INP={width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
+
+  const WASHING_TYPES=[
+    {v:"led_image", l:"🖼️ LED Blink Pattern", desc:"Upload a photo of the LED blink pattern"},
+    {v:"alpha_code",l:"🔤 Error Code",         desc:"e.g. E1, F3, dE, UE"}
+  ];
+
+  return (
+    <div style={{background:"#0f1117",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:AC}}>Error #{index+1}</div>
+        {canRemove&&<button onClick={()=>onRemove(index)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button>}
+      </div>
+
+      {/* PCB Image — always available */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>PCB Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+        {entry.pcb_image&&<div style={{marginBottom:6}}><img src={entry.pcb_image} alt="PCB" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"pcb_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+        <input type="file" accept="image/*" onChange={e=>uploadImg("pcb_image",setPcbUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+        {pcbUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+      </div>
+
+      {/* Error Type Selector — 2 options */}
+      <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Error Type <span style={{color:"#ff4757"}}>*</span></div>
+      <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+        {WASHING_TYPES.map(t=>(
+          <button key={t.v} onClick={()=>onChange(index,"error_type",t.v)}
+            style={{padding:"10px 12px",borderRadius:10,border:entry.error_type===t.v?`2px solid ${AC}`:"1px solid #2a3050",background:entry.error_type===t.v?`${AC}18`:"#0a0d14",cursor:"pointer",textAlign:"left"}}>
+            <div style={{fontSize:12,fontWeight:700,color:entry.error_type===t.v?AC:"#b0b8d0"}}>{t.l}</div>
+            <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{t.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* ── LED Blink Pattern ── */}
+      {entry.error_type==="led_image"&&<>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>LED Blink Pattern Image <span style={{color:"#ff4757"}}>*</span></div>
+          {entry.led_image&&<div style={{marginBottom:6}}><img src={entry.led_image} alt="LED" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"led_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("led_image",setLedUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {ledUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+          {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="err" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+      </>}
+
+      {/* ── Error Code ── */}
+      {entry.error_type==="alpha_code"&&<>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Code <span style={{color:"#ff4757"}}>*</span></div>
+          <input value={entry.error_code_val} onChange={e=>onChange(index,"error_code_val",e.target.value)} placeholder="e.g. E1, F3, dE, UE" style={INP}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Error Image <span style={{color:"#6b7db3",fontWeight:400}}>(optional)</span></div>
+          {entry.error_image&&<div style={{marginBottom:6}}><img src={entry.error_image} alt="err" style={{height:72,borderRadius:8,border:"1px solid #2a3050"}}/><button onClick={()=>onChange(index,"error_image","")} style={{marginLeft:8,padding:"2px 8px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>✕</button></div>}
+          <input type="file" accept="image/*" onChange={e=>uploadImg("error_image",setErrUploading,e)} style={{fontSize:12,color:"#6b7db3",width:"100%"}}/>
+          {errUploading&&<div style={{fontSize:11,color:AC,marginTop:4}}>Compressing…</div>}
+        </div>
+      </>}
+
+      {/* Description + Fix — once type chosen */}
+      {entry.error_type&&<>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Description / Meaning <span style={{color:"#ff4757"}}>*</span></div>
+          <textarea value={entry.description} onChange={e=>onChange(index,"description",e.target.value)} placeholder="e.g. Door lock fault, imbalance detected…" rows={2} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>How to Fix <span style={{color:"#ff4757"}}>*</span></div>
+          <textarea value={entry.how_to_fix} onChange={e=>onChange(index,"how_to_fix",e.target.value)} placeholder="Step-by-step fix…" rows={3} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
+        </div>
+      </>}
+    </div>
+  );
+}
+
+const blankWashingEntry=()=>({
+  error_type:"",
+  pcb_image:"",
+  error_image:"",
+  led_image:"",
+  error_code_val:"",
+  description:"",
+  how_to_fix:""
+});
+
+
 function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
   const [pcbUploading,setPcbUploading]=useState(false);
   const [errUploading,setErrUploading]=useState(false);
@@ -1411,12 +1641,8 @@ function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
         </div>
         <div style={{display:"flex",gap:10,marginBottom:12}}>
           <div style={{flex:1}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor LED Blinks <span style={{color:"#ff4757"}}>*</span></div>
-            <input type="number" min="0" value={entry.indoor_led_blinks} onChange={e=>onChange(index,"indoor_led_blinks",e.target.value)} placeholder="0" style={INP}/>
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor LED Blinks</div>
-            <input type="number" min="0" value={entry.outdoor_led_blinks} onChange={e=>onChange(index,"outdoor_led_blinks",e.target.value)} placeholder="0" style={INP}/>
+            <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Blinks <span style={{color:"#ff4757"}}>*</span></div>
+            <input type="number" min="0" value={entry.indoor_led_blinks} onChange={e=>onChange(index,"indoor_led_blinks",e.target.value)} placeholder="e.g. 3" style={INP}/>
           </div>
         </div>
       </>}
@@ -1468,13 +1694,12 @@ function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
 
 // Blank fridge error entry — includes all fields for all 3 types
 const blankFridgeEntry=()=>({
-  error_type:"",           // "led_count" | "led_image" | "alpha_code"
+  error_type:"",
   pcb_image:"",
   error_image:"",
   led_image:"",
   indoor_led_blinks:"",
-  outdoor_led_blinks:"",
-  error_code_val:"",       // for alpha_code type
+  error_code_val:"",
   description:"",
   how_to_fix:""
 });
@@ -1493,6 +1718,12 @@ function AdminErrors(){
   const [fridgeModel,setFridgeModel]=useState("");
   const [fridgeEntries,setFridgeEntries]=useState([blankFridgeEntry()]);
   const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);
+
+  // ── Washing-specific state ──
+  const [washBrand,setWashBrand]=useState("");
+  const [washModel,setWashModel]=useState("");
+  const [washEntries,setWashEntries]=useState([blankWashingEntry()]);
+  const [washMsg,setWashMsg]=useState("");const [washSaving,setWashSaving]=useState(false);
 
   // ── AC / Washing state (unchanged flow) ──
   const blank={brand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
@@ -1547,7 +1778,7 @@ function AdminErrors(){
           error_image:e.error_image||null,
           led_image:e.led_image||null,
           indoor_led_blinks: e.error_type==="led_count" ? Number(e.indoor_led_blinks)||0 : 0,
-          outdoor_led_blinks: e.error_type==="led_count" ? Number(e.outdoor_led_blinks)||0 : 0,
+          outdoor_led_blinks: 0,
           fridge_error_type: e.error_type
         };
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -1562,13 +1793,57 @@ function AdminErrors(){
   const brandValue=form.brand;
   const reset=()=>{setForm(blank);setEditId(null);setMsg("");};
 
+  // ── Washing helpers ──
+  const updateWashEntry=(idx,field,val)=>{setWashEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});};
+  const addWashEntry=()=>setWashEntries(prev=>[...prev,blankWashingEntry()]);
+  const removeWashEntry=(idx)=>setWashEntries(prev=>prev.filter((_,i)=>i!==idx));
+  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");};
+
+  const saveWashing=async()=>{
+    setWashMsg("");
+    if(!washBrand.trim()){setWashMsg("⚠ Please select a brand.");return;}
+    if(!washModel.trim()){setWashMsg("⚠ Model number is required.");return;}
+    for(let i=0;i<washEntries.length;i++){
+      const e=washEntries[i];
+      if(!e.error_type){setWashMsg(`⚠ Error #${i+1}: Please select an error type.`);return;}
+      if(e.error_type==="led_image"&&!e.led_image){setWashMsg(`⚠ Error #${i+1}: LED blink pattern image is required.`);return;}
+      if(e.error_type==="alpha_code"&&!e.error_code_val.trim()){setWashMsg(`⚠ Error #${i+1}: Error code is required.`);return;}
+      if(!e.description.trim()){setWashMsg(`⚠ Error #${i+1}: Description is required.`);return;}
+      if(!e.how_to_fix.trim()){setWashMsg(`⚠ Error #${i+1}: How to fix is required.`);return;}
+    }
+    setWashSaving(true);
+    try{
+      for(const e of washEntries){
+        const payload={
+          appliance:"washing",
+          brand:washBrand.trim(),
+          model_number:washModel.trim().toUpperCase(),
+          error_code: e.error_type==="alpha_code"?"LED-PATTERN":e.error_code_val.trim().toUpperCase(),
+          meaning:e.description.trim(),
+          cause:e.description.trim(),
+          how_to_fix:e.how_to_fix.trim(),
+          pcb_image:e.pcb_image||null,
+          error_image:e.error_image||null,
+          led_image:e.led_image||null,
+          indoor_led_blinks:0,
+          outdoor_led_blinks:0,
+          fridge_error_type:e.error_type
+        };
+        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
+      setWashMsg(`✅ ${washEntries.length} error code${washEntries.length>1?"s":""} saved for ${washModel.toUpperCase()}.`);
+      resetWash();load();
+    }catch(err){setWashMsg("⚠ Save failed: "+err.message);}
+    setWashSaving(false);
+  };
+
   const save=async()=>{
     setMsg("");
-    if(!brandValue.trim()){setMsg("⚠ Please choose or enter a brand.");return;}
+    if(!brandValue.trim()){setMsg("⚠ Please choose a brand.");return;}
     if(!form.error_code.trim()){setMsg("⚠ Error code is required.");return;}
     if(!form.meaning.trim()||!form.cause.trim()||!form.how_to_fix.trim()){setMsg("⚠ Meaning, cause and fix are all required.");return;}
     setSaving(true);
-    const payload={appliance,brand:brandValue.trim(),error_code:form.error_code.trim().toUpperCase(),meaning:form.meaning.trim(),cause:form.cause.trim(),how_to_fix:form.how_to_fix.trim(),indoor_led_blinks:Number(form.indoor_led_blinks)||0,outdoor_led_blinks:Number(form.outdoor_led_blinks)||0};
+    const payload={appliance:"ac",brand:brandValue.trim(),error_code:form.error_code.trim().toUpperCase(),meaning:form.meaning.trim(),cause:form.cause.trim(),how_to_fix:form.how_to_fix.trim(),indoor_led_blinks:Number(form.indoor_led_blinks)||0,outdoor_led_blinks:Number(form.outdoor_led_blinks)||0};
     try{
       if(editId){
         await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
@@ -1584,9 +1859,8 @@ function AdminErrors(){
 
   const edit=(item)=>{
     setAppliance(item.appliance);
-    if(item.appliance==="fridge") return;
-
-    setForm({brand:item.brand||'',error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||'',outdoor_led_blinks:item.outdoor_led_blinks||''});
+    if(item.appliance==="fridge"||item.appliance==="washing") return;
+    setForm({brand:item.brand||"",error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
     setEditId(item.id);setMsg("");
   };
 
@@ -1608,7 +1882,7 @@ function AdminErrors(){
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Appliance Type<span style={{color:"#ff4757"}}> *</span></div>
         <div style={{display:"flex",gap:8,marginBottom:16}}>
           {APPLIANCES.map(a=>(
-            <button key={a.v} onClick={()=>{setAppliance(a.v);setForm(blank);setEditId(null);resetFridge();}}
+            <button key={a.v} onClick={()=>{setAppliance(a.v);setForm(blank);setEditId(null);resetFridge();resetWash();}}
               style={{flex:1,padding:"10px 4px",borderRadius:10,border:appliance===a.v?`2px solid ${PC}`:"1px solid #2a3050",background:appliance===a.v?"#1a2a1a":"#0f1117",color:appliance===a.v?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:600}}>
               {a.l}
             </button>
@@ -1645,8 +1919,37 @@ function AdminErrors(){
           </button>
         </>}
 
-        {/* ── AC / WASHING FLOW (unchanged) ── */}
-        {(appliance==="ac"||appliance==="washing")&&<>
+        {/* ── WASHING FLOW ── */}
+        {appliance==="washing"&&<>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
+          <select value={washBrand} onChange={e=>setWashBrand(e.target.value)} style={{...INP,marginBottom:14,color:washBrand?"#fff":"#6b7db3"}}>
+            <option value="">-- Select Brand --</option>
+            {allBrands.map(b=><option key={b} value={b}>{b}</option>)}
+          </select>
+
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Model Number<span style={{color:"#ff4757"}}> *</span></div>
+          <input value={washModel} onChange={e=>setWashModel(e.target.value)} placeholder="e.g. WM5000NXA, NA-127MB3L01" style={{...INP,marginBottom:16}}/>
+
+          <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:10}}>Error Codes for this Model</div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Each entry below is one error. Add as many as needed.</div>
+
+          {washEntries.map((entry,idx)=>(
+            <WashingErrorRow key={idx} entry={entry} index={idx} onChange={updateWashEntry} onRemove={removeWashEntry} canRemove={washEntries.length>1}/>
+          ))}
+
+          <button onClick={addWashEntry} style={{width:"100%",padding:"11px",borderRadius:10,background:"#1a1f2e",color:AC,border:`1px dashed ${AC}`,cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:14}}>
+            + Add Another Error Code for {washModel||"this Model"}
+          </button>
+
+          {washMsg&&<div style={{fontSize:12,marginBottom:12,padding:"8px 12px",borderRadius:8,background:washMsg.startsWith("✅")?"#4caf5022":"#ff475711",color:washMsg.startsWith("✅")?PC:"#ff4757"}}>{washMsg}</div>}
+
+          <button onClick={saveWashing} disabled={washSaving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
+            {washSaving?`Saving ${washEntries.length} error${washEntries.length>1?"s":""}…`:`Save All ${washEntries.length} Error Code${washEntries.length>1?"s":""} to Database`}
+          </button>
+        </>}
+
+        {/* ── AC FLOW ── */}
+        {appliance==="ac"&&<>
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brand<span style={{color:"#ff4757"}}> *</span></div>
           <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} style={{...INP,marginBottom:14,color:form.brand?"#fff":"#6b7db3"}}>
             <option value="">-- Select Brand --</option>
@@ -1659,11 +1962,11 @@ function AdminErrors(){
               <input value={form.error_code} onChange={e=>setForm(f=>({...f,error_code:e.target.value}))} placeholder="e.g. E5, dE, F2" style={INP}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor LED Blinks</div>
+              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Indoor Blinks</div>
               <input type="number" value={form.indoor_led_blinks} onChange={e=>setForm(f=>({...f,indoor_led_blinks:e.target.value}))} placeholder="0" style={INP}/>
             </div>
             <div style={{flex:1}}>
-              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor LED Blinks</div>
+              <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:5}}>Outdoor Blinks</div>
               <input type="number" value={form.outdoor_led_blinks} onChange={e=>setForm(f=>({...f,outdoor_led_blinks:e.target.value}))} placeholder="0" style={INP}/>
             </div>
           </div>
