@@ -196,6 +196,23 @@ const compressImage = (dataUrl, maxPx=1200, quality=0.82) => new Promise((resolv
   }catch{resolve(dataUrl);}
 });
 
+// ── AUTO-SYNC TO IMAGE LIBRARY ───────────────────────────────────────────────
+// Call after any image upload anywhere in the app. Silently saves a copy to
+// remote_images so the library stays in sync. Fire-and-forget — never throws.
+const syncToLibrary = async (imageData) => {
+  if (!imageData) return;
+  try {
+    // Get next S-N id
+    const existing = await api("remote_images", { filter: "?select=image_id&order=id.desc&limit=1" });
+    const last = existing && existing[0] ? existing[0].image_id || "S-0" : "S-0";
+    const num = parseInt(last.split("-")[1] || "0", 10);
+    const newId = `S-${num + 1}`;
+    await api("remote_images", { method: "POST", body: { image_id: newId, image_data: imageData }, prefer: "return=minimal" });
+  } catch (_) {
+    // Silent — library sync failure must never break the main upload flow
+  }
+};
+
 // Only prompt for the missing details once 24 hours have passed since the
 // person chose "I'll do this later" at signup — never prompts otherwise,
 // since a profile that's incomplete for any other reason isn't this flow.
@@ -1485,7 +1502,7 @@ function WashingErrorRow({entry,index,onChange,onRemove,canRemove}){
     const file=e.target.files[0];if(!file)return;
     setLoading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);setLoading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);syncToLibrary(compressed);setLoading(false);e.target.value="";};
     reader.onerror=()=>setLoading(false);
     reader.readAsDataURL(file);
   };
@@ -1589,7 +1606,7 @@ function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
     const file=e.target.files[0];if(!file)return;
     setLoading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);setLoading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);syncToLibrary(compressed);setLoading(false);e.target.value="";};
     reader.onerror=()=>setLoading(false);
     reader.readAsDataURL(file);
   };
@@ -2037,7 +2054,7 @@ function AdminWiring() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));syncToLibrary(compressed);setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -2099,7 +2116,7 @@ function AdminSensorValues() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));syncToLibrary(compressed);setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -2198,7 +2215,7 @@ function AdminTips() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,media_data:compressed,media_type:"upload"}));setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,media_data:compressed,media_type:"upload"}));syncToLibrary(compressed);setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -2339,7 +2356,7 @@ function AdminRemotes() {
     const file=e.target.files[0];if(!file)return;
     setPcbUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,pcb_images:[...f.pcb_images,compressed]}));setPcbUploading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,pcb_images:[...f.pcb_images,compressed]}));syncToLibrary(compressed);setPcbUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setPcbUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -2354,7 +2371,7 @@ function AdminRemotes() {
     const file=e.target.files[0];if(!file)return;
     setRemoteUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,remote_images:[...f.remote_images,compressed]}));setRemoteUploading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,remote_images:[...f.remote_images,compressed]}));syncToLibrary(compressed);setRemoteUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setRemoteUploading(false);};
     reader.readAsDataURL(file);
   };
