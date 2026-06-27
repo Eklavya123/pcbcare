@@ -2911,6 +2911,31 @@ export default function PCBCare() {
       .catch(()=>{}); // keep the local-mirror default on failure
   },[]);
 
+  // ── PWA Install Prompt — shown once per user after 60s of logged-in use ──
+  useEffect(()=>{
+    let deferredPrompt=null;
+    let timer=null;
+    const onBeforeInstall=(e)=>{e.preventDefault();deferredPrompt=e;};
+    window.addEventListener("beforeinstallprompt",onBeforeInstall);
+    const alreadyAsked=localStorage.getItem("pcbcare_install_asked");
+    if(!alreadyAsked&&user){
+      timer=setTimeout(async()=>{
+        if(!deferredPrompt)return;
+        const ok=window.confirm("📲 Install PCBCare on your home screen for faster access and offline use. Install now?");
+        localStorage.setItem("pcbcare_install_asked","1");
+        if(ok){
+          deferredPrompt.prompt();
+          await deferredPrompt.userChoice;
+        }
+        deferredPrompt=null;
+      },60000);
+    }
+    return()=>{
+      window.removeEventListener("beforeinstallprompt",onBeforeInstall);
+      if(timer)clearTimeout(timer);
+    };
+  },[user]);
+
   // ── Intro: always plays once per browser session, never shows a skip button.
   useEffect(()=>{
     if(!adminSessionChecked) return; // wait for the admin session restore above to resolve first
