@@ -2348,6 +2348,7 @@ function AdminRemoteImages() {
   const del=async(id)=>{if(!window.confirm("Delete this image from library?"))return;await fetch(`${SB_URL}/rest/v1/remote_images?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
+    <>
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🖼️ Remote Image Library</div>
       <div style={{fontSize:12,color:"#6b7db3",marginBottom:14}}>Each image gets an auto-assigned ID (S-1, S-2, …). Use this ID when adding remotes to avoid re-uploading the same image.</div>
@@ -2378,6 +2379,7 @@ function AdminRemoteImages() {
       </div>
     </div>
       {zoomImg&&<div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.96)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}><img src={zoomImg} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:14,objectFit:"contain",boxShadow:"0 8px 40px #000"}}/><button onClick={e=>{e.stopPropagation();setZoomImg(null);}} style={{position:"absolute",top:18,right:18,width:36,height:36,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>✕</button></div>}
+    </>
   );
 }
 
