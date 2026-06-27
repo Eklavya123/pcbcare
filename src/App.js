@@ -770,17 +770,19 @@ function Errors() {
     setBrand(b);setModel("");setModels([]);setCodes([]);setSel(null);
     if(!b)return;
     setLoading(true);
-    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(b)}&select=model_number`});
-    const distinct=[...new Set((data||[]).map(d=>d.model_number).filter(Boolean))].sort();
+    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(b)}&select=model_number,pcb_image`});
+    const seen=new Set();
+    const distinct=(data||[]).reduce((acc,d)=>{if(d.model_number&&!seen.has(d.model_number)){seen.add(d.model_number);acc.push({model:d.model_number,img:d.pcb_image||""});}return acc;},[]).sort((a,b)=>a.model.localeCompare(b.model));
     setModels(distinct);
     setLoading(false);
   };
 
   // When model clicked — load all errors
   const onModelClick=async(m)=>{
-    setModel(m);setCodes([]);setSel(null);
+    const mn=typeof m==="object"?m.model:m;
+    setModel(mn);setCodes([]);setSel(null);
     setLoading(true);
-    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(brand)}&model_number=eq.${encodeURIComponent(m)}&select=*`});
+    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(brand)}&model_number=eq.${encodeURIComponent(mn)}&select=*`});
     setCodes(data||[]);
     setLoading(false);
   };
@@ -822,10 +824,14 @@ function Errors() {
           <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>Select Model ({models.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {models.map(m=>(
-              <button key={m} onClick={()=>onModelClick(m)}
-                style={{width:"100%",padding:"13px 16px",borderRadius:12,border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span>{m}</span>
-                <span style={{fontSize:12,color:AC}}>▶</span>
+              <button key={m.model} onClick={()=>onModelClick(m)}
+                style={{width:"100%",padding:"10px 14px",borderRadius:12,border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  {m.img&&<img src={m.img} alt={m.model} style={{width:48,height:48,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050",flexShrink:0}}/>}
+                  {!m.img&&<div style={{width:48,height:48,borderRadius:8,background:"#0a0d14",border:"1px solid #2a3050",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📋</div>}
+                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.model}</span>
+                </div>
+                <span style={{fontSize:12,color:AC,flexShrink:0}}>▶</span>
               </button>
             ))}
           </div>
@@ -849,7 +855,7 @@ function Errors() {
               <div onClick={()=>setSel(sel?.id===c.id?null:c)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
                   {c.fridge_error_type==="led_count"&&<div style={{background:"#1a3a5a",color:"#4fc3f7",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🔢 {c.indoor_led_blinks} Blinks</div>}
-                  {c.fridge_error_type==="led_image"&&<div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>}
+                  {c.fridge_error_type==="led_image"&&<><div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>{c.error_code&&c.error_code!=="LED-PATTERN"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}</>}
                   {c.fridge_error_type==="alpha_code"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
                   {!c.fridge_error_type&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
                   <div style={{fontSize:13,color:T.text,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.meaning}</div>
@@ -1773,13 +1779,13 @@ function AdminErrors(){
   const [fridgeBrand,setFridgeBrand]=useState("");
   const [fridgeModel,setFridgeModel]=useState("");
   const [fridgeEntries,setFridgeEntries]=useState([blankFridgeEntry()]);
-  const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);
+  const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);const [fridgeEditId,setFridgeEditId]=useState(null);
 
   // ── Washing-specific state ──
   const [washBrand,setWashBrand]=useState("");
   const [washModel,setWashModel]=useState("");
   const [washEntries,setWashEntries]=useState([blankWashingEntry()]);
-  const [washMsg,setWashMsg]=useState("");const [washSaving,setWashSaving]=useState(false);
+  const [washMsg,setWashMsg]=useState("");const [washSaving,setWashSaving]=useState(false);const [washEditId,setWashEditId]=useState(null);
 
   // ── AC / Washing state (unchanged flow) ──
   const blank={brand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
@@ -1802,7 +1808,7 @@ function AdminErrors(){
   };
   const addEntry=()=>setFridgeEntries(prev=>[...prev,blankFridgeEntry()]);
   const removeEntry=(idx)=>setFridgeEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");};
+  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");setFridgeEditId(null);};
 
   const saveFridge=async()=>{
     setFridgeMsg("");
@@ -1837,10 +1843,14 @@ function AdminErrors(){
           outdoor_led_blinks: 0,
           fridge_error_type: e.error_type
         };
-        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+        if(fridgeEditId){
+          await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${fridgeEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        }else{
+          await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+        }
       }
-      setFridgeMsg(`✅ ${fridgeEntries.length} error code${fridgeEntries.length>1?"s":""} saved for ${fridgeModel.toUpperCase()}.`);
-      resetFridge();load();
+      setFridgeMsg(fridgeEditId?"✅ Updated.":"✅ Saved.");
+      setFridgeEditId(null);resetFridge();load();
     }catch(err){setFridgeMsg("⚠ Save failed: "+err.message);}
     setFridgeSaving(false);
   };
@@ -1853,7 +1863,7 @@ function AdminErrors(){
   const updateWashEntry=(idx,field,val)=>{setWashEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});};
   const addWashEntry=()=>setWashEntries(prev=>[...prev,blankWashingEntry()]);
   const removeWashEntry=(idx)=>setWashEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");};
+  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");setWashEditId(null);};
 
   const saveWashing=async()=>{
     setWashMsg("");
@@ -1874,7 +1884,7 @@ function AdminErrors(){
           appliance:"washing",
           brand:washBrand.trim(),
           model_number:washModel.trim().toUpperCase(),
-          error_code: e.error_type==="alpha_code"?"LED-PATTERN":e.error_code_val.trim().toUpperCase(),
+          error_code: e.error_type==="alpha_code"?e.error_code_val.trim().toUpperCase():"LED-PATTERN",
           meaning:e.description.trim(),
           cause:e.description.trim(),
           how_to_fix:e.how_to_fix.trim(),
@@ -1885,10 +1895,14 @@ function AdminErrors(){
           outdoor_led_blinks:0,
           fridge_error_type:e.error_type
         };
-        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+        if(washEditId){
+          await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${washEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        }else{
+          await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+        }
       }
-      setWashMsg(`✅ ${washEntries.length} error code${washEntries.length>1?"s":""} saved for ${washModel.toUpperCase()}.`);
-      resetWash();load();
+      setWashMsg(washEditId?"✅ Updated.":"✅ Saved.");
+      setWashEditId(null);resetWash();load();
     }catch(err){setWashMsg("⚠ Save failed: "+err.message);}
     setWashSaving(false);
   };
@@ -1915,7 +1929,37 @@ function AdminErrors(){
 
   const edit=(item)=>{
     setAppliance(item.appliance);
-    if(item.appliance==="fridge"||item.appliance==="washing") return;
+    if(item.appliance==="washing"){
+      setWashBrand(item.brand||"");
+      setWashModel(item.model_number||"");
+      setWashEntries([{
+        error_type: item.fridge_error_type||"alpha_code",
+        pcb_image: item.pcb_image||"",
+        error_image: item.error_image||"",
+        led_image: item.led_image||"",
+        error_code_val: item.fridge_error_type==="alpha_code"?item.error_code:item.error_code||"",
+        description: item.meaning||"",
+        how_to_fix: item.how_to_fix||""
+      }]);
+      setWashEditId(item.id);setWashMsg("");
+      return;
+    }
+    if(item.appliance==="fridge"){
+      setFridgeBrand(item.brand||"");
+      setFridgeModel(item.model_number||"");
+      setFridgeEntries([{
+        error_type: item.fridge_error_type||"alpha_code",
+        pcb_image: item.pcb_image||"",
+        error_image: item.error_image||"",
+        led_image: item.led_image||"",
+        error_code_val: item.fridge_error_type==="alpha_code"?item.error_code:item.error_code||"",
+        indoor_led_blinks: item.indoor_led_blinks||"",
+        description: item.meaning||"",
+        how_to_fix: item.how_to_fix||""
+      }]);
+      setFridgeEditId(item.id);setFridgeMsg("");
+      return;
+    }
     setForm({brand:item.brand||"",error_code:item.error_code,meaning:item.meaning,cause:item.cause,how_to_fix:item.how_to_fix,indoor_led_blinks:item.indoor_led_blinks||"",outdoor_led_blinks:item.outdoor_led_blinks||""});
     setEditId(item.id);setMsg("");
   };
@@ -2074,7 +2118,7 @@ function AdminErrors(){
             )}
           </div>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
-            {item.appliance!=="fridge"&&<button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>}
+            <button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
             <button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
           </div>
         </div>
