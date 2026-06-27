@@ -795,7 +795,7 @@ function Errors() {
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔴 Error Code Lookup</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand{app==="fridge"?" → model → error":""}</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand{app==="fridge"?" → model → error":" → error"}</div>
 
       {/* Appliance tabs */}
       <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -807,7 +807,7 @@ function Errors() {
 
       {/* Brand dropdown */}
       {app&&<select value={brand} onChange={e=>{
-          if(app==="fridge"||app==="washing") onModelBrand(e.target.value);
+          if(app==="fridge") onModelBrand(e.target.value); else if(app==="washing"){setBrand(e.target.value);setCodes([]);setSel(null);if(e.target.value)loadCodes(app,e.target.value);}
           else{setBrand(e.target.value);setCodes([]);setSel(null);if(e.target.value)loadCodes(app,e.target.value);}
         }} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:14,boxSizing:"border-box"}}>
         <option value="">-- Select Brand --</option>
@@ -816,8 +816,8 @@ function Errors() {
 
       {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>Loading…</div>}
 
-      {/* ── FRIDGE / WASHING: model grid ── */}
-      {(app==="fridge"||app==="washing")&&brand&&!loading&&models.length>0&&!model&&(
+      {/* ── FRIDGE: model grid ── */}
+      {app==="fridge"&&brand&&!loading&&models.length>0&&!model&&(
         <div>
           <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>Select Model ({models.length})</div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -832,15 +832,15 @@ function Errors() {
         </div>
       )}
 
-      {/* Back to models */}
-      {(app==="fridge"||app==="washing")&&model&&(
+      {/* Back to models — fridge only */}
+      {app==="fridge"&&model&&(
         <button onClick={()=>{setModel("");setCodes([]);setSel(null);}} style={{display:"flex",alignItems:"center",gap:6,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"8px 14px",color:AC,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:12}}>
           ← {brand} · All Models
         </button>
       )}
 
-      {/* ── FRIDGE / WASHING: errors for selected model ── */}
-      {(app==="fridge"||app==="washing")&&model&&!loading&&codes.length>0&&(
+      {/* ── FRIDGE: errors for selected model ── */}
+      {app==="fridge"&&model&&!loading&&codes.length>0&&(
         <div>
           <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>{model}</div>
           <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>{codes.length} error{codes.length>1?"s":""} found</div>
@@ -884,8 +884,47 @@ function Errors() {
         </div>
       )}
 
-      {(app==="fridge"||app==="washing")&&brand&&!loading&&models.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No models found for {brand}.</div>}
-      {(app==="fridge"||app==="washing")&&model&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No errors found for {model}.</div>}
+      {app==="fridge"&&brand&&!loading&&models.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No models found for {brand}.</div>}
+      {app==="fridge"&&model&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No errors found for {model}.</div>}
+
+      {/* ── WASHING: show all errors by brand directly (no model step) ── */}
+      {app==="washing"&&!loading&&codes.length>0&&(
+        <div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>{codes.length} error{codes.length>1?"s":""} found for {brand}</div>
+          {codes.map((c)=>(
+            <div key={c.id} style={{background:T.card,borderRadius:14,border:`1px solid ${sel?.id===c.id?PC:T.border}`,marginBottom:10,overflow:"hidden"}}>
+              <div onClick={()=>setSel(sel?.id===c.id?null:c)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  {c.fridge_error_type==="led_image"&&<div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>}
+                  {c.fridge_error_type==="alpha_code"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
+                  {!c.fridge_error_type&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
+                  <div style={{fontSize:13,color:T.text,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.meaning}</div>
+                </div>
+                <div style={{color:PC,fontSize:14,flexShrink:0,marginLeft:8}}>{sel?.id===c.id?"▲":"▼"}</div>
+              </div>
+              {sel?.id===c.id&&<div style={{borderTop:`1px solid ${T.border}`,padding:14}}>
+                {(c.pcb_image||c.error_image||c.led_image)&&(
+                  <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                    {c.pcb_image&&<div style={{textAlign:"center"}}><img src={c.pcb_image} alt="PCB" onClick={()=>setModal(c.pcb_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>PCB</div></div>}
+                    {c.error_image&&<div style={{textAlign:"center"}}><img src={c.error_image} alt="Error" onClick={()=>setModal(c.error_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>Error</div></div>}
+                    {c.led_image&&<div style={{textAlign:"center"}}><img src={c.led_image} alt="LED" onClick={()=>setModal(c.led_image)} style={{height:80,borderRadius:8,border:`1px solid ${T.border}`,cursor:"pointer"}}/><div style={{fontSize:10,color:T.subtext,marginTop:3}}>LED Pattern</div></div>}
+                  </div>
+                )}
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:5}}>🔍 Description</div>
+                  <div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:10}}>{c.meaning}</div>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:PC,textTransform:"uppercase",marginBottom:5}}>🔧 How to Fix</div>
+                  <div style={{fontSize:13,color:T.muted,lineHeight:1.6,background:T.input,borderRadius:8,padding:10}}>{c.how_to_fix}</div>
+                </div>
+              </div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {app==="washing"&&brand&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No error codes found for {brand}.</div>}
+
 
       {/* ── AC: error code dropdown + detail ── */}
       {app==="ac"&&!loading&&codes.length>0&&(
@@ -2269,7 +2308,7 @@ function AdminTips() {
 // ── ADMIN: REMOTE IMAGE LIBRARY ──────────────────────────────────────────────
 function AdminRemoteImages() {
   const [list,setList]=useState([]);const [msg,setMsg]=useState("");
-  const [uploading,setUploading]=useState(false);const [urlInput,setUrlInput]=useState("");const [source,setSource]=useState("upload");
+  const [uploading,setUploading]=useState(false);const [urlInput,setUrlInput]=useState("");const [source,setSource]=useState("upload");const [zoomImg,setZoomImg]=useState(null);
 
   const load=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setList(d||[]);};
   useEffect(()=>{load();},[]);
@@ -2330,7 +2369,7 @@ function AdminRemoteImages() {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10}}>
         {list.map(img=>(
           <div key={img.id} style={{background:"#1a1f2e",borderRadius:10,padding:8,border:`1px solid ${"#2a3050"}`,position:"relative"}}>
-            <img src={img.image_data} alt={img.image_id} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:6,marginBottom:6}}/>
+            <img src={img.image_data} alt={img.image_id} onClick={()=>setZoomImg(img.image_data)} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:6,marginBottom:6,cursor:"zoom-in"}}/>
             <div style={{fontSize:12,fontWeight:700,color:AC,textAlign:"center"}}>{img.image_id}</div>
             <button onClick={()=>del(img.id)} style={{position:"absolute",top:4,right:4,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:10,lineHeight:1}}>✕</button>
           </div>
@@ -2338,6 +2377,7 @@ function AdminRemoteImages() {
         {list.length===0&&<div style={{fontSize:12,color:"#6b7db3",gridColumn:"1/-1",textAlign:"center",padding:20}}>No images yet. Upload one above.</div>}
       </div>
     </div>
+      {zoomImg&&<div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.96)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}><img src={zoomImg} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:14,objectFit:"contain",boxShadow:"0 8px 40px #000"}}/><button onClick={e=>{e.stopPropagation();setZoomImg(null);}} style={{position:"absolute",top:18,right:18,width:36,height:36,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>✕</button></div>}
   );
 }
 
