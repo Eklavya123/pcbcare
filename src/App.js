@@ -797,7 +797,7 @@ function Errors() {
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔴 Error Code Lookup</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand{app==="fridge"?" → model → error":" → error"}</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Select appliance → brand{(app==="fridge"||app==="washing")?" → model → error":" → error"}</div>
 
       {/* Appliance tabs */}
       <div style={{display:"flex",gap:8,marginBottom:14}}>
@@ -809,7 +809,7 @@ function Errors() {
 
       {/* Brand dropdown */}
       {app&&<select value={brand} onChange={e=>{
-          if(app==="fridge") onModelBrand(e.target.value); else if(app==="washing"){setBrand(e.target.value);setCodes([]);setSel(null);if(e.target.value)loadCodes(app,e.target.value);}
+          if(app==="fridge"||app==="washing") onModelBrand(e.target.value);
           else{setBrand(e.target.value);setCodes([]);setSel(null);if(e.target.value)loadCodes(app,e.target.value);}
         }} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.card,color:brand?T.text:T.subtext,fontSize:13,outline:"none",marginBottom:14,boxSizing:"border-box"}}>
         <option value="">-- Select Brand --</option>
@@ -893,15 +893,45 @@ function Errors() {
       {app==="fridge"&&brand&&!loading&&models.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No models found for {brand}.</div>}
       {app==="fridge"&&model&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No errors found for {model}.</div>}
 
-      {/* ── WASHING: show all errors by brand directly (no model step) ── */}
-      {app==="washing"&&!loading&&codes.length>0&&(
+      {/* ── WASHING: model grid ── */}
+      {app==="washing"&&brand&&!loading&&models.length>0&&!model&&(
         <div>
-          <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>{codes.length} error{codes.length>1?"s":""} found for {brand}</div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>Select Model ({models.length})</div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {models.map(m=>(
+              <button key={m.model} onClick={()=>onModelClick(m)}
+                style={{width:"100%",padding:"10px 14px",borderRadius:12,border:`1px solid ${"#2a3050"}`,background:"#1a1f2e",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  {m.img
+                    ?<img src={m.img} alt={m.model} onClick={e=>{e.stopPropagation();setModal(m.img);}} style={{width:48,height:48,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050",flexShrink:0,cursor:"zoom-in"}}/>
+                    :<div style={{width:48,height:48,borderRadius:8,background:"#0a0d14",border:"1px solid #2a3050",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>📋</div>
+                  }
+                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.model}</span>
+                </div>
+                <span style={{fontSize:12,color:AC,flexShrink:0}}>▶</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Back to models — washing */}
+      {app==="washing"&&model&&(
+        <button onClick={()=>{setModel("");setCodes([]);setSel(null);}} style={{display:"flex",alignItems:"center",gap:6,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"8px 14px",color:AC,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:12}}>
+          ← {brand} · All Models
+        </button>
+      )}
+
+      {/* ── WASHING: errors for selected model ── */}
+      {app==="washing"&&model&&!loading&&codes.length>0&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>{model}</div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:12}}>{codes.length} error{codes.length>1?"s":""} found</div>
           {codes.map((c)=>(
             <div key={c.id} style={{background:T.card,borderRadius:14,border:`1px solid ${sel?.id===c.id?PC:T.border}`,marginBottom:10,overflow:"hidden"}}>
               <div onClick={()=>setSel(sel?.id===c.id?null:c)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
-                  {c.fridge_error_type==="led_image"&&<div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>}
+                  {c.fridge_error_type==="led_image"&&<><div style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:700,flexShrink:0}}>🖼️ LED Pattern</div>{c.error_code&&c.error_code!=="LED-PATTERN"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}</>}
                   {c.fridge_error_type==="alpha_code"&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
                   {!c.fridge_error_type&&<div style={{background:"#ff475722",color:"#ff4757",borderRadius:8,padding:"4px 10px",fontSize:12,fontWeight:700,flexShrink:0}}>{c.error_code}</div>}
                   <div style={{fontSize:13,color:T.text,fontWeight:600,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.meaning}</div>
@@ -929,7 +959,8 @@ function Errors() {
           ))}
         </div>
       )}
-      {app==="washing"&&brand&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No error codes found for {brand}.</div>}
+      {app==="washing"&&brand&&!loading&&models.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No models found for {brand}.</div>}
+      {app==="washing"&&model&&!loading&&codes.length===0&&<div style={{background:T.card,borderRadius:12,padding:16,textAlign:"center",color:T.subtext,fontSize:13}}>No errors found for {model}.</div>}
 
 
       {/* ── AC: error code dropdown + detail ── */}
