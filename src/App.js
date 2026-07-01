@@ -695,8 +695,6 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
   );
 }
 
-const moderate=(text)=>{
-  if(/(\+?[\d\s\-.()]{10,})/.test(text))return{blocked:true,reason:"Phone numbers are not allowed."};
   if(/(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(text))return{blocked:true,reason:"URLs are not allowed."};
   const bad=["fuck","shit","bitch","asshole","bastard","whore","idiot"];
   if(bad.some(w=>text.toLowerCase().includes(w)))return{blocked:true,reason:"Prohibited language detected."};
@@ -704,17 +702,14 @@ const moderate=(text)=>{
 };
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
-function Home({setTab,partsEnabled=true,user}) {
+function Home({setTab,user}) {
   const T=useTheme();
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
-    ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Find by model number",color:PC}]:[]),
     {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
     {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
-    {id:"community",icon:"👥",title:"Community",desc:"Ask & share",color:"#7c5cfc"},
-    {id:"ai",icon:"🤖",title:"PCB AI",desc:"AI repair assistant",color:"#4caf50"},
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
   ];
   return (
@@ -1044,36 +1039,6 @@ function Wiring() {
   );
 }
 
-// ── PARTS ─────────────────────────────────────────────────────────────────────
-function Parts() {
-  const T=useTheme();
-  const [model,setModel]=useState("");const [result,setResult]=useState(null);const [loading,setLoading]=useState(false);
-  const search=async()=>{
-    if(!model.trim())return;setLoading(true);setResult(null);
-    try{const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:800,response_format:{type:"json_object"},messages:[{role:"user",content:`Appliance parts advisor. Respond with ONLY valid JSON, no markdown, no commentary, in exactly this shape: {"appliance_type":"...","brand":"...","model":"${model}","common_parts":[{"part_name":"...","part_number":"...","why_needed":"..."}],"search_tip":"..."}. Model number: ${model}.`}]})});
-    const data=await res.json();if(!res.ok)throw new Error(data.error||"AI request failed");const text=data.text||"";setResult(JSON.parse(text.replace(/```json|```/g,"").trim()));}catch{setResult({error:"Could not fetch. Try again."});}setLoading(false);
-  };
-  return (
-    <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔩 Part Finder</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Enter model number to find common parts</div>
-      <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
-        <div style={{display:"flex",gap:8}}>
-          <input value={model} onChange={e=>setModel(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="e.g. RF28R7351SR, WM3900HWA..." style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
-          <button onClick={search} disabled={loading||!model.trim()} style={{padding:"11px 16px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Find"}</button>
-        </div>
-      </div>
-      {result&&!result.error&&<div style={{background:T.card,borderRadius:14,border:`1px solid ${PC}44`,overflow:"hidden"}}>
-        <div style={{background:"#1a2a1a",padding:"14px 16px",borderBottom:`1px solid ${T.border}`}}><div style={{fontWeight:700,fontSize:14,color:T.text}}>{result.brand} — {result.model}</div><div style={{fontSize:11,color:T.subtext}}>{result.appliance_type}</div></div>
-        <div style={{padding:16}}>
-          {result.common_parts?.map((p,i)=><div key={i} style={{background:T.input,borderRadius:10,padding:12,marginBottom:8,borderLeft:`3px solid ${PC}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}><div style={{fontWeight:600,fontSize:13,color:T.text}}>{p.part_name}</div><div style={{fontSize:10,color:PC,background:`${PC}22`,borderRadius:6,padding:"2px 7px",marginLeft:6,whiteSpace:"nowrap"}}>{p.part_number}</div></div><div style={{fontSize:12,color:T.subtext}}>{p.why_needed}</div></div>)}
-          {result.search_tip&&<div style={{background:`${AC}11`,borderRadius:10,padding:12,border:`1px solid ${AC}33`,marginTop:4}}><div style={{fontSize:10,fontWeight:600,color:AC,marginBottom:4}}>💡 Tip</div><div style={{fontSize:12,color:T.muted}}>{result.search_tip}</div></div>}
-        </div>
-      </div>}
-      {result?.error&&<div style={{background:T.card,borderRadius:14,padding:16,textAlign:"center",color:"#ff4757"}}>⚠ {result.error}</div>}
-    </div>
-  );
-}
 
 // ── FIND REMOTE ────────────────────────────────────────────────────────────────
 function FindRemote() {
@@ -1293,136 +1258,7 @@ function SensorValues() {
   );
 }
 
-// ── COMMUNITY ─────────────────────────────────────────────────────────────────
-function Community({user}) {
-  const T=useTheme();
-  const [posts,setPosts]=useState([]);const [newPost,setNewPost]=useState("");const [replyTo,setReplyTo]=useState(null);const [replyText,setReplyText]=useState("");const [error,setError]=useState("");const [aiThinking,setAiThinking]=useState(null);const [loading,setLoading]=useState(true);
-  useEffect(()=>{api("community_posts",{filter:"?select=*,community_replies(*)&order=created_at.desc"}).then(d=>{setPosts(d||[]);setLoading(false);});},[]);
-  const submitPost=async()=>{
-    const mod=moderate(newPost);if(mod.blocked){setError(mod.reason);return;}if(!newPost.trim())return;
-    const res=await api("community_posts",{method:"POST",body:{author_name:user?.full_name||"Technician",text:newPost},prefer:"return=representation"});
-    const post=Array.isArray(res)?res[0]:null;
-    if(post){setPosts(prev=>[{...post,community_replies:[]},...prev]);setNewPost("");setError("");setAiThinking(post.id);
-      try{const aiRes=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:200,messages:[{role:"user",content:`You are PCB AI, expert appliance repair bot. Reply in 2 sentences max to: "${newPost}"`}]})});
-      const aiData=await aiRes.json();const reply=aiRes.ok?(aiData.text||"Good question!"):"Good question!";
-      await api("community_replies",{method:"POST",body:{post_id:post.id,author_name:"PCB AI 🤖",text:reply,is_ai:true},prefer:"return=minimal"});
-      setPosts(prev=>prev.map(p=>p.id===post.id?{...p,community_replies:[...p.community_replies,{author_name:"PCB AI 🤖",text:reply,is_ai:true}]}:p));}catch{}setAiThinking(null);}
-  };
-  const submitReply=async(postId)=>{
-    const mod=moderate(replyText);if(mod.blocked){setError(mod.reason);return;}
-    await api("community_replies",{method:"POST",body:{post_id:postId,author_name:user?.full_name||"Technician",text:replyText},prefer:"return=minimal"});
-    setPosts(prev=>prev.map(p=>p.id===postId?{...p,community_replies:[...p.community_replies,{author_name:user?.full_name||"Technician",text:replyText,is_ai:false}]}:p));
-    setReplyText("");setReplyTo(null);setError("");
-  };
-  return (
-    <div style={{padding:16}}>
-      <div style={{marginBottom:14}}><div style={{fontSize:18,fontWeight:700,color:T.text}}>👥 Community</div><div style={{fontSize:11,color:PC}}>🤖 AI Bot Active · Monitoring Posts</div></div>
-      <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
-        <textarea value={newPost} onChange={e=>{setNewPost(e.target.value);setError("");}} placeholder="Ask a repair question..." rows={3} style={{width:"100%",padding:"10px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"inherit"}}/>
-        {error&&<div style={{color:"#ff4757",fontSize:12,marginTop:4,padding:"6px 10px",background:"#ff475711",borderRadius:6}}>⚠ {error}</div>}
-        <button onClick={submitPost} disabled={!newPost.trim()} style={{marginTop:8,padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Post</button>
-      </div>
-      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading posts...</div>}
-      {posts.map(post=>(
-        <div key={post.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:12,overflow:"hidden"}}>
-          <div style={{padding:"14px 16px"}}>
-            <div style={{display:"flex",gap:10,marginBottom:10}}>
-              <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${PC},${AC})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#0a0d14",flexShrink:0}}>{post.author_name?.charAt(0)||"T"}</div>
-              <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{post.author_name}</div><div style={{fontSize:10,color:T.subtext}}>{new Date(post.created_at).toLocaleDateString()}</div></div>
-            </div>
-            <div style={{fontSize:13,color:T.muted,lineHeight:1.6}}>{post.text}</div>
-          </div>
-          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${T.border}`}}>{post.community_replies.map((r,i)=>(
-            <div key={i} style={{padding:"10px 16px 10px 26px",background:r.is_ai?"#0f1117":"transparent",borderBottom:i<post.community_replies.length-1?"1px solid #1a1f2e":"none"}}>
-              <div style={{display:"flex",gap:8,marginBottom:4}}><div style={{width:24,height:24,borderRadius:"50%",background:r.is_ai?"#4caf5033":"#2a3050",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:r.is_ai?"#4caf50":"#e8eaf0",flexShrink:0}}>{r.is_ai?"AI":r.author_name?.charAt(0)||"T"}</div><div style={{fontSize:11,fontWeight:600,color:r.is_ai?"#4caf50":"#fff"}}>{r.author_name}</div></div>
-              <div style={{fontSize:12,color:T.muted,lineHeight:1.5}}>{r.text}</div>
-            </div>
-          ))}</div>}
-          {aiThinking===post.id&&<div style={{padding:"10px 16px",borderTop:`1px solid ${T.border}`,background:T.input,display:"flex",gap:8,alignItems:"center"}}><div style={{fontSize:14}}>🤖</div><div style={{fontSize:12,color:PC}}>PCB AI is thinking...</div></div>}
-          <div style={{padding:"8px 16px 12px",borderTop:`1px solid ${T.border}`}}>
-            {replyTo===post.id?<div>
-              <input value={replyText} onChange={e=>{setReplyText(e.target.value);setError("");}} placeholder="Write a reply..." style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:6}}/>
-              <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>submitReply(post.id)} style={{padding:"7px 14px",borderRadius:8,background:PC,color:"#0a0d14",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Reply</button>
-                <button onClick={()=>setReplyTo(null)} style={{padding:"7px 14px",borderRadius:8,background:T.tag,color:T.subtext,border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
-              </div>
-            </div>:<button onClick={()=>setReplyTo(post.id)} style={{background:"none",border:"none",color:T.subtext,cursor:"pointer",fontSize:12}}>💬 Reply ({post.community_replies?.length||0})</button>}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
-// ── AI CHAT ───────────────────────────────────────────────────────────────────
-// Daily question limit. IMPORTANT: the usage counter is only incremented in
-// local state immediately before the call so the UI updates instantly, but if
-// the underlying API call actually fails (network error, bad response, etc.)
-// the increment is rolled back here — so a failed answer never costs the user
-// one of their daily questions. Only a successfully-delivered reply consumes
-// a slot.
-function AIChat() {
-  const T=useTheme();
-  const LIMIT=5;const today=new Date().toISOString().split("T")[0];
-  const [usage,setUsage]=useState(()=>DB.get("ai_"+today,0));
-  const [msgs,setMsgs]=useState([{role:"assistant",text:"Hi! I am PCB AI. I use our database of error codes, wiring diagrams, and repair knowledge to answer your questions. Ask me anything!"}]);
-  const [input,setInput]=useState("");const [loading,setLoading]=useState(false);const [dbCtx,setDbCtx]=useState("");
-  const bottomRef=useRef(null);
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[msgs]);
-  useEffect(()=>{Promise.all([api("error_codes",{filter:"?select=appliance,brand,error_code,meaning,cause,how_to_fix&limit=50"}),api("tips_tricks",{filter:"?select=title,description&limit=20"})]).then(([errors,tips])=>{setDbCtx("ERROR CODES: "+JSON.stringify(errors||[])+" TIPS: "+JSON.stringify(tips||[]));});},[]);
-  const remaining=LIMIT-usage;
-
-  const send=async()=>{
-    if(!input.trim()||loading||usage>=LIMIT)return;
-    const q=input.trim();setInput("");
-    setMsgs(m=>[...m,{role:"user",text:q}]);setLoading(true);
-
-    // Optimistically reserve a slot so the UI reflects the pending question,
-    // but keep the previous value so we can restore it if the call fails.
-    const previousUsage=usage;
-    const nu=usage+1;setUsage(nu);DB.set("ai_"+today,nu);
-
-    try{
-      const res=await fetch("/api/mistral",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"mistral-small-latest",max_tokens:500,messages:[{role:"user",content:`You are PCB AI, expert appliance repair assistant. Use this knowledge base: ${dbCtx}. Be concise. Question: ${q}`}]})});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.error||"Bad response from AI service");
-      const reply=data.text||"";
-      if(!reply.trim()) throw new Error("Empty AI response");
-      const left=LIMIT-nu;
-      setMsgs(m=>[...m,{role:"assistant",text:reply+(left>0?" ("+left+" questions left today)":"\n\nDaily limit reached. Come back tomorrow!")}]);
-    }catch(e){
-      // The AI failed to answer — revert the usage counter so this question
-      // is not counted against the user's daily limit, and let them know.
-      setUsage(previousUsage);DB.set("ai_"+today,previousUsage);
-      setMsgs(m=>[...m,{role:"assistant",text:"⚠ I couldn't answer that just now (connection issue). This question was NOT counted against your daily limit — please try again."}]);
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100dvh - 130px)"}}>
-      <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${T.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div><div style={{fontSize:18,fontWeight:700,color:T.text}}>🤖 PCB AI</div><div style={{fontSize:11,color:PC}}>Powered by database knowledge</div></div>
-        <div style={{background:remaining>2?"#4caf5022":remaining>0?"#ffa50222":"#ff475722",borderRadius:20,padding:"5px 10px",border:`1px solid ${remaining>2?"#4caf5044":remaining>0?"#ffa50244":"#ff475744"}`}}>
-          <div style={{fontSize:11,fontWeight:700,color:remaining>2?"#4caf50":remaining>0?"#ffa502":"#ff4757"}}>{remaining}/{LIMIT} left today</div>
-        </div>
-      </div>
-      <div style={{padding:"6px 16px",borderBottom:`1px solid ${T.border}`,background:T.input}}>
-        <div style={{height:3,background:T.tag,borderRadius:4,overflow:"hidden"}}><div style={{height:"100%",width:`${(usage/LIMIT)*100}%`,background:usage<3?"#4caf50":usage<5?"#ffa502":"#ff4757",borderRadius:4,transition:"width 0.3s"}}/></div>
-        {remaining===0&&<div style={{fontSize:11,color:"#ff4757",textAlign:"center",marginTop:4}}>Daily limit reached. Resets at midnight 🔄</div>}
-      </div>
-      <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:14,display:"flex",flexDirection:"column",gap:10}}>
-        {msgs.map((m,i)=><div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}><div style={{maxWidth:"83%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",fontSize:13,color:T.muted,lineHeight:1.6,border:m.role==="assistant"?"1px solid #2a3050":"none",whiteSpace:"pre-wrap"}}>{m.text}</div></div>)}
-        {loading&&<div style={{display:"flex",justifyContent:"flex-start"}}><div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:"14px 14px 14px 4px",padding:"10px 16px",color:T.subtext,fontSize:13}}>Thinking...</div></div>}
-        <div ref={bottomRef}/>
-      </div>
-      <div style={{padding:"10px 14px",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
-        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={remaining>0?"Ask about any appliance fault...":"Daily limit reached."} disabled={remaining===0} style={{flex:1,padding:"11px 14px",borderRadius:12,border:`1px solid ${T.border}`,background:remaining===0?"#0a0d14":"#1a1f2e",color:remaining===0?"#3a4060":"#fff",fontSize:13,outline:"none"}}/>
-        <button onClick={send} disabled={loading||!input.trim()||remaining===0} style={{width:44,height:44,borderRadius:12,background:remaining===0?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,border:"none",cursor:"pointer",fontSize:16,color:"#0a0d14",display:"flex",alignItems:"center",justifyContent:"center"}}>➤</button>
-      </div>
-    </div>
-  );
-}
 
 // ── REQUESTS ──────────────────────────────────────────────────────────────────
 function Requests({user}) {
@@ -2636,25 +2472,209 @@ function AdminRequests() {
   );
 }
 
-// ── ADMIN: COMMUNITY MODERATION ──────────────────────────────────────────────
-function AdminCommunity() {
+// ── ADMIN: PARTS IDENTIFIER ───────────────────────────────────────────────────
+const blankPart=()=>({name:"",image:""});
+function AdminParts(){
+  const [brands,setBrands]=useState([]);
+  const [form,setForm]=useState({brand:"",model_number:"",parts:[blankPart()]});
   const [list,setList]=useState([]);
-  const load=async()=>{const d=await api("community_posts",{filter:"?select=*,community_replies(*)&order=created_at.desc"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
-  const delPost=async(id)=>{if(!window.confirm("Delete this post and all replies?"))return;await fetch(`${SB_URL}/rest/v1/community_posts?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  const [editId,setEditId]=useState(null);
+  const [msg,setMsg]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [libOpen,setLibOpen]=useState(null); // index of part using library picker
+  const [libImages,setLibImages]=useState([]);
+
+  const load=async()=>{
+    const d=await api("parts_data",{filter:"?select=*&order=id.desc"});
+    setList(d||[]);
+  };
+  const loadBrands=async()=>{
+    const d=await api("brands",{filter:"?select=name&order=name"});
+    setBrands((d||[]).map(b=>b.name));
+  };
+  const loadLib=async()=>{
+    const d=await api("remote_images",{filter:"?select=image_id,image_data&order=image_id"});
+    setLibImages(d||[]);
+  };
+  useEffect(()=>{load();loadBrands();loadLib();},[]);
+
+  const updatePart=(i,field,val)=>setForm(f=>({...f,parts:f.parts.map((p,pi)=>pi===i?{...p,[field]:val}:p)}));
+  const addPart=()=>setForm(f=>({...f,parts:[...f.parts,blankPart()]}));
+  const removePart=(i)=>setForm(f=>({...f,parts:f.parts.filter((_,pi)=>pi!==i)}));
+
+  const handlePartImage=async(e,i)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      const compressed=await compressImage(reader.result);
+      updatePart(i,"image",compressed);
+      syncToLibrary(compressed);
+    };
+    reader.readAsDataURL(file);
+    e.target.value="";
+  };
+
+  const reset=()=>{setForm({brand:"",model_number:"",parts:[blankPart()]});setEditId(null);setMsg("");};
+
+  const save=async()=>{
+    if(!form.brand||!form.model_number.trim()){setMsg("⚠ Brand and model number required.");return;}
+    const validParts=form.parts.filter(p=>p.name.trim());
+    if(validParts.length===0){setMsg("⚠ At least one part name required.");return;}
+    setSaving(true);setMsg("");
+    const payload={brand:form.brand,model_number:form.model_number.trim().toUpperCase(),parts:JSON.stringify(validParts)};
+    try{
+      if(editId){
+        await fetch(`${SB_URL}/rest/v1/parts_data?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        setMsg("✅ Updated.");
+      }else{
+        await api("parts_data",{method:"POST",body:payload,prefer:"return=minimal"});
+        setMsg("✅ Saved.");
+      }
+      reset();load();
+    }catch(e){setMsg("⚠ "+e.message);}
+    setSaving(false);
+  };
+
+  const edit=(item)=>{
+    let parts=[];
+    try{parts=typeof item.parts==="string"?JSON.parse(item.parts):item.parts;}catch{parts=[blankPart()];}
+    if(!parts.length)parts=[blankPart()];
+    setForm({brand:item.brand||"",model_number:item.model_number||"",parts});
+    setEditId(item.id);setMsg("");
+  };
+
+  const del=async(id)=>{
+    if(!window.confirm("Delete this entry?"))return;
+    await fetch(`${SB_URL}/rest/v1/parts_data?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    load();
+  };
+
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👥 Community Moderation ({list.length})</div>
-      {list.map(post=>(
-        <div key={post.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{post.author_name}</div>
-            <button onClick={()=>delPost(post.id)} style={{padding:"4px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:10}}>Delete</button>
+      {/* Library picker modal */}
+      {libOpen!==null&&(
+        <div onClick={()=>setLibOpen(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",flexDirection:"column",alignItems:"center",padding:16,overflowY:"auto"}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:480,background:"#1a1f2e",borderRadius:16,padding:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>📚 Image Library</div>
+              <button onClick={()=>setLibOpen(null)} style={{background:"#ff4757",border:"none",color:"#fff",borderRadius:"50%",width:28,height:28,cursor:"pointer",fontSize:14,fontWeight:700}}>✕</button>
+            </div>
+            {libImages.length===0&&<div style={{color:"#6b7db3",fontSize:12,textAlign:"center",padding:20}}>No images in library yet.</div>}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+              {libImages.map(img=>(
+                <img key={img.image_id} src={img.image_data} alt={img.image_id}
+                  onClick={()=>{updatePart(libOpen,"image",img.image_data);setLibOpen(null);}}
+                  style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8,cursor:"pointer",border:"2px solid transparent"}}
+                  onMouseOver={e=>e.currentTarget.style.borderColor=PC}
+                  onMouseOut={e=>e.currentTarget.style.borderColor="transparent"}
+                />
+              ))}
+            </div>
           </div>
-          <div style={{fontSize:12,color:"#b0b8d0",marginBottom:8}}>{post.text}</div>
-          {post.community_replies?.length>0&&<div style={{borderTop:`1px solid ${"#2a3050"}`,paddingTop:8}}>{post.community_replies.map((r,i)=><div key={i} style={{fontSize:11,color:"#6b7db3",marginBottom:4}}><b style={{color:r.is_ai?PC:"#e8eaf0"}}>{r.author_name}:</b> {r.text}</div>)}</div>}
         </div>
-      ))}
+      )}
+
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:16}}>🔩 Parts Identifier</div>
+
+      {/* Form */}
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,marginBottom:20,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:12}}>{editId?"Edit Entry":"Add Entry"}</div>
+
+        <select value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))}
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:form.brand?"#fff":"#6b7db3",fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}>
+          <option value="">-- Select Brand --</option>
+          {brands.map(b=><option key={b} value={b}>{b}</option>)}
+        </select>
+
+        <input value={form.model_number} onChange={e=>setForm(f=>({...f,model_number:e.target.value}))}
+          placeholder="Model Number (e.g. WM7024)"
+          style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:13,outline:"none",marginBottom:14,boxSizing:"border-box"}}/>
+
+        {/* Parts list */}
+        {form.parts.map((part,i)=>(
+          <div key={i} style={{background:"#0a0d14",borderRadius:12,padding:14,marginBottom:10,border:"1px solid #2a3050",position:"relative"}}>
+            <div style={{fontSize:15,fontWeight:800,color:PC,marginBottom:10}}>
+              {part.name.trim()||`Part ${i+1}`}
+            </div>
+
+            <input value={part.name} onChange={e=>updatePart(i,"name",e.target.value)}
+              placeholder="Part name (e.g. Main Control Board)"
+              style={{width:"100%",padding:"9px 12px",borderRadius:9,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+
+            {/* Image preview */}
+            {part.image&&(
+              <div style={{position:"relative",display:"inline-block",marginBottom:10}}>
+                <img src={part.image} alt="" style={{height:80,borderRadius:8,border:"1px solid #2a3050",display:"block"}}/>
+                <button onClick={()=>updatePart(i,"image","")}
+                  style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>✕</button>
+              </div>
+            )}
+
+            {/* Image source buttons */}
+            {!part.image&&(
+              <div style={{display:"flex",gap:8,marginBottom:10}}>
+                <label style={{flex:1,padding:"8px 10px",borderRadius:9,background:"#1a1f2e",border:"1px solid #2a3050",color:"#6b7db3",fontSize:11,fontWeight:600,cursor:"pointer",textAlign:"center"}}>
+                  📷 Gallery
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>handlePartImage(e,i)}/>
+                </label>
+                <button onClick={()=>setLibOpen(i)}
+                  style={{flex:1,padding:"8px 10px",borderRadius:9,background:"#1a1f2e",border:"1px solid #2a3050",color:"#6b7db3",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                  📚 Library
+                </button>
+              </div>
+            )}
+
+            {form.parts.length>1&&(
+              <button onClick={()=>removePart(i)}
+                style={{position:"absolute",top:10,right:10,background:"#ff475722",color:"#ff4757",border:"none",borderRadius:7,padding:"3px 9px",fontSize:11,cursor:"pointer"}}>Remove</button>
+            )}
+          </div>
+        ))}
+
+        <button onClick={addPart}
+          style={{width:"100%",padding:"10px",borderRadius:10,background:"#1a1f2e",border:"1px dashed #2a3050",color:PC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12}}>
+          + Add Another Part
+        </button>
+
+        {msg&&<div style={{fontSize:12,color:msg.startsWith("✅")?"#4caf50":"#ff4757",marginBottom:8}}>{msg}</div>}
+
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={save} disabled={saving}
+            style={{flex:1,padding:"11px",borderRadius:10,background:PC,border:"none",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+            {saving?"Saving…":editId?"Update Entry":"Save Entry"}
+          </button>
+          {editId&&<button onClick={reset}
+            style={{padding:"11px 16px",borderRadius:10,background:"#2a3050",border:"none",color:"#fff",fontSize:13,cursor:"pointer"}}>Cancel</button>}
+        </div>
+      </div>
+
+      {/* Saved entries */}
+      <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Saved Entries ({list.length})</div>
+      {list.map(item=>{
+        let parts=[];try{parts=typeof item.parts==="string"?JSON.parse(item.parts):item.parts||[];}catch{}
+        return(
+          <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,marginBottom:10,border:"1px solid #2a3050"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{item.brand} · {item.model_number}</div>
+                <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{parts.length} part{parts.length!==1?"s":""}</div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>edit(item)} style={{padding:"5px 10px",borderRadius:8,background:"#2a3050",color:PC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+                <button onClick={()=>del(item.id)} style={{padding:"5px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {parts.map((p,i)=>(
+                <div key={i} style={{background:"#0a0d14",borderRadius:9,padding:"8px 10px",display:"flex",alignItems:"center",gap:8,border:"1px solid #2a3050"}}>
+                  {p.image&&<img src={p.image} alt={p.name} style={{width:36,height:36,objectFit:"cover",borderRadius:6,border:"1px solid #2a3050"}}/>}
+                  <div style={{fontSize:12,fontWeight:600,color:"#fff"}}>{p.name}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2728,7 +2748,6 @@ function AdminSettings() {
       next={
         id:null,
         auto_approve: DB.get("pcb_auto_approve",false),
-        parts_enabled: DB.get("pcb_parts_identifier_enabled",true),
         ai_daily_limit: DB.get("pcb_ai_daily_limit",5),
       };
     }
@@ -2741,7 +2760,7 @@ function AdminSettings() {
   const saveAll=async()=>{
     setSaving(true);setMsg("");
     try{
-      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,ai_daily_limit:draft.ai_daily_limit,updated_at:new Date().toISOString()};
+      const payload={auto_approve:draft.auto_approve,updated_at:new Date().toISOString()};
       let res;
       if(draft.id){
         res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
@@ -2756,7 +2775,6 @@ function AdminSettings() {
       }
       const savedRow=Array.isArray(data)?data[0]:null;
       DB.set("pcb_auto_approve",draft.auto_approve);
-      DB.set("pcb_parts_identifier_enabled",draft.parts_enabled);
       DB.set("pcb_ai_daily_limit",draft.ai_daily_limit);
       const confirmed={...draft,id:savedRow?savedRow.id:draft.id};
       setSaved(confirmed);setDraft(confirmed);
@@ -2833,9 +2851,9 @@ function AdminPanel({onLogout}) {
     {id:"sensors",label:"Sensors",icon:"📡"},
     {id:"remote",label:"Remote",icon:"🎮"},
     {id:"images",label:"Image Library",icon:"🖼️"},
+    {id:"parts",label:"Parts",icon:"🔩"},
     {id:"tips",label:"Tips",icon:"💡"},
     {id:"requests",label:"Requests",icon:"📥"},
-    {id:"community",label:"Community",icon:"👥"},
     {id:"users",label:"Users",icon:"👤"},
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
@@ -2862,9 +2880,9 @@ function AdminPanel({onLogout}) {
         {tab==="sensors"&&<AdminSensorValues/>}
         {tab==="remote"&&<AdminRemotes/>}
         {tab==="images"&&<AdminRemoteImages/>}
+        {tab==="parts"&&<AdminParts/>}
         {tab==="tips"&&<AdminTips/>}
         {tab==="requests"&&<AdminRequests/>}
-        {tab==="community"&&<AdminCommunity/>}
         {tab==="users"&&<AdminUsers/>}
         {tab==="settings"&&<AdminSettings/>}
       </div>
@@ -2904,7 +2922,6 @@ export default function PCBCare() {
   const profilePromptedRef=useRef(false);
   const userRef=useRef(user);
   userRef.current=user;
-  const [partsEnabled,setPartsEnabled]=useState(()=>DB.get("pcb_parts_identifier_enabled",true));
   const [adminSessionChecked,setAdminSessionChecked]=useState(false);
   const T = DARK;
 
@@ -2927,19 +2944,6 @@ export default function PCBCare() {
       if(session) DB.remove("pcb_admin_session"); // locally expired already — clean up
       setAdminSessionChecked(true);
     }
-  },[]);
-
-  // ── Parts Identifier feature flag, controlled from Admin → Settings.
-  useEffect(()=>{
-    api("app_settings",{filter:"?select=parts_enabled&limit=1"})
-      .then(rows=>{
-        if(Array.isArray(rows)&&rows[0]&&rows[0].parts_enabled!=null){
-          const enabled=!!rows[0].parts_enabled;
-          setPartsEnabled(enabled);
-          DB.set("pcb_parts_identifier_enabled",enabled);
-        }
-      })
-      .catch(()=>{}); // keep the local-mirror default on failure
   },[]);
 
   // ── PWA Install Prompt — shown once per user after 60s of logged-in use ──
@@ -3021,8 +3025,6 @@ export default function PCBCare() {
     {id:"home",icon:"🏠",label:"Home"},
     {id:"errors",icon:"🔴",label:"Errors"},
     {id:"wiring",icon:"⚡",label:"Wiring"},
-    {id:"ai",icon:"🤖",label:"AI"},
-    {id:"community",icon:"👥",label:"Community"},
   ];
 
   return (
@@ -3036,15 +3038,12 @@ export default function PCBCare() {
       </div>
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
-        {tab==="home"&&<Home setTab={setTab} partsEnabled={partsEnabled} user={user}/>}
+        {tab==="home"&&<Home setTab={setTab} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
-        {tab==="parts"&&(partsEnabled?<Parts/>:<div style={{padding:40,textAlign:"center",color:"#6b7db3"}}><div style={{fontSize:32,marginBottom:10}}>🔩</div>Part Finder is currently disabled by the admin.</div>)}
         {tab==="remote"&&<FindRemote/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
-        {tab==="community"&&<Community user={user}/>}
-        {tab==="ai"&&<AIChat/>}
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
