@@ -695,11 +695,6 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
   );
 }
 
-  if(/(https?:\/\/[^\s]+|www\.[^\s]+)/i.test(text))return{blocked:true,reason:"URLs are not allowed."};
-  const bad=["fuck","shit","bitch","asshole","bastard","whore","idiot"];
-  if(bad.some(w=>text.toLowerCase().includes(w)))return{blocked:true,reason:"Prohibited language detected."};
-  return{blocked:false};
-};
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
 function Home({setTab,user}) {
