@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // PCB Care — v1.1.1
 // ════════════════════════════════════════════════════════════════════════════
@@ -202,15 +203,8 @@ const compressImage = (dataUrl, maxPx=1200, quality=0.82) => new Promise((resolv
 const syncToLibrary = async (imageData) => {
   if (!imageData) return;
   try {
-    // Get next S-N id
-    const existing = await api("remote_images", { filter: "?select=image_id&order=id.desc&limit=1" });
-    const last = existing && existing[0] ? existing[0].image_id || "S-0" : "S-0";
-    const num = parseInt(last.split("-")[1] || "0", 10);
-    const newId = `S-${num + 1}`;
-    await api("remote_images", { method: "POST", body: { image_id: newId, image_data: imageData }, prefer: "return=minimal" });
-  } catch (_) {
-    // Silent — library sync failure must never break the main upload flow
-  }
+    await api("remote_images", { method: "POST", body: { image_data: imageData }, prefer: "return=minimal" });
+  } catch (_) {}
 };
 
 // Only prompt for the missing details once 24 hours have passed since the
@@ -2219,14 +2213,6 @@ function AdminRemoteImages() {
   const load=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setList(d||[]);};
   useEffect(()=>{load();},[]);
 
-  const nextId=async()=>{
-    const d=await api("remote_images",{filter:"?select=image_id&order=id.desc&limit=1"});
-    if(!d||d.length===0)return "S-1";
-    const last=d[0].image_id||"S-0";
-    const num=parseInt(last.split("-")[1]||"0",10);
-    return `S-${num+1}`;
-  };
-
   const addFromFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
@@ -2234,9 +2220,8 @@ function AdminRemoteImages() {
     reader.onload=async()=>{
       const compressed=await compressImage(reader.result);
       try{
-        const id=await nextId();
-        await api("remote_images",{method:"POST",body:{image_id:id,image_data:compressed},prefer:"return=minimal"});
-        setMsg("✅ Image uploaded as "+id+".");load();
+        await api("remote_images",{method:"POST",body:{image_data:compressed},prefer:"return=minimal"});
+        setMsg("✅ Image uploaded.");load();
       }catch(err){setMsg("⚠ Upload failed: "+err.message);}
       setUploading(false);e.target.value="";
     };
@@ -2246,9 +2231,8 @@ function AdminRemoteImages() {
   const addFromUrl=async()=>{
     if(!urlInput.trim())return;
     try{
-      const id=await nextId();
-      await api("remote_images",{method:"POST",body:{image_id:id,image_data:urlInput.trim()},prefer:"return=minimal"});
-      setMsg("✅ Image added as "+id+".");setUrlInput("");load();
+      await api("remote_images",{method:"POST",body:{image_data:urlInput.trim()},prefer:"return=minimal"});
+      setMsg("✅ Image added.");setUrlInput("");load();
     }catch(err){setMsg("⚠ Failed: "+err.message);}
   };
   const del=async(id)=>{if(!window.confirm("Delete this image from library?"))return;await fetch(`${SB_URL}/rest/v1/remote_images?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
@@ -3054,6 +3038,7 @@ export default function PCBCare() {
       <Watermark user={user}/>
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
     </div>
+      <SpeedInsights />
     </ThemeCtx.Provider>
   );
 }
