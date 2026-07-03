@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // PCB Care — v1.1.1
 // ════════════════════════════════════════════════════════════════════════════
@@ -3038,7 +3037,6 @@ export default function PCBCare() {
       <Watermark user={user}/>
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
     </div>
-      <SpeedInsights />
     </ThemeCtx.Provider>
   );
 }
