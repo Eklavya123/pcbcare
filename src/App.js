@@ -1635,12 +1635,20 @@ function AdminErrors(){
   const [fridgeModel,setFridgeModel]=useState("");
   const [fridgeEntries,setFridgeEntries]=useState([blankFridgeEntry()]);
   const [fridgeMsg,setFridgeMsg]=useState("");const [fridgeSaving,setFridgeSaving]=useState(false);const [fridgeEditId,setFridgeEditId]=useState(null);
+  const [fridgeMode,setFridgeMode]=useState("new"); // "new" | "copy"
+  const [fridgeCopySearch,setFridgeCopySearch]=useState("");
+  const [fridgeSelectedCopies,setFridgeSelectedCopies]=useState([]);
+  const [fridgeCopySaving,setFridgeCopySaving]=useState(false);
 
   // ── Washing-specific state ──
   const [washBrand,setWashBrand]=useState("");
   const [washModel,setWashModel]=useState("");
   const [washEntries,setWashEntries]=useState([blankWashingEntry()]);
   const [washMsg,setWashMsg]=useState("");const [washSaving,setWashSaving]=useState(false);const [washEditId,setWashEditId]=useState(null);
+  const [washMode,setWashMode]=useState("new"); // "new" | "copy"
+  const [washCopySearch,setWashCopySearch]=useState("");
+  const [washSelectedCopies,setWashSelectedCopies]=useState([]);
+  const [washCopySaving,setWashCopySaving]=useState(false);
 
   // ── AC / Washing state (unchanged flow) ──
   const blank={brand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
@@ -1663,7 +1671,35 @@ function AdminErrors(){
   };
   const addEntry=()=>setFridgeEntries(prev=>[...prev,blankFridgeEntry()]);
   const removeEntry=(idx)=>setFridgeEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");setFridgeEditId(null);};
+  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");setFridgeEditId(null);setFridgeMode("new");setFridgeCopySearch("");setFridgeSelectedCopies([]);};
+
+  const fridgeCopyResults=fridgeCopySearch.trim().length>0
+    ?list.filter(c=>c.appliance==="fridge"&&(
+        (c.error_code||"").toLowerCase().includes(fridgeCopySearch.toLowerCase())||
+        (c.meaning||"").toLowerCase().includes(fridgeCopySearch.toLowerCase())||
+        (c.model_number||"").toLowerCase().includes(fridgeCopySearch.toLowerCase())||
+        (c.brand||"").toLowerCase().includes(fridgeCopySearch.toLowerCase())
+      )).slice(0,20)
+    :[];
+
+  const toggleFridgeCopy=(item)=>{
+    setFridgeSelectedCopies(prev=>prev.find(x=>x.id===item.id)?prev.filter(x=>x.id!==item.id):[...prev,item]);
+  };
+
+  const saveFridgeCopies=async()=>{
+    if(!fridgeBrand||!fridgeModel.trim()){setFridgeMsg("⚠ Brand and model number required.");return;}
+    if(fridgeSelectedCopies.length===0){setFridgeMsg("⚠ Select at least one error code.");return;}
+    setFridgeCopySaving(true);setFridgeMsg("");
+    try{
+      for(const c of fridgeSelectedCopies){
+        const payload={appliance:"fridge",brand:fridgeBrand,model_number:fridgeModel.trim().toUpperCase(),error_code:c.error_code,meaning:c.meaning,how_to_fix:c.how_to_fix,fridge_error_type:c.fridge_error_type,indoor_led_blinks:c.indoor_led_blinks,pcb_image:c.pcb_image,error_image:c.error_image,led_image:c.led_image};
+        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
+      setFridgeMsg(`✅ ${fridgeSelectedCopies.length} error code${fridgeSelectedCopies.length>1?"s":""} copied to ${fridgeModel.toUpperCase()}.`);
+      resetFridge();load();
+    }catch(e){setFridgeMsg("⚠ "+e.message);}
+    setFridgeCopySaving(false);
+  };
 
   const saveFridge=async()=>{
     setFridgeMsg("");
@@ -1718,7 +1754,35 @@ function AdminErrors(){
   const updateWashEntry=(idx,field,val)=>{setWashEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});};
   const addWashEntry=()=>setWashEntries(prev=>[...prev,blankWashingEntry()]);
   const removeWashEntry=(idx)=>setWashEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");setWashEditId(null);};
+  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");setWashEditId(null);setWashMode("new");setWashCopySearch("");setWashSelectedCopies([]);};
+
+  const washCopyResults=washCopySearch.trim().length>0
+    ?list.filter(c=>c.appliance==="washing"&&(
+        (c.error_code||"").toLowerCase().includes(washCopySearch.toLowerCase())||
+        (c.meaning||"").toLowerCase().includes(washCopySearch.toLowerCase())||
+        (c.model_number||"").toLowerCase().includes(washCopySearch.toLowerCase())||
+        (c.brand||"").toLowerCase().includes(washCopySearch.toLowerCase())
+      )).slice(0,20)
+    :[];
+
+  const toggleWashCopy=(item)=>{
+    setWashSelectedCopies(prev=>prev.find(x=>x.id===item.id)?prev.filter(x=>x.id!==item.id):[...prev,item]);
+  };
+
+  const saveWashCopies=async()=>{
+    if(!washBrand||!washModel.trim()){setWashMsg("⚠ Brand and model number required.");return;}
+    if(washSelectedCopies.length===0){setWashMsg("⚠ Select at least one error code.");return;}
+    setWashCopySaving(true);setWashMsg("");
+    try{
+      for(const c of washSelectedCopies){
+        const payload={appliance:"washing",brand:washBrand,model_number:washModel.trim().toUpperCase(),error_code:c.error_code,meaning:c.meaning,how_to_fix:c.how_to_fix,fridge_error_type:c.fridge_error_type,indoor_led_blinks:c.indoor_led_blinks,pcb_image:c.pcb_image,error_image:c.error_image,led_image:c.led_image};
+        await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
+      setWashMsg(`✅ ${washSelectedCopies.length} error code${washSelectedCopies.length>1?"s":""} copied to ${washModel.toUpperCase()}.`);
+      resetWash();load();
+    }catch(e){setWashMsg("⚠ "+e.message);}
+    setWashCopySaving(false);
+  };
 
   const saveWashing=async()=>{
     setWashMsg("");
@@ -1855,6 +1919,68 @@ function AdminErrors(){
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Model Number<span style={{color:"#ff4757"}}> *</span></div>
           <input value={fridgeModel} onChange={e=>setFridgeModel(e.target.value)} placeholder="e.g. RT28T3753S8, GR-H652HLHU" style={{...INP,marginBottom:16}}/>
 
+
+          {/* ── Mode toggle ── */}
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <button onClick={()=>setFridgeMode("new")} style={{flex:1,padding:"9px",borderRadius:9,background:fridgeMode==="new"?PC:"#1a1f2e",border:`1px solid ${fridgeMode==="new"?PC:"#2a3050"}`,color:fridgeMode==="new"?"#0a0d14":"#b0b8d0",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              ✏️ Register New
+            </button>
+            <button onClick={()=>setFridgeMode("copy")} style={{flex:1,padding:"9px",borderRadius:9,background:fridgeMode==="copy"?AC:"#1a1f2e",border:`1px solid ${fridgeMode==="copy"?AC:"#2a3050"}`,color:fridgeMode==="copy"?"#0a0d14":"#b0b8d0",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              📋 Copy Existing
+            </button>
+          </div>
+
+          {/* ── Copy from existing ── */}
+          {fridgeMode==="copy"&&<>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:10}}>Search by error code, description, brand or model</div>
+            <input value={fridgeCopySearch} onChange={e=>setFridgeCopySearch(e.target.value)} placeholder="Type to search existing codes…"
+              style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+
+            {/* Search results */}
+            {fridgeCopyResults.length>0&&<div style={{marginBottom:12}}>
+              {fridgeCopyResults.map(c=>{
+                const selected=fridgeSelectedCopies.find(x=>x.id===c.id);
+                return(
+                  <div key={c.id} onClick={()=>toggleFridgeCopy(c)}
+                    style={{background:selected?"#1a2e1a":"#1a1f2e",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${selected?"#4caf50":"#2a3050"}`,cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.error_code||"—"}</span>
+                        <span style={{background:"#1a2840",color:"#4fc3f7",borderRadius:6,padding:"2px 8px",fontSize:10}}>{c.brand}</span>
+                        <span style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:6,padding:"2px 8px",fontSize:10}}>{c.model_number}</span>
+                        <span style={{background:"#0a1a0a",color:"#81c784",borderRadius:6,padding:"2px 8px",fontSize:10}}>{c.appliance}</span>
+                      </div>
+                      <div style={{fontSize:16,color:selected?"#4caf50":"#2a3050",flexShrink:0}}>{selected?"☑":"☐"}</div>
+                    </div>
+                    <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.4}}>{c.meaning}</div>
+                  </div>
+                );
+              })}
+            </div>}
+            {fridgeCopySearch.trim().length>0&&fridgeCopyResults.length===0&&<div style={{fontSize:12,color:"#6b7db3",marginBottom:12,textAlign:"center",padding:"12px"}}>No matching error codes found.</div>}
+
+            {/* Selected chips */}
+            {fridgeSelectedCopies.length>0&&<>
+              <div style={{fontSize:11,fontWeight:700,color:"#fff",marginBottom:6}}>Selected ({fridgeSelectedCopies.length})</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+                {fridgeSelectedCopies.map(c=>(
+                  <div key={c.id} style={{background:"#1a2e1a",border:"1px solid #4caf50",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#81c784",display:"flex",alignItems:"center",gap:6}}>
+                    <span>{c.error_code||c.meaning?.slice(0,20)}</span>
+                    <span onClick={()=>toggleFridgeCopy(c)} style={{cursor:"pointer",color:"#ff4757",fontWeight:700}}>✕</span>
+                  </div>
+                ))}
+              </div>
+            </>}
+
+            {fridgeMsg&&<div style={{fontSize:12,marginBottom:10,padding:"8px 12px",borderRadius:8,background:fridgeMsg.startsWith("✅")?"#4caf5022":"#ff475711",color:fridgeMsg.startsWith("✅")?PC:"#ff4757"}}>{fridgeMsg}</div>}
+            <button onClick={saveFridgeCopies} disabled={fridgeCopySaving||fridgeSelectedCopies.length===0}
+              style={{width:"100%",padding:"13px",borderRadius:10,background:fridgeSelectedCopies.length>0?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:fridgeSelectedCopies.length>0?"#0a0d14":"#6b7db3",border:"none",cursor:fridgeSelectedCopies.length>0?"pointer":"default",fontWeight:700,fontSize:14}}>
+              {fridgeCopySaving?"Saving…":`Copy ${fridgeSelectedCopies.length} Error Code${fridgeSelectedCopies.length!==1?"s":""} to ${fridgeModel||"this model"}`}
+            </button>
+          </>}
+
+          {/* ── Register new (existing form) ── */}
+          {fridgeMode==="new"&&<>
           <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:10}}>Error Codes for this Model</div>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Each entry below is one error / LED blink pattern. Add as many as needed.</div>
 
@@ -1872,6 +1998,7 @@ function AdminErrors(){
           <button onClick={saveFridge} disabled={fridgeSaving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
             {fridgeSaving?`Saving ${fridgeEntries.length} error${fridgeEntries.length>1?"s":""}…`:`Save All ${fridgeEntries.length} Error Code${fridgeEntries.length>1?"s":""} to Database`}
           </button>
+          </>}
         </>}
 
         {/* ── WASHING FLOW ── */}
@@ -1885,6 +2012,60 @@ function AdminErrors(){
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Model Number<span style={{color:"#ff4757"}}> *</span></div>
           <input value={washModel} onChange={e=>setWashModel(e.target.value)} placeholder="e.g. WM5000NXA, NA-127MB3L01" style={{...INP,marginBottom:16}}/>
 
+
+          {/* ── Mode toggle ── */}
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <button onClick={()=>setWashMode("new")} style={{flex:1,padding:"9px",borderRadius:9,background:washMode==="new"?PC:"#1a1f2e",border:`1px solid ${washMode==="new"?PC:"#2a3050"}`,color:washMode==="new"?"#0a0d14":"#b0b8d0",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              ✏️ Register New
+            </button>
+            <button onClick={()=>setWashMode("copy")} style={{flex:1,padding:"9px",borderRadius:9,background:washMode==="copy"?AC:"#1a1f2e",border:`1px solid ${washMode==="copy"?AC:"#2a3050"}`,color:washMode==="copy"?"#0a0d14":"#b0b8d0",fontWeight:700,fontSize:12,cursor:"pointer"}}>
+              📋 Copy Existing
+            </button>
+          </div>
+
+          {washMode==="copy"&&<>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:10}}>Search by error code, description, brand or model</div>
+            <input value={washCopySearch} onChange={e=>setWashCopySearch(e.target.value)} placeholder="Type to search existing codes…"
+              style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+            {washCopyResults.length>0&&<div style={{marginBottom:12}}>
+              {washCopyResults.map(c=>{
+                const selected=washSelectedCopies.find(x=>x.id===c.id);
+                return(
+                  <div key={c.id} onClick={()=>toggleWashCopy(c)}
+                    style={{background:selected?"#1a2e1a":"#1a1f2e",borderRadius:10,padding:"10px 12px",marginBottom:6,border:`1px solid ${selected?"#4caf50":"#2a3050"}`,cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <span style={{background:"#ff475722",color:"#ff4757",borderRadius:6,padding:"2px 8px",fontSize:11,fontWeight:700}}>{c.error_code||"—"}</span>
+                        <span style={{background:"#1a2840",color:"#4fc3f7",borderRadius:6,padding:"2px 8px",fontSize:10}}>{c.brand}</span>
+                        <span style={{background:"#2a1a4a",color:"#ce93d8",borderRadius:6,padding:"2px 8px",fontSize:10}}>{c.model_number}</span>
+                      </div>
+                      <div style={{fontSize:16,color:selected?"#4caf50":"#2a3050",flexShrink:0}}>{selected?"☑":"☐"}</div>
+                    </div>
+                    <div style={{fontSize:12,color:"#b0b8d0",lineHeight:1.4}}>{c.meaning}</div>
+                  </div>
+                );
+              })}
+            </div>}
+            {washCopySearch.trim().length>0&&washCopyResults.length===0&&<div style={{fontSize:12,color:"#6b7db3",marginBottom:12,textAlign:"center",padding:"12px"}}>No matching error codes found.</div>}
+            {washSelectedCopies.length>0&&<>
+              <div style={{fontSize:11,fontWeight:700,color:"#fff",marginBottom:6}}>Selected ({washSelectedCopies.length})</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+                {washSelectedCopies.map(c=>(
+                  <div key={c.id} style={{background:"#1a2e1a",border:"1px solid #4caf50",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#81c784",display:"flex",alignItems:"center",gap:6}}>
+                    <span>{c.error_code||c.meaning?.slice(0,20)}</span>
+                    <span onClick={()=>toggleWashCopy(c)} style={{cursor:"pointer",color:"#ff4757",fontWeight:700}}>✕</span>
+                  </div>
+                ))}
+              </div>
+            </>}
+            {washMsg&&<div style={{fontSize:12,marginBottom:10,padding:"8px 12px",borderRadius:8,background:washMsg.startsWith("✅")?"#4caf5022":"#ff475711",color:washMsg.startsWith("✅")?PC:"#ff4757"}}>{washMsg}</div>}
+            <button onClick={saveWashCopies} disabled={washCopySaving||washSelectedCopies.length===0}
+              style={{width:"100%",padding:"13px",borderRadius:10,background:washSelectedCopies.length>0?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:washSelectedCopies.length>0?"#0a0d14":"#6b7db3",border:"none",cursor:washSelectedCopies.length>0?"pointer":"default",fontWeight:700,fontSize:14}}>
+              {washCopySaving?"Saving…":`Copy ${washSelectedCopies.length} Error Code${washSelectedCopies.length!==1?"s":""} to ${washModel||"this model"}`}
+            </button>
+          </>}
+
+          {washMode==="new"&&<>
           <div style={{fontSize:12,fontWeight:700,color:"#fff",marginBottom:10}}>Error Codes for this Model</div>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Each entry below is one error. Add as many as needed.</div>
 
@@ -1901,6 +2082,7 @@ function AdminErrors(){
           <button onClick={saveWashing} disabled={washSaving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>
             {washSaving?`Saving ${washEntries.length} error${washEntries.length>1?"s":""}…`:`Save All ${washEntries.length} Error Code${washEntries.length>1?"s":""} to Database`}
           </button>
+          </>}
         </>}
 
         {/* ── AC FLOW ── */}
