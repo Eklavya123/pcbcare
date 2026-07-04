@@ -2441,8 +2441,37 @@ function AdminTips() {
 function AdminRemoteImages() {
   const [list,setList]=useState([]);const [msg,setMsg]=useState("");
   const [uploading,setUploading]=useState(false);const [urlInput,setUrlInput]=useState("");const [source,setSource]=useState("upload");const [zoomImg,setZoomImg]=useState(null);
+  const [loadError,setLoadError]=useState("");
 
-  const load=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setList(d||[]);};
+  // Diagnostic: fetch with count=exact so we can tell "RLS blocked, 0 rows returned"
+  // apart from "table genuinely empty" apart from "request failed outright".
+  const load=async()=>{
+    setLoadError("");
+    try{
+      const r=await fetch(`${SB_URL}/rest/v1/remote_images?select=*&order=image_id`,{
+        headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,Prefer:"count=exact"}
+      });
+      const contentRange=r.headers.get("content-range"); // e.g. "0-6/7" or "*/0"
+      const totalCount=contentRange?contentRange.split("/")[1]:null;
+      const raw=await r.text();
+      if(!r.ok){
+        let detail=raw;try{const j=JSON.parse(raw);detail=j.message||j.error||raw;}catch{}
+        setLoadError(`Request failed (${r.status}): ${detail||r.statusText}`);
+        setList([]);
+        return;
+      }
+      const d=raw?JSON.parse(raw):[];
+      setList(d||[]);
+      if((d||[]).length===0 && totalCount && totalCount!=="0"){
+        // Postgres reports rows exist (via exact count) but PostgREST returned none to THIS caller
+        // — this is the RLS/grants signature, not an empty table.
+        setLoadError(`Supabase reports ${totalCount} row(s) exist in remote_images, but none were returned to this request. This means a Row Level Security policy or table grant is blocking SELECT for the role this app uses — it is not a missing-data problem.`);
+      }
+    }catch(err){
+      setLoadError(`Network/parse error: ${err.message}`);
+      setList([]);
+    }
+  };
   useEffect(()=>{load();},[]);
 
   const addFromFile=(e)=>{
@@ -2474,6 +2503,7 @@ function AdminRemoteImages() {
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🖼️ Remote Image Library</div>
       <div style={{fontSize:12,color:"#6b7db3",marginBottom:14}}>Each image gets an auto-assigned ID (S-1, S-2, …). Use this ID when adding remotes to avoid re-uploading the same image.</div>
+      {loadError&&<div style={{background:"#3a1a1a",border:"1px solid #ff4757",borderRadius:10,padding:12,marginBottom:14,fontSize:12,color:"#ff9b9b"}}>⚠ {loadError}</div>}
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
         <div style={{display:"flex",gap:6,marginBottom:10}}>
           {[["upload","Upload File"],["url","Image URL"]].map(([v,l])=><button key={v} onClick={()=>setSource(v)} style={{flex:1,padding:"8px 4px",borderRadius:8,border:source===v?`2px solid ${AC}`:"1px solid #2a3050",background:source===v?`${AC}22`:"#0f1117",color:source===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>)}
