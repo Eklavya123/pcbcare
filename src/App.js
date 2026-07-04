@@ -753,9 +753,9 @@ function Errors() {
     setBrand(b);setModel("");setModels([]);setCodes([]);setSel(null);
     if(!b)return;
     setLoading(true);
-    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(b)}&select=model_number,pcb_image`});
+    const data=await api("error_codes",{filter:`?appliance=eq.${app}&brand=eq.${encodeURIComponent(b)}&select=model_number,model_image,pcb_image`});
     const seen=new Set();
-    const distinct=(data||[]).reduce((acc,d)=>{if(d.model_number&&!seen.has(d.model_number)){seen.add(d.model_number);acc.push({model:d.model_number,img:d.pcb_image||""});}return acc;},[]).sort((a,b)=>a.model.localeCompare(b.model));
+    const distinct=(data||[]).reduce((acc,d)=>{if(d.model_number&&!seen.has(d.model_number)){seen.add(d.model_number);acc.push({model:d.model_number,img:d.model_image||d.pcb_image||""});}return acc;},[]).sort((a,b)=>a.model.localeCompare(b.model));
     setModels(distinct);
     setLoading(false);
   };
@@ -1639,6 +1639,7 @@ function AdminErrors(){
   const [fridgeCopySearch,setFridgeCopySearch]=useState("");
   const [fridgeSelectedCopies,setFridgeSelectedCopies]=useState([]);
   const [fridgeCopySaving,setFridgeCopySaving]=useState(false);
+  const [fridgeModelImage,setFridgeModelImage]=useState("");
 
   // ── Washing-specific state ──
   const [washBrand,setWashBrand]=useState("");
@@ -1649,6 +1650,7 @@ function AdminErrors(){
   const [washCopySearch,setWashCopySearch]=useState("");
   const [washSelectedCopies,setWashSelectedCopies]=useState([]);
   const [washCopySaving,setWashCopySaving]=useState(false);
+  const [washModelImage,setWashModelImage]=useState("");
 
   // ── AC / Washing state (unchanged flow) ──
   const blank={brand:"",error_code:"",meaning:"",cause:"",how_to_fix:"",indoor_led_blinks:"",outdoor_led_blinks:""};
@@ -1671,7 +1673,7 @@ function AdminErrors(){
   };
   const addEntry=()=>setFridgeEntries(prev=>[...prev,blankFridgeEntry()]);
   const removeEntry=(idx)=>setFridgeEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");setFridgeEditId(null);setFridgeMode("new");setFridgeCopySearch("");setFridgeSelectedCopies([]);};
+  const resetFridge=()=>{setFridgeBrand("");setFridgeModel("");setFridgeModelImage("");setFridgeEntries([blankFridgeEntry()]);setFridgeMsg("");setFridgeEditId(null);setFridgeMode("new");setFridgeCopySearch("");setFridgeSelectedCopies([]);};
 
   const fridgeCopyResults=fridgeCopySearch.trim().length>0
     ?list.filter(c=>c.appliance==="fridge"&&(
@@ -1730,11 +1732,13 @@ function AdminErrors(){
           pcb_image:e.pcb_image||null,
           error_image:e.error_image||null,
           led_image:e.led_image||null,
+          model_image:fridgeModelImage||null,
           indoor_led_blinks: e.error_type==="led_count" ? Number(e.indoor_led_blinks)||0 : 0,
           outdoor_led_blinks: 0,
           fridge_error_type: e.error_type
         };
-        if(fridgeEditId){
+        // PATCH only the first entry (the one being edited), POST the rest as new rows
+        if(fridgeEditId&&fridgeEntries.indexOf(e)===0){
           await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${fridgeEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         }else{
           await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -1754,7 +1758,7 @@ function AdminErrors(){
   const updateWashEntry=(idx,field,val)=>{setWashEntries(prev=>{const next=[...prev];next[idx]={...next[idx],[field]:val};return next;});};
   const addWashEntry=()=>setWashEntries(prev=>[...prev,blankWashingEntry()]);
   const removeWashEntry=(idx)=>setWashEntries(prev=>prev.filter((_,i)=>i!==idx));
-  const resetWash=()=>{setWashBrand("");setWashModel("");setWashEntries([blankWashingEntry()]);setWashMsg("");setWashEditId(null);setWashMode("new");setWashCopySearch("");setWashSelectedCopies([]);};
+  const resetWash=()=>{setWashBrand("");setWashModel("");setWashModelImage("");setWashEntries([blankWashingEntry()]);setWashMsg("");setWashEditId(null);setWashMode("new");setWashCopySearch("");setWashSelectedCopies([]);};
 
   const washCopyResults=washCopySearch.trim().length>0
     ?list.filter(c=>c.appliance==="washing"&&(
@@ -1798,7 +1802,8 @@ function AdminErrors(){
     }
     setWashSaving(true);
     try{
-      for(const e of washEntries){
+      for(let i=0;i<washEntries.length;i++){
+        const e=washEntries[i];
         const payload={
           appliance:"washing",
           brand:washBrand.trim(),
@@ -1810,11 +1815,13 @@ function AdminErrors(){
           pcb_image:e.pcb_image||null,
           error_image:e.error_image||null,
           led_image:e.led_image||null,
+          model_image:washModelImage||null,
           indoor_led_blinks:0,
           outdoor_led_blinks:0,
           fridge_error_type:e.error_type
         };
-        if(washEditId){
+        // PATCH only the first entry (the one being edited), POST the rest as new rows
+        if(washEditId&&i===0){
           await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${washEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         }else{
           await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -1851,6 +1858,7 @@ function AdminErrors(){
     if(item.appliance==="washing"){
       setWashBrand(item.brand||"");
       setWashModel(item.model_number||"");
+      setWashModelImage(item.pcb_image||"");
       setWashEntries([{
         error_type: item.fridge_error_type||"alpha_code",
         pcb_image: item.pcb_image||"",
@@ -1866,6 +1874,7 @@ function AdminErrors(){
     if(item.appliance==="fridge"){
       setFridgeBrand(item.brand||"");
       setFridgeModel(item.model_number||"");
+      setFridgeModelImage(item.pcb_image||"");
       setFridgeEntries([{
         error_type: item.fridge_error_type||"alpha_code",
         pcb_image: item.pcb_image||"",
@@ -1920,6 +1929,27 @@ function AdminErrors(){
           <input value={fridgeModel} onChange={e=>setFridgeModel(e.target.value)} placeholder="e.g. RT28T3753S8, GR-H652HLHU" style={{...INP,marginBottom:16}}/>
 
 
+
+          {/* ── Model Image ── */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#b0b8d0",marginBottom:8}}>📷 Model Image <span style={{color:"#6b7db3",fontWeight:400}}>(for quick identification)</span></div>
+            {fridgeModelImage?(
+              <div style={{position:"relative",display:"inline-block"}}>
+                <img src={fridgeModelImage} alt="Model" style={{height:90,borderRadius:10,border:"1px solid #2a3050",display:"block"}}/>
+                <button onClick={()=>setFridgeModelImage("")} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:11,cursor:"pointer",fontWeight:700}}>✕</button>
+              </div>
+            ):(
+              <label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderRadius:10,border:"1px dashed #2a3050",background:"#0a0d14",color:"#6b7db3",fontSize:12,cursor:"pointer",width:"fit-content"}}>
+                📁 Choose Model Image
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+                  const file=e.target.files[0];if(!file)return;
+                  const reader=new FileReader();
+                  reader.onload=async()=>{const c=await compressImage(reader.result);setFridgeModelImage(c);syncToLibrary(c);};
+                  reader.readAsDataURL(file);e.target.value="";
+                }}/>
+              </label>
+            )}
+          </div>
           {/* ── Mode toggle ── */}
           <div style={{display:"flex",gap:8,marginBottom:16}}>
             <button onClick={()=>setFridgeMode("new")} style={{flex:1,padding:"9px",borderRadius:9,background:fridgeMode==="new"?PC:"#1a1f2e",border:`1px solid ${fridgeMode==="new"?PC:"#2a3050"}`,color:fridgeMode==="new"?"#0a0d14":"#b0b8d0",fontWeight:700,fontSize:12,cursor:"pointer"}}>
@@ -2023,6 +2053,27 @@ function AdminErrors(){
             </button>
           </div>
 
+
+          {/* ── Model Image ── */}
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#b0b8d0",marginBottom:8}}>📷 Model Image <span style={{color:"#6b7db3",fontWeight:400}}>(for quick identification)</span></div>
+            {washModelImage?(
+              <div style={{position:"relative",display:"inline-block"}}>
+                <img src={washModelImage} alt="Model" style={{height:90,borderRadius:10,border:"1px solid #2a3050",display:"block"}}/>
+                <button onClick={()=>setWashModelImage("")} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:11,cursor:"pointer",fontWeight:700}}>✕</button>
+              </div>
+            ):(
+              <label style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",borderRadius:10,border:"1px dashed #2a3050",background:"#0a0d14",color:"#6b7db3",fontSize:12,cursor:"pointer",width:"fit-content"}}>
+                📁 Choose Model Image
+                <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+                  const file=e.target.files[0];if(!file)return;
+                  const reader=new FileReader();
+                  reader.onload=async()=>{const c=await compressImage(reader.result);setWashModelImage(c);syncToLibrary(c);};
+                  reader.readAsDataURL(file);e.target.value="";
+                }}/>
+              </label>
+            )}
+          </div>
           {washMode==="copy"&&<>
             <div style={{fontSize:11,color:"#6b7db3",marginBottom:10}}>Search by error code, description, brand or model</div>
             <input value={washCopySearch} onChange={e=>setWashCopySearch(e.target.value)} placeholder="Type to search existing codes…"
