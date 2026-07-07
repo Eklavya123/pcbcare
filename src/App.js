@@ -161,6 +161,15 @@ const getAutoApprove = async () => {
   } catch { return false; }
 };
 
+const getPartsEnabled = async () => {
+  try {
+    const res = await api("app_settings",{filter:"?select=parts_enabled&limit=1"});
+    // Default to true (matches AdminSettings' blankSettings default) when no row
+    // exists yet, so the feature isn't silently hidden before any admin has saved.
+    return Array.isArray(res)&&res[0]?res[0].parts_enabled!==false:true;
+  } catch { return false; } // fail closed on network error — don't show a feature we can't confirm is on
+};
+
 // A profile is "complete" once city, state and country are all filled in.
 const isProfileComplete = (u) => !!(u && u.city && u.city.trim() && u.state && u.state.trim() && u.country && u.country.trim());
 
@@ -692,12 +701,15 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
 // ── HOME ──────────────────────────────────────────────────────────────────────
 function Home({setTab,user}) {
   const T=useTheme();
+  const [partsEnabled,setPartsEnabled]=useState(false); // default hidden until confirmed on, avoids a flash of a disabled feature
+  useEffect(()=>{getPartsEnabled().then(setPartsEnabled);},[]);
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
     {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
     {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
+    ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
   ];
   return (
@@ -1236,6 +1248,122 @@ function SensorValues() {
             </div>}
           </div>
         ))}
+      </>}
+
+      {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+        <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
+        <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
+      </div>}
+    </div>
+  );
+}
+
+// ── PART FINDER (user-facing) ──────────────────────────────────────────────────
+// Reads parts_data (written by admin's AdminParts screen). Gated at the Home-tile
+// level by parts_enabled, but also self-checks the flag here in case someone is
+// already on this screen when an admin flips it off mid-session.
+function PartFinder() {
+  const T=useTheme();
+  const [enabled,setEnabled]=useState(null); // null = checking
+  const [hasData,setHasData]=useState(null);
+  const [query,setQuery]=useState("");
+  const [results,setResults]=useState(null);
+  const [sel,setSel]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [modal,setModal]=useState(null);
+  const [brandFilter,setBrandFilter]=useState("");
+  const [brands,setBrands]=useState([]);
+
+  useEffect(()=>{ getPartsEnabled().then(setEnabled); },[]);
+  useEffect(()=>{
+    api("parts_data",{filter:"?select=id&limit=1"}).then(d=>{setHasData(Array.isArray(d)&&d.length>0);});
+    api("parts_data",{filter:"?select=brand&order=brand"}).then(d=>{
+      setBrands([...new Set((d||[]).map(r=>r.brand).filter(Boolean))]);
+    });
+  },[]);
+
+  const parsedParts=(item)=>{
+    try{ const p=typeof item.parts==="string"?JSON.parse(item.parts):item.parts; return Array.isArray(p)?p:[]; }
+    catch{ return []; }
+  };
+
+  const search=async()=>{
+    if(!query.trim()&&!brandFilter)return;
+    setLoading(true);setSel(null);
+    let filter="?select=*&order=model_number";
+    if(query.trim()) filter+=`&model_number=ilike.*${encodeURIComponent(query.trim())}*`;
+    if(brandFilter) filter+=`&brand=eq.${encodeURIComponent(brandFilter)}`;
+    const d=await api("parts_data",{filter});
+    setResults(d||[]);
+    setLoading(false);
+  };
+
+  if(enabled===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
+  if(enabled===false) return (
+    <div style={{padding:16}}>
+      <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}>
+        <div style={{fontSize:32,marginBottom:8}}>🔩</div>
+        <div style={{fontSize:13,color:T.subtext}}>Part Finder is currently unavailable.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>🔩 Part Finder</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Identify replacement parts by model number</div>
+
+      {hasData===null&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>}
+
+      {hasData===false&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>🔩</div><div style={{fontSize:13,color:T.subtext}}>Part data coming soon!</div></div>}
+
+      {hasData===true&&<>
+        <div style={{background:T.card,borderRadius:14,padding:14,marginBottom:14,border:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",gap:8,marginBottom:brands.length>0?10:0}}>
+            <input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="Enter Model Number of PCB"
+              style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none"}}/>
+            <button onClick={search} disabled={loading||(!query.trim()&&!brandFilter)} style={{padding:"11px 16px",borderRadius:10,background:loading?T.tag:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>{loading?"⏳":"Search"}</button>
+          </div>
+          {brands.length>0&&<div>
+            <div style={{fontSize:11,color:T.subtext,marginBottom:6}}>🔽 Filter by Brand</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              <button onClick={()=>setBrandFilter("")} style={{padding:"6px 12px",borderRadius:20,border:!brandFilter?`2px solid ${PC}`:`1px solid ${T.border}`,background:!brandFilter?`${PC}22`:T.input,color:!brandFilter?PC:T.subtext,fontSize:11,cursor:"pointer"}}>All</button>
+              {brands.map(b=><button key={b} onClick={()=>setBrandFilter(b)} style={{padding:"6px 12px",borderRadius:20,border:brandFilter===b?`2px solid ${PC}`:`1px solid ${T.border}`,background:brandFilter===b?`${PC}22`:T.input,color:brandFilter===b?PC:T.subtext,fontSize:11,cursor:"pointer"}}>{b}</button>)}
+            </div>
+          </div>}
+        </div>
+
+        {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Searching...</div>}
+
+        {!loading&&results!==null&&results.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:13,color:T.subtext}}>No parts found for that model number.</div></div>}
+
+        {!loading&&results&&results.map((item,i)=>{
+          const parts=parsedParts(item);
+          return (
+            <div key={item.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:10,overflow:"hidden"}}>
+              <div onClick={()=>setSel(sel===i?null:i)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{item.model_number}</div>
+                  <div style={{fontSize:11,color:PC}}>{item.brand} · {parts.length} part{parts.length!==1?"s":""}</div>
+                </div>
+                <div style={{color:PC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
+              </div>
+              {sel===i&&<div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {parts.map((p,pi)=>(
+                    <div key={pi} style={{background:T.input,borderRadius:10,padding:8,textAlign:"center"}}>
+                      {p.image?
+                        <img src={p.image} alt={p.name} onClick={()=>setModal(p.image)} style={{width:"100%",aspectRatio:"1",objectFit:"cover",borderRadius:8,marginBottom:6,cursor:"pointer"}}/>
+                        :<div style={{width:"100%",aspectRatio:"1",borderRadius:8,marginBottom:6,background:T.tag,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🔩</div>
+                      }
+                      <div style={{fontSize:11,color:T.text,fontWeight:600}}>{p.name}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>}
+            </div>
+          );
+        })}
       </>}
 
       {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
@@ -3001,7 +3129,7 @@ function AdminSettings() {
   const saveAll=async()=>{
     setSaving(true);setMsg("");
     try{
-      const payload={auto_approve:draft.auto_approve,updated_at:new Date().toISOString()};
+      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,updated_at:new Date().toISOString()};
       let res;
       if(draft.id){
         res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
@@ -3285,6 +3413,7 @@ export default function PCBCare() {
         {tab==="remote"&&<FindRemote/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
+        {tab==="parts"&&<PartFinder/>}
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
