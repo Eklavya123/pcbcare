@@ -2984,6 +2984,7 @@ function AdminRemotes() {
 function AdminRequests() {
   const [list,setList]=useState([]);
   const [open,setOpen]=useState(null);
+  const [zoom,setZoom]=useState(null);
   const load=async()=>{const d=await api("user_requests",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
   useEffect(()=>{load();},[]);
   const updateStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
@@ -3001,7 +3002,7 @@ function AdminRequests() {
           </div>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
           <div style={{fontSize:12,color:"#b0b8d0",marginBottom:10}}>{item.description}</div>
-          {item.image_url&&<img src={item.image_url} alt="" style={{maxWidth:160,borderRadius:8,marginBottom:10,display:"block"}}/>}
+          {item.image_url&&<img src={item.image_url} alt="" onClick={()=>setZoom(item.image_url)} style={{maxWidth:160,borderRadius:8,marginBottom:10,display:"block",cursor:"pointer"}}/>}
           <div style={{display:"flex",gap:6,marginBottom:open===item.id?12:0}}>
             <button onClick={()=>updateStatus(item.id,"completed")} style={{padding:"6px 12px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:11}}>Mark Completed</button>
             <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
@@ -3013,6 +3014,10 @@ function AdminRequests() {
         </div>
         );
       })}
+
+      {zoom&&<div onClick={()=>setZoom(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <img src={zoom} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
+      </div>}
     </div>
   );
 }
@@ -3389,6 +3394,32 @@ function AdminSettings() {
 // ── ADMIN PANEL SHELL ──────────────────────────────────────────────────────────
 function AdminPanel({onLogout}) {
   const [tab,setTab]=useState("errors");
+  const [pendingCount,setPendingCount]=useState(0);
+  const [newReqPopup,setNewReqPopup]=useState(null);
+  const seenPendingIds=useRef(null); // null = baseline not yet established
+
+  useEffect(()=>{
+    const poll=async()=>{
+      try{
+        const d=await api("user_requests",{filter:"?select=id,user_name,request_type,status,created_at&status=eq.pending&order=created_at.desc"});
+        const rows=d||[];
+        setPendingCount(rows.length);
+        const currentIds=new Set(rows.map(r=>r.id));
+        if(seenPendingIds.current===null){
+          // First load — just establish the baseline, don't pop up for requests that already existed.
+          seenPendingIds.current=currentIds;
+        }else{
+          const fresh=rows.find(r=>!seenPendingIds.current.has(r.id));
+          if(fresh) setNewReqPopup(fresh);
+          seenPendingIds.current=currentIds;
+        }
+      }catch(e){ console.warn("pending requests poll failed:",e.message); }
+    };
+    poll();
+    const iv=setInterval(poll,8000);
+    return ()=>clearInterval(iv);
+  },[]);
+
   const TABS=[
     {id:"brands",label:"Brands",icon:"🏷️"},
     {id:"errors",label:"Error Codes",icon:"🔴"},
@@ -3398,7 +3429,7 @@ function AdminPanel({onLogout}) {
     {id:"images",label:"Image Library",icon:"🖼️"},
     {id:"parts",label:"Parts",icon:"🔩"},
     {id:"tips",label:"Tips",icon:"💡"},
-    {id:"requests",label:"Requests",icon:"📥"},
+    {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
     {id:"users",label:"Users",icon:"👤"},
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
@@ -3413,8 +3444,9 @@ function AdminPanel({onLogout}) {
       </div>
       <div style={{display:"flex",overflowX:"auto",background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"0 8px"}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5}}>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
             <span>{t.icon}</span>{t.label}
+            {t.badge&&<span style={{position:"absolute",top:6,right:2,width:8,height:8,borderRadius:"50%",background:"#ff4757"}}/>}
           </button>
         ))}
       </div>
@@ -3431,6 +3463,18 @@ function AdminPanel({onLogout}) {
         {tab==="users"&&<AdminUsers/>}
         {tab==="settings"&&<AdminSettings/>}
       </div>
+
+      {newReqPopup&&<div onClick={()=>setNewReqPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#1a1f2e",border:`1px solid ${"#2a3050"}`,borderRadius:16,padding:20,maxWidth:340,width:"100%"}}>
+          <div style={{fontSize:28,marginBottom:8}}>📥</div>
+          <div style={{fontSize:15,fontWeight:700,color:"#fff",marginBottom:4}}>New Request</div>
+          <div style={{fontSize:12,color:"#b0b8d0",marginBottom:16}}>{newReqPopup.user_name} requested <b>{newReqPopup.request_type}</b>.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>{setTab("requests");setNewReqPopup(null);}} style={{flex:1,padding:"10px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>View</button>
+            <button onClick={()=>setNewReqPopup(null)} style={{flex:1,padding:"10px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Dismiss</button>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
