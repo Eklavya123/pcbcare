@@ -1542,6 +1542,7 @@ function MyRequests({user}) {
     const d=await api("user_requests",{filter:`?select=*&user_id=eq.${user.id}&order=created_at.desc`});
     setList(d||[]);
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{load();},[user?.id]);
 
   if(list===null) return <div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>;
