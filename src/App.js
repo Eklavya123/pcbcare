@@ -1376,36 +1376,202 @@ function PartFinder() {
 
 
 
+// ── SHARED: CHAT THREAD (used by both user-facing Requests and AdminRequests) ──
+// Polls every 5s while mounted — there's no realtime subscription in this app
+// (everything is raw REST fetch), so this is "near-live", not instant push.
+function ChatThread({requestId,role,closed}) {
+  const T=useTheme();
+  const [messages,setMessages]=useState([]);
+  const [text,setText]=useState("");
+  const [img,setImg]=useState("");
+  const [sending,setSending]=useState(false);
+  const [zoom,setZoom]=useState(null);
+  const boxRef=useRef(null);
+
+  const load=async()=>{
+    try{
+      const d=await api("request_messages",{filter:`?select=*&request_id=eq.${requestId}&order=created_at.asc`});
+      setMessages(d||[]);
+    }catch(e){ console.warn("request_messages load failed:",e.message); }
+  };
+  useEffect(()=>{
+    load();
+    const iv=setInterval(load,5000);
+    return ()=>clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[requestId]);
+  useEffect(()=>{ if(boxRef.current) boxRef.current.scrollTop=boxRef.current.scrollHeight; },[messages]);
+
+  const handleImg=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async()=>{ setImg(await compressImage(reader.result)); };
+    reader.readAsDataURL(file);
+  };
+
+  const send=async()=>{
+    if(!text.trim()&&!img)return;
+    setSending(true);
+    try{
+      await api("request_messages",{method:"POST",body:{request_id:requestId,sender:role,message:text.trim()||null,image_url:img||null},prefer:"return=minimal"});
+      setText("");setImg("");
+      await load();
+    }catch(e){ console.warn("send message failed:",e.message); }
+    setSending(false);
+  };
+
+  return (
+    <div>
+      <div ref={boxRef} style={{maxHeight:280,overflowY:"auto",padding:"8px 2px",display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+        {messages.length===0&&<div style={{textAlign:"center",color:T.subtext,fontSize:11,padding:14}}>No messages yet. Say what's going on.</div>}
+        {messages.map(m=>{
+          const mine=m.sender===role;
+          return (
+            <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"78%"}}>
+              <div style={{fontSize:9,color:T.subtext,marginBottom:2,fontWeight:600,textAlign:mine?"right":"left"}}>{mine?"You":(m.sender==="admin"?"Admin":"Technician")}</div>
+              <div style={{background:mine?`${PC}22`:T.input,border:`1px solid ${mine?PC+"55":T.border}`,borderRadius:12,padding:"8px 10px"}}>
+                {m.image_url&&<img src={m.image_url} alt="" onClick={()=>setZoom(m.image_url)} style={{width:"100%",maxWidth:180,borderRadius:8,marginBottom:m.message?6:0,cursor:"pointer",display:"block"}}/>}
+                {m.message&&<div style={{fontSize:12,color:T.text,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{m.message}</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {closed?
+        <div style={{textAlign:"center",fontSize:11,color:T.subtext,padding:"8px 0"}}>This request is closed — no further messages.</div>
+      :<>
+        {img&&<div style={{marginBottom:8,position:"relative",display:"inline-block"}}>
+          <img src={img} alt="" style={{height:56,borderRadius:8}}/>
+          <button onClick={()=>setImg("")} style={{position:"absolute",top:-6,right:-6,width:18,height:18,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",fontSize:10,cursor:"pointer"}}>✕</button>
+        </div>}
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <label style={{width:38,height:38,borderRadius:10,background:T.input,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0}}>
+            📎<input type="file" accept="image/*" onChange={handleImg} style={{display:"none"}}/>
+          </label>
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Type a message..."
+            style={{flex:1,padding:"10px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",minWidth:0}}/>
+          <button onClick={send} disabled={sending||(!text.trim()&&!img)} style={{padding:"10px 14px",borderRadius:10,background:sending||(!text.trim()&&!img)?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:12,flexShrink:0}}>{sending?"⏳":"Send"}</button>
+        </div>
+      </>}
+
+      {zoom&&<div onClick={()=>setZoom(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <img src={zoom} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
+      </div>}
+    </div>
+  );
+}
+
 // ── REQUESTS ──────────────────────────────────────────────────────────────────
 function Requests({user}) {
   const T=useTheme();
+  const [view,setView]=useState("new"); // "new" | "mine"
   const [type,setType]=useState("");const [form,setForm]=useState({appliance:"",brand:"",description:""});const [submitted,setSubmitted]=useState(false);const [loading,setLoading]=useState(false);
+  const [attach,setAttach]=useState("");
   const TYPES=["Error Code","Wiring Diagram","PCB Connection","Tips & Tricks","Sensor Values"];
-  const submit=async()=>{if(!type||!form.description)return;setLoading(true);await api("user_requests",{method:"POST",body:{user_name:user?.full_name||"Anonymous",request_type:type,appliance:form.appliance,brand:form.brand,description:form.description,status:"pending"},prefer:"return=minimal"});setSubmitted(true);setLoading(false);};
+
+  const handleAttach=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async()=>{ setAttach(await compressImage(reader.result)); };
+    reader.readAsDataURL(file);
+  };
+
+  const submit=async()=>{
+    if(!type||!form.description)return;setLoading(true);
+    await api("user_requests",{method:"POST",body:{user_id:user?.id||null,user_name:user?.full_name||"Anonymous",request_type:type,appliance:form.appliance,brand:form.brand,description:form.description,image_url:attach||null,status:"pending"},prefer:"return=minimal"});
+    setSubmitted(true);setLoading(false);
+  };
+
   if(submitted) return (
     <div style={{padding:16,textAlign:"center",paddingTop:60}}>
       <div style={{fontSize:40,marginBottom:12}}>✅</div>
       <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8}}>Request Submitted!</div>
-      <div style={{fontSize:13,color:T.subtext,marginBottom:20}}>Admin will review and add the content soon.</div>
-      <button onClick={()=>{setSubmitted(false);setType("");setForm({appliance:"",brand:"",description:""}); }} style={{padding:"12px 24px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700}}>Submit Another</button>
+      <div style={{fontSize:13,color:T.subtext,marginBottom:20}}>Admin will review and reply here — check "My Requests" for updates.</div>
+      <button onClick={()=>{setSubmitted(false);setType("");setForm({appliance:"",brand:"",description:""});setAttach(""); }} style={{padding:"12px 24px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,marginRight:8}}>Submit Another</button>
+      <button onClick={()=>{setSubmitted(false);setView("mine");setType("");setForm({appliance:"",brand:"",description:""});setAttach(""); }} style={{padding:"12px 24px",borderRadius:12,background:T.input,color:T.text,border:`1px solid ${T.border}`,cursor:"pointer",fontWeight:700}}>View My Requests</button>
     </div>
   );
+
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>📥 Request Content</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Request error codes, diagrams, sensor values, or tips</div>
-      <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
-        <div style={{fontSize:12,fontWeight:600,color:T.muted,marginBottom:10}}>Request Type<span style={{color:"#ff4757"}}> *</span></div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
-          {TYPES.map(t=><button key={t} onClick={()=>setType(t)} style={{padding:"8px 14px",borderRadius:20,border:type===t?`2px solid ${PC}`:"1px solid #2a3050",background:type===t?`${PC}22`:"#0f1117",color:type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:type===t?600:400}}>{t}</button>)}
-        </div>
-        <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:form.appliance?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
-          <option value="">-- Appliance (Optional) --</option>{["Fridge","Washing Machine","AC","Other"].map(a=><option key={a} value={a}>{a}</option>)}
-        </select>
-        <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (Optional)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Describe what you need... *" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit",marginBottom:14}}/>
-        <button onClick={submit} disabled={!type||!form.description||loading} style={{width:"100%",padding:"13px",borderRadius:10,background:!type||!form.description?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{loading?"Submitting...":"Submit Request"}</button>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>📥 Requests</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:14}}>Request content or chat with admin about an existing request</div>
+
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <button onClick={()=>setView("new")} style={{flex:1,padding:"10px",borderRadius:10,border:view==="new"?`2px solid ${PC}`:`1px solid ${T.border}`,background:view==="new"?`${PC}22`:T.card,color:view==="new"?PC:T.subtext,fontSize:12,fontWeight:600,cursor:"pointer"}}>New Request</button>
+        <button onClick={()=>setView("mine")} style={{flex:1,padding:"10px",borderRadius:10,border:view==="mine"?`2px solid ${PC}`:`1px solid ${T.border}`,background:view==="mine"?`${PC}22`:T.card,color:view==="mine"?PC:T.subtext,fontSize:12,fontWeight:600,cursor:"pointer"}}>My Requests</button>
       </div>
+
+      {view==="new"&&
+        <div style={{background:T.card,borderRadius:14,padding:16,border:`1px solid ${T.border}`}}>
+          <div style={{fontSize:12,fontWeight:600,color:T.muted,marginBottom:10}}>Request Type<span style={{color:"#ff4757"}}> *</span></div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+            {TYPES.map(t=><button key={t} onClick={()=>setType(t)} style={{padding:"8px 14px",borderRadius:20,border:type===t?`2px solid ${PC}`:"1px solid #2a3050",background:type===t?`${PC}22`:"#0f1117",color:type===t?PC:"#6b7db3",fontSize:12,cursor:"pointer",fontWeight:type===t?600:400}}>{t}</button>)}
+          </div>
+          <select value={form.appliance} onChange={e=>setForm(f=>({...f,appliance:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:form.appliance?"#fff":"#6b7db3",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
+            <option value="">-- Appliance (Optional) --</option>{["Fridge","Washing Machine","AC","Other"].map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
+          <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (Optional)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+          <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Describe what you need... *" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit",marginBottom:10}}/>
+          <div style={{fontSize:12,fontWeight:600,color:T.muted,marginBottom:8}}>Attach Photo (Optional)</div>
+          {attach?
+            <div style={{marginBottom:14,position:"relative",display:"inline-block"}}>
+              <img src={attach} alt="" style={{height:90,borderRadius:10}}/>
+              <button onClick={()=>setAttach("")} style={{position:"absolute",top:-8,right:-8,width:22,height:22,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>✕</button>
+            </div>
+          :<label style={{display:"inline-flex",alignItems:"center",gap:6,padding:"9px 14px",borderRadius:10,border:`1px dashed ${T.border}`,background:T.input,color:T.subtext,fontSize:12,cursor:"pointer",marginBottom:14}}>
+            📎 Choose Image<input type="file" accept="image/*" onChange={handleAttach} style={{display:"none"}}/>
+          </label>}
+          <button onClick={submit} disabled={!type||!form.description||loading} style={{width:"100%",padding:"13px",borderRadius:10,background:!type||!form.description?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{loading?"Submitting...":"Submit Request"}</button>
+        </div>
+      }
+
+      {view==="mine"&&<MyRequests user={user}/>}
+    </div>
+  );
+}
+
+function MyRequests({user}) {
+  const T=useTheme();
+  const [list,setList]=useState(null);
+  const [open,setOpen]=useState(null);
+
+  const load=async()=>{
+    if(!user?.id){ setList([]); return; }
+    const d=await api("user_requests",{filter:`?select=*&user_id=eq.${user.id}&order=created_at.desc`});
+    setList(d||[]);
+  };
+  useEffect(()=>{load();},[user?.id]);
+
+  if(list===null) return <div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>;
+  if(list.length===0) return <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>📥</div><div style={{fontSize:13,color:T.subtext}}>No requests yet.</div></div>;
+
+  return (
+    <div>
+      {list.map(item=>{
+        const closed=item.status==="completed"||item.status==="dismissed";
+        return (
+          <div key={item.id} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,marginBottom:10,overflow:"hidden"}}>
+            <div onClick={()=>setOpen(open===item.id?null:item.id)} style={{padding:"13px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{item.request_type}</div>
+                <div style={{fontSize:11,color:T.subtext}}>{item.appliance||"—"}{item.brand?` · ${item.brand}`:""}</div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:item.status==="pending"?"#ffa50222":item.status==="completed"?"#4caf5022":"#6b7db322",color:item.status==="pending"?"#ffa502":item.status==="completed"?PC:"#6b7db3",fontWeight:600}}>{item.status}</div>
+                <div style={{color:PC,fontSize:16}}>{open===item.id?"▲":"▼"}</div>
+              </div>
+            </div>
+            {open===item.id&&<div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
+              <div style={{fontSize:12,color:T.muted,lineHeight:1.6,marginBottom:item.image_url?10:14}}>{item.description}</div>
+              {item.image_url&&<img src={item.image_url} alt="" style={{maxWidth:180,borderRadius:8,marginBottom:14,display:"block"}}/>}
+              <div style={{fontSize:11,fontWeight:600,color:T.subtext,marginBottom:8,textTransform:"uppercase"}}>💬 Conversation</div>
+              <ChatThread requestId={item.id} role="user" closed={closed}/>
+            </div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2816,6 +2982,7 @@ function AdminRemotes() {
 // ── ADMIN: REQUESTS ───────────────────────────────────────────────────────────
 function AdminRequests() {
   const [list,setList]=useState([]);
+  const [open,setOpen]=useState(null);
   const load=async()=>{const d=await api("user_requests",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
   useEffect(()=>{load();},[]);
   const updateStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
@@ -2823,7 +2990,9 @@ function AdminRequests() {
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📥 User Requests ({list.length})</div>
       {list.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No requests yet.</div>}
-      {list.map(item=>(
+      {list.map(item=>{
+        const closed=item.status==="completed"||item.status==="dismissed";
+        return (
         <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
             <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>{item.request_type}</div>
@@ -2831,12 +3000,18 @@ function AdminRequests() {
           </div>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:4}}>By {item.user_name} · {item.appliance||"—"} {item.brand?`· ${item.brand}`:""}</div>
           <div style={{fontSize:12,color:"#b0b8d0",marginBottom:10}}>{item.description}</div>
-          <div style={{display:"flex",gap:6}}>
+          {item.image_url&&<img src={item.image_url} alt="" style={{maxWidth:160,borderRadius:8,marginBottom:10,display:"block"}}/>}
+          <div style={{display:"flex",gap:6,marginBottom:open===item.id?12:0}}>
             <button onClick={()=>updateStatus(item.id,"completed")} style={{padding:"6px 12px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:11}}>Mark Completed</button>
             <button onClick={()=>updateStatus(item.id,"dismissed")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Dismiss</button>
+            <button onClick={()=>setOpen(open===item.id?null:item.id)} style={{padding:"6px 12px",borderRadius:8,background:"#00bcd422",color:"#00bcd4",border:"none",cursor:"pointer",fontSize:11,marginLeft:"auto"}}>{open===item.id?"Hide Chat ▲":"💬 Chat ▼"}</button>
           </div>
+          {open===item.id&&<div style={{borderTop:"1px solid #2a3050",paddingTop:12}}>
+            <ChatThread requestId={item.id} role="admin" closed={closed}/>
+          </div>}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
