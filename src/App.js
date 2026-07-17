@@ -3162,27 +3162,76 @@ function AdminParts(){
 }
 
 // ── ADMIN: USERS / APPROVALS ──────────────────────────────────────────────────
+const ONLINE_WINDOW_MS = 70000; // matches the 25s heartbeat with headroom
+
+function timeAgo(iso){
+  if(!iso) return "Never";
+  const diff = Date.now() - new Date(iso).getTime();
+  if(diff < 0) return "Just now";
+  const s = Math.floor(diff/1000);
+  if(s < 60) return "Just now";
+  const m = Math.floor(s/60);
+  if(m < 60) return `${m}m ago`;
+  const h = Math.floor(m/60);
+  if(h < 24) return `${h}h ago`;
+  const d = Math.floor(h/24);
+  if(d < 30) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function isOnline(u){
+  if(!u.last_seen) return false;
+  return (Date.now() - new Date(u.last_seen).getTime()) < ONLINE_WINDOW_MS;
+}
+
 function AdminUsers() {
   const [list,setList]=useState([]);const [filter,setFilter]=useState("pending");
+  const [section,setSection]=useState("all"); // "all" | "online"
+  const [, forceTick]=useState(0); // re-render every few seconds so "online" / "Xm ago" stay fresh
   const load=async()=>{const d=await api("users",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{
+    load();
+    const iv=setInterval(load,15000); // poll for near real-time updates
+    return()=>clearInterval(iv);
+  },[]);
+  useEffect(()=>{
+    const t=setInterval(()=>forceTick(x=>x+1),5000);
+    return()=>clearInterval(t);
+  },[]);
   const setStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
-  const filtered=list.filter(u=>filter==="all"?true:u.status===filter);
+  const onlineCount = list.filter(isOnline).length;
+  const base = section==="online" ? list.filter(isOnline) : list;
+  const filtered = base.filter(u=>filter==="all"?true:u.status===filter);
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>👤 User Approvals</div>
+
       <div style={{display:"flex",gap:8,marginBottom:14}}>
-        {["pending","approved","rejected","all"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:"8px 4px",borderRadius:10,border:filter===f?`2px solid ${PC}`:"1px solid #2a3050",background:filter===f?"#1a2a1a":"#1a1f2e",color:filter===f?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",textTransform:"capitalize"}}>{f} ({f==="all"?list.length:list.filter(u=>u.status===f).length})</button>)}
+        <button onClick={()=>setSection("all")} style={{flex:1,padding:"10px 4px",borderRadius:10,border:section==="all"?`2px solid ${PC}`:"1px solid #2a3050",background:section==="all"?"#1a2a1a":"#1a1f2e",color:section==="all"?"#fff":"#6b7db3",fontSize:12,fontWeight:600,cursor:"pointer"}}>👥 All Users ({list.length})</button>
+        <button onClick={()=>setSection("online")} style={{flex:1,padding:"10px 4px",borderRadius:10,border:section==="online"?"2px solid #4caf50":"1px solid #2a3050",background:section==="online"?"#1a2a1a":"#1a1f2e",color:section==="online"?"#4caf50":"#6b7db3",fontSize:12,fontWeight:600,cursor:"pointer"}}>🟢 Online Now ({onlineCount})</button>
       </div>
-      {filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No users in this category.</div>}
-      {filtered.map(u=>(
-        <div key={u.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${"#2a3050"}`,marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{u.full_name}</div>
+
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        {["pending","approved","rejected","all"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:"8px 4px",borderRadius:10,border:filter===f?`2px solid ${PC}`:"1px solid #2a3050",background:filter===f?"#1a2a1a":"#1a1f2e",color:filter===f?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",textTransform:"capitalize"}}>{f} ({f==="all"?base.length:base.filter(u=>u.status===f).length})</button>)}
+      </div>
+
+      {filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>{section==="online"?"No users online right now.":"No users in this category."}</div>}
+      {filtered.map(u=>{
+        const online=isOnline(u);
+        return (
+        <div key={u.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:`1px solid ${online?"#4caf5055":"#2a3050"}`,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{width:8,height:8,borderRadius:"50%",background:online?"#4caf50":"#4a5578",boxShadow:online?"0 0 6px #4caf50":"none",flexShrink:0}}/>
+              <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{u.full_name}</div>
+            </div>
             <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:u.status==="pending"?"#ffa50222":u.status==="approved"?"#4caf5022":"#ff475722",color:u.status==="pending"?"#ffa502":u.status==="approved"?PC:"#ff4757"}}>{u.status}</div>
           </div>
-          <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.5,marginBottom:10}}>
+          <div style={{fontSize:11,color:"#6b7db3",lineHeight:1.5,marginBottom:6}}>
             {u.email}<br/>{u.city}, {u.state}, {u.country}<br/>{u.experience} · {u.specialization} · via {u.method}
+          </div>
+          <div style={{fontSize:11,color:online?"#4caf50":"#6b7db3",fontWeight:600,marginBottom:10}}>
+            {online?"🟢 Online now":`⚪ Last seen: ${timeAgo(u.last_seen)}`}
           </div>
           {u.status==="pending"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setStatus(u.id,"approved")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
@@ -3190,7 +3239,7 @@ function AdminUsers() {
           </div>}
           {u.status!=="pending"&&<button onClick={()=>setStatus(u.id,"pending")} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11}}>Reset to Pending</button>}
         </div>
-      ))}
+      );})}
     </div>
   );
 }
@@ -3329,6 +3378,9 @@ function AdminPanel({onLogout}) {
   const [pendingCount,setPendingCount]=useState(0);
   const [newReqPopup,setNewReqPopup]=useState(null);
   const seenPendingIds=useRef(null); // null = baseline not yet established
+  const [newUserCount,setNewUserCount]=useState(0);
+  const seenUserIds=useRef(null); // null = baseline not yet established
+  const latestUserIdsRef=useRef([]);
 
   useEffect(()=>{
     const poll=async()=>{
@@ -3352,6 +3404,36 @@ function AdminPanel({onLogout}) {
     return ()=>clearInterval(iv);
   },[]);
 
+  // ── New-user badge: red dot on the Users tab whenever someone signs up,
+  // cleared the moment the admin opens the Users tab. ──
+  useEffect(()=>{
+    const poll=async()=>{
+      try{
+        const d=await api("users",{filter:"?select=id,created_at&order=created_at.desc&limit=200"});
+        const rows=d||[];
+        latestUserIdsRef.current=rows.map(r=>r.id);
+        if(seenUserIds.current===null){
+          // First load — establish baseline so existing users don't light up the badge.
+          seenUserIds.current=new Set(latestUserIdsRef.current);
+        }else{
+          const freshCount=rows.filter(r=>!seenUserIds.current.has(r.id)).length;
+          setNewUserCount(freshCount);
+        }
+      }catch(e){ console.warn("new users poll failed:",e.message); }
+    };
+    poll();
+    const iv=setInterval(poll,8000);
+    return ()=>clearInterval(iv);
+  },[]);
+
+  const selectTab=(id)=>{
+    setTab(id);
+    if(id==="users"){
+      seenUserIds.current=new Set(latestUserIdsRef.current);
+      setNewUserCount(0);
+    }
+  };
+
   const TABS=[
     {id:"brands",label:"Brands",icon:"🏷️"},
     {id:"errors",label:"Error Codes",icon:"🔴"},
@@ -3362,7 +3444,7 @@ function AdminPanel({onLogout}) {
     {id:"parts",label:"Parts",icon:"🔩"},
     {id:"tips",label:"Tips",icon:"💡"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
-    {id:"users",label:"Users",icon:"👤"},
+    {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
@@ -3376,7 +3458,7 @@ function AdminPanel({onLogout}) {
       </div>
       <div style={{display:"flex",overflowX:"auto",background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"0 8px"}}>
         {TABS.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
+          <button key={t.id} onClick={()=>selectTab(t.id)} style={{whiteSpace:"nowrap",padding:"12px 14px",background:"none",border:"none",borderBottom:tab===t.id?`2px solid ${PC}`:"2px solid transparent",color:tab===t.id?PC:"#6b7db3",cursor:"pointer",fontSize:12,fontWeight:tab===t.id?700:400,display:"flex",alignItems:"center",gap:5,position:"relative"}}>
             <span>{t.icon}</span>{t.label}
             {t.badge&&<span style={{position:"absolute",top:6,right:2,width:8,height:8,borderRadius:"50%",background:"#ff4757"}}/>}
           </button>
@@ -3522,6 +3604,28 @@ export default function PCBCare() {
     if(!u.isAdmin) DB.set("pcb_user",u);
     setStage("app");
   };
+
+  // ── Presence heartbeat ──
+  // Pings `last_seen` on the user's row every 25s while the tab is open/visible,
+  // plus immediately on login/focus. The admin Users tab treats anyone whose
+  // last_seen is within the last ~70s as "online". Requires a `last_seen`
+  // (timestamptz) column on the Supabase `users` table.
+  useEffect(()=>{
+    if(!user||user.isAdmin||!user.id) return;
+    const beat=()=>{
+      fetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({last_seen:new Date().toISOString()})}).catch(()=>{});
+    };
+    beat();
+    const iv=setInterval(beat,25000);
+    const onVis=()=>{ if(document.visibilityState==="visible") beat(); };
+    document.addEventListener("visibilitychange",onVis);
+    window.addEventListener("focus",beat);
+    return ()=>{
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange",onVis);
+      window.removeEventListener("focus",beat);
+    };
+  },[user?.id,user?.isAdmin]);
 
   const handleLogout=()=>{
     DB.remove("pcb_user");
