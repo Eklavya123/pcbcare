@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { startRegistration, startAuthentication } from "@simplewebauthn/browser";
 
 // PCB Care — v1.1.2
 // ════════════════════════════════════════════════════════════════════════════
@@ -267,6 +268,28 @@ function Login({onLogin,onGoSignup}) {
   const [err,setErr]=useState("");
   const [loading,setLoading]=useState(false);
   const [googleLoading,setGoogleLoading]=useState(false);
+  const [passkeyLoading,setPasskeyLoading]=useState(false);
+
+  const doPasskeyLogin=async()=>{
+    if(!email.trim()){setErr("Enter your email above, then tap Sign in with Passkey.");return;}
+    setErr("");setPasskeyLoading(true);
+    try{
+      const optRes=await fetch("/api/passkey/login-options",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim()})});
+      const options=await optRes.json();
+      if(!optRes.ok) throw new Error(options.error||"Could not start passkey sign-in.");
+      const authResp=await startAuthentication(options);
+      const verifyRes=await fetch("/api/passkey/login-verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:email.trim(),response:authResp})});
+      const data=await verifyRes.json();
+      if(!verifyRes.ok) throw new Error(data.error||"Passkey sign-in failed.");
+      const auth=await initFirebase();
+      await auth.signInWithCustomToken(data.token);
+      DB.set("pcb_user",data.user);onLogin(data.user);
+    }catch(e){
+      if(e.name==="NotAllowedError"){setErr("Passkey sign-in was cancelled.");}
+      else{setErr(e.message||"Passkey sign-in failed.");}
+    }
+    setPasskeyLoading(false);
+  };
 
   const doGoogleLogin=async()=>{
     setErr("");setGoogleLoading(true);
@@ -366,8 +389,12 @@ function Login({onLogin,onGoSignup}) {
           style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
         <button onClick={doLogin} disabled={loading}
-          style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
+          style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
           {loading?"Signing in...":"Sign In"}
+        </button>
+        <button onClick={doPasskeyLogin} disabled={passkeyLoading}
+          style={{width:"100%",padding:"12px",borderRadius:10,background:"#0f1117",color:"#fff",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:600,fontSize:13,marginBottom:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+          🔐 {passkeyLoading?"Waiting for passkey...":"Sign in with Passkey"}
         </button>
         <div style={{textAlign:"center",fontSize:13,color:"#6b7db3"}}>
           Don't have an account?{" "}
@@ -635,6 +662,26 @@ function Home({setTab,user}) {
   const T=useTheme();
   const [partsEnabled,setPartsEnabled]=useState(false); // default hidden until confirmed on, avoids a flash of a disabled feature
   useEffect(()=>{getPartsEnabled().then(setPartsEnabled);},[]);
+  const [pkStatus,setPkStatus]=useState("idle"); // idle | loading | done | error
+  const [pkErr,setPkErr]=useState("");
+  const setupPasskey=async()=>{
+    setPkStatus("loading");setPkErr("");
+    try{
+      const auth=await initFirebase();
+      const idToken=await auth.currentUser.getIdToken();
+      const optRes=await fetch("/api/passkey/register-options",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idToken})});
+      const options=await optRes.json();
+      if(!optRes.ok) throw new Error(options.error||"Could not start passkey setup.");
+      const attResp=await startRegistration(options);
+      const verifyRes=await fetch("/api/passkey/register-verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idToken,response:attResp})});
+      const data=await verifyRes.json();
+      if(!verifyRes.ok) throw new Error(data.error||"Passkey setup failed.");
+      setPkStatus("done");
+    }catch(e){
+      setPkStatus("error");
+      setPkErr(e.name==="NotAllowedError"?"Passkey setup was cancelled.":(e.message||"Passkey setup failed."));
+    }
+  };
   const cards=[
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
@@ -673,6 +720,16 @@ function Home({setTab,user}) {
             <span style={{fontSize:16}}>📷</span> Instagram
           </a>
         </div>
+      </div>
+      <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${"#2a3050"}`,marginTop:16}}>
+        <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:6}}>🔐 Passkey Login</div>
+        <div style={{fontSize:11,color:T.subtext,lineHeight:1.5,marginBottom:10}}>Sign in with your fingerprint, face, or device PIN instead of typing a password each time.</div>
+        {pkStatus==="done"
+          ? <div style={{fontSize:12,color:"#4caf50",fontWeight:600}}>✓ Passkey set up on this device</div>
+          : <button onClick={setupPasskey} disabled={pkStatus==="loading"} style={{width:"100%",padding:"11px",borderRadius:10,background:"#0f1117",color:"#fff",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:600,fontSize:12}}>
+              {pkStatus==="loading"?"Waiting for device...":"Set Up Passkey"}
+            </button>}
+        {pkStatus==="error"&&<div style={{color:"#ff4757",fontSize:11,marginTop:8,padding:"7px 10px",background:"#ff475711",borderRadius:8}}>⚠ {pkErr}</div>}
       </div>
     </div>
   );
