@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.1
+// PCB Care — v1.1.2
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -659,9 +659,20 @@ function Home({setTab,user}) {
           </div>
         ))}
       </div>
-      <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${AC}22`}}>
+      <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${AC}22`,marginBottom:16}}>
         <div style={{fontSize:12,fontWeight:600,color:AC,marginBottom:8}}>⚡ Tip of the Day</div>
         <div style={{fontSize:13,color:T.muted,lineHeight:1.6}}>Always test the start relay before replacing a compressor. Shake it near your ear — a rattling sound means it is dead. This fixes 40% of all compressor failure calls.</div>
+      </div>
+      <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${"#2a3050"}`}}>
+        <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:10}}>Follow PCB Care</div>
+        <div style={{display:"flex",gap:10}}>
+          <a href="https://www.facebook.com/Pcbcare1/" target="_blank" rel="noopener noreferrer" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",borderRadius:10,background:"#1877f222",color:"#1877f2",textDecoration:"none",fontWeight:600,fontSize:12}}>
+            <span style={{fontSize:16}}>📘</span> Facebook
+          </a>
+          <a href="https://www.instagram.com/pcbcare/" target="_blank" rel="noopener noreferrer" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",borderRadius:10,background:"linear-gradient(135deg,#f0930022,#dc267722,#a41cd622)",color:"#dc2677",textDecoration:"none",fontWeight:600,fontSize:12}}>
+            <span style={{fontSize:16}}>📷</span> Instagram
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -3625,7 +3636,7 @@ export default function PCBCare() {
       document.removeEventListener("visibilitychange",onVis);
       window.removeEventListener("focus",beat);
     };
-  },[user?.id,user?.isAdmin]);
+  },[user]);
 
   const handleLogout=()=>{
     DB.remove("pcb_user");
