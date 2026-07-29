@@ -665,7 +665,7 @@ function Home({setTab,user}) {
           <a href="https://www.facebook.com/Pcbcare1/" target="_blank" rel="noopener noreferrer" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",borderRadius:10,background:"#1877f222",color:"#1877f2",textDecoration:"none",fontWeight:600,fontSize:12}}>
             <span style={{fontSize:16}}>📘</span> Facebook
           </a>
-          <a href="https://www.instagram.com/pcbcare/" target="_blank" rel="noopener noreferrer" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",borderRadius:10,background:"linear-gradient(135deg,#f0930022,#dc267722,#a41cd622)",color:"#dc2677",textDecoration:"none",fontWeight:600,fontSize:12}}>
+          <a href="https://www.instagram.com/pcb_care/" target="_blank" rel="noopener noreferrer" style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"10px",borderRadius:10,background:"linear-gradient(135deg,#f0930022,#dc267722,#a41cd622)",color:"#dc2677",textDecoration:"none",fontWeight:600,fontSize:12}}>
             <span style={{fontSize:16}}>📷</span> Instagram
           </a>
         </div>
