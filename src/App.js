@@ -261,7 +261,7 @@ const _processGoogleLoginResult = async (result, onLogin, setErr) => {
 };
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-function Login({onLogin,onGoSignup}) {
+function Login({onLogin,onGoSignup,onBack}) {
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
   const [err,setErr]=useState("");
@@ -340,7 +340,8 @@ function Login({onLogin,onGoSignup}) {
 
   return (
     <div style={{fontFamily:"'Inter',sans-serif",background:"#0a0d14",minHeight:"100dvh",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${"#2a3050"}`}}>
+      <div style={{background:"#1a1f2e",borderRadius:20,padding:32,maxWidth:380,width:"100%",border:`1px solid ${"#2a3050"}`,position:"relative"}}>
+        {onBack&&<button onClick={onBack} style={{position:"absolute",top:16,left:16,background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:20,lineHeight:1,padding:4}}>←</button>}
         <div style={{textAlign:"center",marginBottom:28}}>
           <img src={LOGO} alt="PCB Care" style={{width:200,maxWidth:"100%",marginBottom:14}}/>
           <div style={{fontSize:13,color:"#6b7db3"}}>Sign in to your account</div>
@@ -3524,10 +3525,11 @@ export default function PCBCare() {
   },[]);
 
 
-  const [stage,setStage]=useState("intro");          // intro -> auth -> app
+  const [stage,setStage]=useState("intro");          // intro -> app (auth now shown on-demand, layered over "app")
   const [authView,setAuthView]=useState("login");     // login | signup
   const [user,setUser]=useState(()=>DB.get("pcb_user",null));
   const [tab,setTab]=useState("home");
+  const [pendingTab,setPendingTab]=useState(null);     // tab the user tried to open pre-login, so we can jump there right after
   const [showProfilePopup,setShowProfilePopup]=useState(false);
   const profilePromptedRef=useRef(false);
   const userRef=useRef(user);
@@ -3586,13 +3588,13 @@ export default function PCBCare() {
     if(!adminSessionChecked) return; // wait for the admin session restore above to resolve first
     const seenIntro=DB.get("pcb_intro_seen_session",false);
     if(seenIntro){
-      setStage(userRef.current?"app":"auth");
+      setStage("app");
     }
   },[adminSessionChecked]);
 
   const finishIntro=()=>{
     DB.set("pcb_intro_seen_session",true);
-    setStage(user?"app":"auth");
+    setStage("app");
   };
 
   // ── Profile-completeness check: runs once per login session, right after the
@@ -3610,6 +3612,8 @@ export default function PCBCare() {
     setUser(u);
     if(!u.isAdmin) DB.set("pcb_user",u);
     setStage("app");
+    setAuthView("login");
+    if(pendingTab){ setTab(pendingTab); setPendingTab(null); }
   };
 
   // ── Presence heartbeat ──
@@ -3639,16 +3643,30 @@ export default function PCBCare() {
     DB.remove("pcb_admin_session");
     setUser(null);
     profilePromptedRef.current=false;
-    setStage("auth");
+    setPendingTab(null);
+    setStage("app");
     setAuthView("login");
     setTab("home");
+  };
+
+  // ── Gate: only "home" is browsable without an account. Any other tab
+  // requires login — clicking one while logged out remembers the tab and
+  // shows the login screen; after a successful login we jump straight there.
+  const goToTab=(id)=>{
+    if(id!=="home"&&!user){
+      setPendingTab(id);
+      setStage("auth");
+      return;
+    }
+    setTab(id);
   };
 
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
 
   if(stage==="auth"){
+    const backToBrowsing=()=>{ setPendingTab(null); setStage("app"); setAuthView("login"); };
     if(authView==="signup") return <Signup onGoLogin={()=>setAuthView("login")} onLogin={handleLogin}/>;
-    return <Login onLogin={handleLogin} onGoSignup={()=>setAuthView("signup")}/>;
+    return <Login onLogin={handleLogin} onGoSignup={()=>setAuthView("signup")} onBack={backToBrowsing}/>;
   }
 
   if(user?.isAdmin) return <AdminPanel onLogout={handleLogout}/>;
@@ -3665,12 +3683,14 @@ export default function PCBCare() {
       <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",paddingTop:"max(12px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
+          {user
+            ? <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
+            : <button onClick={()=>{setPendingTab(null);setStage("auth");}} style={{padding:"6px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>Login</button>}
         </div>
       </div>
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
-        {tab==="home"&&<Home setTab={setTab} user={user}/>}
+        {tab==="home"&&<Home setTab={goToTab} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
         {tab==="remote"&&<FindRemote/>}
@@ -3682,7 +3702,7 @@ export default function PCBCare() {
 
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",paddingBottom:"calc(8px + env(safe-area-inset-bottom))",zIndex:5}}>
         {NAV.map(n=>(
-          <button key={n.id} onClick={()=>setTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <button key={n.id} onClick={()=>goToTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
             <div style={{fontSize:9,color:tab===n.id?PC:"#6b7db3",fontWeight:tab===n.id?700:400}}>{n.label}</div>
           </button>
