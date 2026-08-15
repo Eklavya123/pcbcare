@@ -30,6 +30,16 @@ const injectGlobalCSS = () => {
 };
 injectGlobalCSS();
 
+// Start loading the Firebase SDK the moment the app boots, not on the first
+// click of "Continue with Google". Without this, doGoogleLogin's `await
+// initFirebase()` has to fetch two scripts from Google's CDN before it can
+// call signInWithPopup — and that delay breaks the browser's "this popup was
+// triggered by a direct click" exemption, so the popup silently fails to
+// open. Preloading here means initFirebase() is already resolved (or nearly
+// so) by the time anyone taps the button, so the popup opens reliably on the
+// very first click instead of only working after a refresh.
+initFirebase();
+
 let _fbAuth = null;
 let _fbAuthPromise = null;
 const initFirebase = () => {
@@ -1045,6 +1055,29 @@ const setSEO = ({title,description,path,image,jsonLd}) => {
   }catch{}
 };
 
+// ── SHOP: trust badges shown on every product page — same 4 for all products,
+// so this is a static component, not stored in the database.
+function ShopTrustBadges() {
+  const T=useTheme();
+  const BADGES=[
+    {icon:"✅",title:"OK Tested",text:"Refurbished PCB tested properly"},
+    {icon:"🔩",title:"Original PCB",text:"Every PCB is original — no compatibility issues"},
+    {icon:"⭐",title:"Trusted Brand",text:"At PCB Care our customers feel maximum satisfaction"},
+    {icon:"🛡️",title:"Warranty",text:"Every PCB comes with a warranty period"},
+  ];
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10,marginBottom:26}}>
+      {BADGES.map((b,i)=>(
+        <div key={i} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:14,padding:14,textAlign:"center"}}>
+          <div style={{fontSize:24,marginBottom:6}}>{b.icon}</div>
+          <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:3}}>{b.title}</div>
+          <div style={{fontSize:10.5,color:T.subtext,lineHeight:1.4}}>{b.text}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Shop({initialPath}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
@@ -1178,9 +1211,13 @@ function Shop({initialPath}) {
             </div>
           : <div style={{width:"100%",height:200,borderRadius:14,marginBottom:14,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36}}>🧩</div>}
         <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:4}}>{p.name}</div>
-        {activeCategory&&<div style={{fontSize:12,color:AC,fontWeight:600,marginBottom:10}}>{activeCategory.name}</div>}
+        {activeCategory&&<div style={{fontSize:12,color:AC,fontWeight:600,marginBottom:6}}>{activeCategory.name}</div>}
+        {p.brands&&p.brands.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {p.brands.map((b,i)=><span key={i} style={{fontSize:10.5,fontWeight:600,color:T.text,background:T.input,border:`1px solid ${T.border}`,borderRadius:999,padding:"3px 10px"}}>{b}</span>)}
+        </div>}
         {p.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:18,whiteSpace:"pre-wrap"}}>{p.description}</div>}
-        <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:26}}>💬 GET PRICE on WhatsApp</button>
+        <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
+        <ShopTrustBadges/>
 
         {relatedProducts.length>0&&<>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>
@@ -3743,7 +3780,8 @@ function AdminShopCategories({categories,refresh,setMsg}) {
 }
 
 function AdminShopProducts({categories,setMsg}) {
-  const blank={category_id:"",name:"",description:"",images:[]};
+  const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
+  const blank={category_id:"",name:"",description:"",images:[],brands:[]};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -3769,8 +3807,13 @@ function AdminShopProducts({categories,setMsg}) {
   };
   const removeImage=(idx)=>setForm(f=>({...f,images:f.images.filter((_,i)=>i!==idx)}));
 
+  // A PCB is often sold by several brands under the same physical part —
+  // toggling a brand chip on/off, never limited to just one.
+  const toggleBrand=(name)=>setForm(f=>({...f,brands:f.brands.includes(name)?f.brands.filter(b=>b!==name):[...f.brands,name]}));
+
   const uniqueSlug=async(base,skipId)=>{
     let slug=slugify(base),n=2;
+
     // eslint-disable-next-line no-constant-condition
     while(true){
       const found=await api("shop_products",{filter:`?select=id&slug=eq.${encodeURIComponent(slug)}`});
@@ -3786,7 +3829,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(true);
     try{
       const cat=categories.find(c=>c.id===form.category_id);
-      const payload={category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),images:form.images};
+      const payload={category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),images:form.images,brands:form.brands};
       if(editId){
         // Only regenerate the slug (and thus the product's URL) if the name changed.
         if(slugify(form.name.trim())!==slugify(editSlug.replace(new RegExp(`^${cat?.slug}-?`),""))){
@@ -3803,7 +3846,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[]});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[]});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -3838,6 +3881,17 @@ function AdminShopProducts({categories,setMsg}) {
           {uploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file…</div>}
         </div>
 
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brands <span style={{fontWeight:400,color:"#6b7db3"}}>— tap all that apply, this part may be sold under more than one brand</span></div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
+          {allBrands.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No brands yet — add some in Admin → Brands first.</div>}
+          {allBrands.map(b=>{
+            const on=form.brands.includes(b);
+            return (
+              <button key={b} type="button" onClick={()=>toggleBrand(b)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{b}</button>
+            );
+          })}
+        </div>
+
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
           <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving…":editId?"Update":"Add"}</button>
@@ -3859,6 +3913,7 @@ function AdminShopProducts({categories,setMsg}) {
             <div style={{overflow:"hidden"}}>
               <div style={{fontSize:13,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
               <div style={{fontSize:11,color:"#6b7db3",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/shop/product/{p.slug}</div>
+              {p.brands&&p.brands.length>0&&<div style={{fontSize:10,color:PC,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.brands.join(", ")}</div>}
             </div>
           </div>
           <div style={{display:"flex",gap:6,flexShrink:0}}>
