@@ -84,7 +84,7 @@ const AC = "#ffd700";
 // ── SHOP: WhatsApp business number for "GET PRICE" enquiries ───────────────────
 // IMPORTANT: replace with your real WhatsApp number in international format,
 // digits only, no "+", no spaces (e.g. India number 98765 43210 → "919876543210").
-const SHOP_WHATSAPP_NUMBER = "919111839918";
+const SHOP_WHATSAPP_NUMBER = "919999999999";
 
 // ── SHOP: slugify — turns "AC Outdoor PCB" into "ac-outdoor-pcb" for clean,
 // SEO-friendly, shareable URLs. Used for both category and product URLs.
@@ -1008,11 +1008,43 @@ const parseShopPath = (pathname) => {
   if(parts[1]==="product"&&parts[2]) return {view:"product",slug:decodeURIComponent(parts[2])};
   return {view:"grid"};
 };
-const pushShopPath = (path,title) => {
-  try{ window.history.pushState({},"",path); if(title) document.title=title; }catch{}
+const pushShopPath = (path) => {
+  try{ window.history.pushState({},"",path); }catch{}
 };
 
-// ── SHOP (public — no login required, so it's crawlable and linkable) ──────────
+// ── SHOP: SEO — sets <title>, meta description, Open Graph tags, the canonical
+// link, and a Product JSON-LD block for whatever category/product is on screen.
+// This runs client-side (after React renders), which helps Google's JS-rendering
+// pass and any crawler that executes JS — but NOT link-preview bots (WhatsApp,
+// Facebook, iMessage) since those only ever read the raw, un-rendered HTML.
+const SITE_URL = "https://pcbcare.in";
+const setSEO = ({title,description,path,image,jsonLd}) => {
+  try{
+    if(title) document.title = title;
+    const ensureMeta=(attr,key,content)=>{
+      let el=document.querySelector(`meta[${attr}="${key}"]`);
+      if(!el){ el=document.createElement("meta"); el.setAttribute(attr,key); document.head.appendChild(el); }
+      el.setAttribute("content",content||"");
+    };
+    if(description){ ensureMeta("name","description",description); ensureMeta("property","og:description",description); }
+    if(title) ensureMeta("property","og:title",title);
+    if(image) ensureMeta("property","og:image",image);
+    ensureMeta("property","og:type",jsonLd?"product":"website");
+    const url = path?`${SITE_URL}${path}`:window.location.href;
+    ensureMeta("property","og:url",url);
+    let canon=document.querySelector('link[rel="canonical"]');
+    if(!canon){ canon=document.createElement("link"); canon.setAttribute("rel","canonical"); document.head.appendChild(canon); }
+    canon.setAttribute("href",url);
+    let ld=document.getElementById("shop-jsonld");
+    if(jsonLd){
+      if(!ld){ ld=document.createElement("script"); ld.type="application/ld+json"; ld.id="shop-jsonld"; document.head.appendChild(ld); }
+      ld.textContent=JSON.stringify(jsonLd);
+    }else if(ld){
+      ld.remove();
+    }
+  }catch{}
+};
+
 function Shop({initialPath}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
@@ -1031,14 +1063,36 @@ function Shop({initialPath}) {
 
   const openCategory=async(cat,push=true)=>{
     setActiveCategory(cat);setActiveProduct(null);setView("category");
-    if(push) pushShopPath(`/shop/category/${cat.slug}`,`${cat.name} — PCB Care Shop`);
+    if(push) pushShopPath(`/shop/category/${cat.slug}`);
+    setSEO({
+      title:`${cat.name} — PCB Care Shop`,
+      description:`Browse ${cat.name} parts and PCBs available at PCB Care, Jabalpur. Tap any product for details and the WhatsApp price.`,
+      path:`/shop/category/${cat.slug}`,
+    });
     const d=await api("shop_products",{filter:`?select=*&category_id=eq.${cat.id}&order=sort_order,created_at`});
     setCategoryProducts(d||[]);
   };
 
   const openProduct=async(prod,cat,push=true)=>{
     setActiveProduct(prod);setActiveCategory(cat||null);setView("product");
-    if(push) pushShopPath(`/shop/product/${prod.slug}`,`${prod.name} — PCB Care Shop`);
+    if(push) pushShopPath(`/shop/product/${prod.slug}`);
+    const desc=(prod.description&&prod.description.trim())||`${prod.name} available at PCB Care${cat?` — ${cat.name}`:""}. Contact us on WhatsApp for price and availability.`;
+    setSEO({
+      title:`${prod.name} — PCB Care Shop`,
+      description:desc.slice(0,160),
+      path:`/shop/product/${prod.slug}`,
+      image:prod.images&&prod.images[0],
+      jsonLd:{
+        "@context":"https://schema.org",
+        "@type":"Product",
+        name:prod.name,
+        description:desc,
+        image:(prod.images&&prod.images.length)?prod.images:undefined,
+        category:cat?cat.name:undefined,
+        url:`${SITE_URL}/shop/product/${prod.slug}`,
+        brand:{"@type":"Organization",name:"PCB Care"},
+      },
+    });
     if(cat){
       // Only suggest products from this SAME category — never mix categories.
       const d=await api("shop_products",{filter:`?select=*&category_id=eq.${cat.id}&id=neq.${prod.id}&order=sort_order,created_at`});
@@ -1050,7 +1104,12 @@ function Shop({initialPath}) {
 
   const backToGrid=()=>{
     setView("grid");setActiveCategory(null);setActiveProduct(null);
-    pushShopPath("/shop","Shop — PCB Care");
+    pushShopPath("/shop");
+    setSEO({
+      title:"Shop — PCB Care | AC & Appliance Parts, PCBs, Sensors, Remotes",
+      description:"Browse AC, refrigerator and washing machine PCBs, sensors and remotes at PCB Care, Jabalpur. Tap GET PRICE on WhatsApp for the best price.",
+      path:"/shop",
+    });
   };
 
   // Resolves whatever URL the user actually landed on — a deep link, a page
@@ -1068,6 +1127,11 @@ function Shop({initialPath}) {
       else backToGrid();
     }else{
       setView("grid");setActiveCategory(null);setActiveProduct(null);
+      setSEO({
+        title:"Shop — PCB Care | AC & Appliance Parts, PCBs, Sensors, Remotes",
+        description:"Browse AC, refrigerator and washing machine PCBs, sensors and remotes at PCB Care, Jabalpur. Tap GET PRICE on WhatsApp for the best price.",
+        path:"/shop",
+      });
     }
   };
 
@@ -1080,7 +1144,17 @@ function Shop({initialPath}) {
     })();
     const onPop=()=>resolvePath(window.location.pathname);
     window.addEventListener("popstate",onPop);
-    return ()=>window.removeEventListener("popstate",onPop);
+    return ()=>{
+      window.removeEventListener("popstate",onPop);
+      // Leaving the Shop tab entirely — clear the product/category-specific
+      // title, meta description, canonical link and JSON-LD so they don't
+      // linger on whatever tab the person switches to next.
+      document.title="PCB Care";
+      const ld=document.getElementById("shop-jsonld");
+      if(ld) ld.remove();
+      const canon=document.querySelector('link[rel="canonical"]');
+      if(canon) canon.remove();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
