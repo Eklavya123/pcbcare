@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.2
+// PCB Care — v1.1.3
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -80,6 +80,16 @@ const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
 const PC = "#4caf50";
 const AC = "#ffd700";
+
+// ── SHOP: WhatsApp business number for "GET PRICE" enquiries ───────────────────
+// IMPORTANT: replace with your real WhatsApp number in international format,
+// digits only, no "+", no spaces (e.g. India number 98765 43210 → "919876543210").
+const SHOP_WHATSAPP_NUMBER = "919111839918";
+
+// ── SHOP: slugify — turns "AC Outdoor PCB" into "ac-outdoor-pcb" for clean,
+// SEO-friendly, shareable URLs. Used for both category and product URLs.
+const slugify = (s) => (s||"").toString().toLowerCase().trim()
+  .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
 
 // ── Theme tokens ──────────────────────────────────────────────────────────────
 // All components read from these. PCBCare root injects them via a React context
@@ -979,6 +989,181 @@ function Wiring() {
   );
 }
 
+
+// ── SHOP: URL helpers — every category and every product gets its own real,
+// bookmarkable, shareable address (/shop, /shop/category/:slug, /shop/product/:slug)
+// instead of living only behind app state. Good for SEO/domain authority and for
+// sending a direct link to a customer. NOTE: this is a client-only React app (no
+// server-side rendering), so search engines only see this content once they render
+// the JS — for guaranteed rich link previews on WhatsApp/Facebook you'd eventually
+// want a small prerender/SSR layer, but the real per-product URLs below are the
+// essential first step and work today for direct links, bookmarks, and Google's
+// JS-rendering crawler. IMPORTANT: your Vercel project needs a rewrite so that
+// refreshing or opening one of these URLs directly doesn't 404 — see the
+// vercel.json note delivered alongside this file.
+const parseShopPath = (pathname) => {
+  const parts = (pathname||"").split("/").filter(Boolean); // "/shop/product/x" → ["shop","product","x"]
+  if(parts[0]!=="shop") return {view:"grid"};
+  if(parts[1]==="category"&&parts[2]) return {view:"category",slug:decodeURIComponent(parts[2])};
+  if(parts[1]==="product"&&parts[2]) return {view:"product",slug:decodeURIComponent(parts[2])};
+  return {view:"grid"};
+};
+const pushShopPath = (path,title) => {
+  try{ window.history.pushState({},"",path); if(title) document.title=title; }catch{}
+};
+
+// ── SHOP (public — no login required, so it's crawlable and linkable) ──────────
+function Shop({initialPath}) {
+  const T=useTheme();
+  const [categories,setCategories]=useState([]);
+  const [view,setView]=useState("grid");            // grid | category | product
+  const [activeCategory,setActiveCategory]=useState(null);
+  const [activeProduct,setActiveProduct]=useState(null);
+  const [categoryProducts,setCategoryProducts]=useState([]);
+  const [relatedProducts,setRelatedProducts]=useState([]);
+  const [loading,setLoading]=useState(true);
+
+  const loadCategories=async()=>{
+    const d=await api("shop_categories",{filter:"?select=*&order=sort_order"});
+    setCategories(d||[]);
+    return d||[];
+  };
+
+  const openCategory=async(cat,push=true)=>{
+    setActiveCategory(cat);setActiveProduct(null);setView("category");
+    if(push) pushShopPath(`/shop/category/${cat.slug}`,`${cat.name} — PCB Care Shop`);
+    const d=await api("shop_products",{filter:`?select=*&category_id=eq.${cat.id}&order=sort_order,created_at`});
+    setCategoryProducts(d||[]);
+  };
+
+  const openProduct=async(prod,cat,push=true)=>{
+    setActiveProduct(prod);setActiveCategory(cat||null);setView("product");
+    if(push) pushShopPath(`/shop/product/${prod.slug}`,`${prod.name} — PCB Care Shop`);
+    if(cat){
+      // Only suggest products from this SAME category — never mix categories.
+      const d=await api("shop_products",{filter:`?select=*&category_id=eq.${cat.id}&id=neq.${prod.id}&order=sort_order,created_at`});
+      setRelatedProducts(d||[]);
+    }else{
+      setRelatedProducts([]);
+    }
+  };
+
+  const backToGrid=()=>{
+    setView("grid");setActiveCategory(null);setActiveProduct(null);
+    pushShopPath("/shop","Shop — PCB Care");
+  };
+
+  // Resolves whatever URL the user actually landed on — a deep link, a page
+  // refresh, or the browser back/forward buttons — into the right view.
+  const resolvePath=async(path,catsIn)=>{
+    const parsed=parseShopPath(path);
+    const cats=catsIn||categories;
+    if(parsed.view==="category"){
+      const cat=cats.find(c=>c.slug===parsed.slug);
+      if(cat) await openCategory(cat,false); else backToGrid();
+    }else if(parsed.view==="product"){
+      const d=await api("shop_products",{filter:`?select=*&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
+      const prod=(d||[])[0];
+      if(prod){ await openProduct(prod,cats.find(c=>c.id===prod.category_id),false); }
+      else backToGrid();
+    }else{
+      setView("grid");setActiveCategory(null);setActiveProduct(null);
+    }
+  };
+
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true);
+      const cats=await loadCategories();
+      await resolvePath(initialPath||window.location.pathname,cats);
+      setLoading(false);
+    })();
+    const onPop=()=>resolvePath(window.location.pathname);
+    window.addEventListener("popstate",onPop);
+    return ()=>window.removeEventListener("popstate",onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  const getPrice=(prod)=>{
+    const catName=activeCategory?.name?` (${activeCategory.name})`:"";
+    const msg=`Hi, I'm interested in "${prod.name}"${catName} from PCB Care. Could you please share the price?`;
+    window.open(`https://wa.me/${SHOP_WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`,"_blank");
+  };
+
+  if(loading) return <div style={{padding:40,textAlign:"center",color:T.subtext,fontSize:13}}>Loading shop…</div>;
+
+  // ── PRODUCT DETAIL ──
+  if(view==="product"&&activeProduct){
+    const p=activeProduct;
+    return (
+      <div style={{padding:16}}>
+        <button onClick={()=>activeCategory?openCategory(activeCategory):backToGrid()} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← {activeCategory?activeCategory.name:"Shop"}</button>
+        {p.images&&p.images.length>0
+          ? <div className="ios-scroll-x" style={{display:"flex",gap:8,overflowX:"auto",marginBottom:14}}>
+              {p.images.map((img,i)=><img key={i} src={img} alt={p.name} style={{width:220,height:220,objectFit:"cover",borderRadius:14,flexShrink:0,border:`1px solid ${T.border}`}}/>)}
+            </div>
+          : <div style={{width:"100%",height:200,borderRadius:14,marginBottom:14,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36}}>🧩</div>}
+        <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:4}}>{p.name}</div>
+        {activeCategory&&<div style={{fontSize:12,color:AC,fontWeight:600,marginBottom:10}}>{activeCategory.name}</div>}
+        {p.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:18,whiteSpace:"pre-wrap"}}>{p.description}</div>}
+        <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:26}}>💬 GET PRICE on WhatsApp</button>
+
+        {relatedProducts.length>0&&<>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+            {relatedProducts.map(rp=>(
+              <div key={rp.id} onClick={()=>openProduct(rp,activeCategory)} style={{background:T.card,borderRadius:12,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+                {rp.images&&rp.images[0]
+                  ? <img src={rp.images[0]} alt={rp.name} style={{width:"100%",height:100,objectFit:"cover",borderRadius:8,marginBottom:8}}/>
+                  : <div style={{width:"100%",height:100,borderRadius:8,marginBottom:8,background:T.input}}/>}
+                <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rp.name}</div>
+              </div>
+            ))}
+          </div>
+        </>}
+      </div>
+    );
+  }
+
+  // ── CATEGORY PRODUCT GRID ──
+  if(view==="category"&&activeCategory){
+    return (
+      <div style={{padding:16}}>
+        <button onClick={backToGrid} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← All Categories</button>
+        <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:16}}>{activeCategory.name}</div>
+        {categoryProducts.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>No products in this category yet.</div>}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+          {categoryProducts.map(p=>(
+            <div key={p.id} onClick={()=>openProduct(p,activeCategory)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+              {p.images&&p.images[0]
+                ? <img src={p.images[0]} alt={p.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
+                : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
+              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
+              <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── CATEGORY GRID (shop home) ──
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:4}}>🛍️ Shop</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Browse parts and PCBs by category.</div>
+      {categories.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>No categories yet.</div>}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+        {categories.map(c=>(
+          <div key={c.id} onClick={()=>openCategory(c)} style={{background:T.card,borderRadius:14,padding:18,border:`1px solid ${T.border}`,cursor:"pointer",textAlign:"center"}}>
+            <div style={{fontSize:28,marginBottom:8}}>🧩</div>
+            <div style={{fontSize:13,fontWeight:700,color:T.text}}>{c.name}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ── FIND REMOTE ────────────────────────────────────────────────────────────────
 function FindRemote() {
@@ -3380,6 +3565,238 @@ function AdminSettings() {
   );
 }
 
+// ── ADMIN: SHOP (categories + products) ─────────────────────────────────────────
+function AdminShop() {
+  const [section,setSection]=useState("categories"); // categories | products
+  const [categories,setCategories]=useState([]);
+  const [msg,setMsg]=useState("");
+
+  const loadCategories=async()=>{
+    const d=await api("shop_categories",{filter:"?select=*&order=sort_order"});
+    setCategories(d||[]);
+    return d||[];
+  };
+  useEffect(()=>{loadCategories();},[]);
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🛍️ Shop</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Manage the categories and products customers see on the public Shop tab.</div>
+      <div style={{display:"flex",gap:8,marginBottom:18}}>
+        {[["categories","🗂️ Categories"],["products","📦 Products"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"10px",borderRadius:10,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:700,fontSize:13}}>{label}</button>
+        ))}
+      </div>
+      {section==="categories"
+        ? <AdminShopCategories categories={categories} refresh={loadCategories} setMsg={setMsg}/>
+        : <AdminShopProducts categories={categories} setMsg={setMsg}/>}
+      {msg&&<div style={{fontSize:12,marginTop:14,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+    </div>
+  );
+}
+
+function AdminShopCategories({categories,refresh,setMsg}) {
+  const [name,setName]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const uniqueSlug=(base,existing)=>{
+    let slug=slugify(base),n=2;
+    while(existing.includes(slug)){ slug=`${slugify(base)}-${n}`; n++; }
+    return slug;
+  };
+
+  const add=async()=>{
+    const trimmed=name.trim();
+    if(!trimmed){setMsg("⚠ Enter a category name.");return;}
+    setSaving(true);
+    try{
+      const slug=uniqueSlug(trimmed,categories.map(c=>c.slug));
+      const sort_order=categories.length?Math.max(...categories.map(c=>c.sort_order||0))+1:0;
+      await api("shop_categories",{method:"POST",body:{name:trimmed,slug,sort_order},prefer:"return=minimal"});
+      setMsg(`✅ "${trimmed}" added.`);setName("");
+      await refresh();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const del=async(cat)=>{
+    if(!window.confirm(`Delete category "${cat.name}"? This will also delete every product listed under it — this cannot be undone.`))return;
+    try{
+      await fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${cat.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+      setMsg(`✅ "${cat.name}" deleted.`);
+      await refresh();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+  };
+
+  const move=async(idx,dir)=>{
+    const swapIdx=idx+dir;
+    if(swapIdx<0||swapIdx>=categories.length)return;
+    const a=categories[idx],b=categories[swapIdx];
+    try{
+      await Promise.all([
+        fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${a.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:b.sort_order})}),
+        fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${b.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:a.sort_order})}),
+      ]);
+      await refresh();
+    }catch(e){setMsg("⚠ Reorder failed: "+e.message);}
+  };
+
+  return (
+    <div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>Add New Category</div>
+        <div style={{display:"flex",gap:8}}>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. AC Outdoor PCB" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
+          <button onClick={add} disabled={saving} style={{padding:"11px 18px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>{saving?"Saving…":"Add"}</button>
+        </div>
+      </div>
+      <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Categories ({categories.length}) <span style={{fontWeight:400,color:"#6b7db3",fontSize:11}}>— use ↑↓ to set display order</span></div>
+      {categories.map((c,idx)=>(
+        <div key={c.id} style={{background:"#1a1f2e",borderRadius:12,padding:"10px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{c.name}</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>/shop/category/{c.slug}</div>
+          </div>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <button onClick={()=>move(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:8,background:"#2a3050",color:idx===0?"#3a4160":"#fff",border:"none",cursor:idx===0?"default":"pointer",fontSize:12}}>↑</button>
+            <button onClick={()=>move(idx,1)} disabled={idx===categories.length-1} style={{width:26,height:26,borderRadius:8,background:"#2a3050",color:idx===categories.length-1?"#3a4160":"#fff",border:"none",cursor:idx===categories.length-1?"default":"pointer",fontSize:12}}>↓</button>
+            <button onClick={()=>del(c)} style={{width:26,height:26,borderRadius:"50%",background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12}}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AdminShopProducts({categories,setMsg}) {
+  const blank={category_id:"",name:"",description:"",images:[]};
+  const [form,setForm]=useState(blank);
+  const [editId,setEditId]=useState(null);
+  const [editSlug,setEditSlug]=useState(null);
+  const [filterCat,setFilterCat]=useState("");
+  const [list,setList]=useState([]);
+  const [uploading,setUploading]=useState(false);
+  const [saving,setSaving]=useState(false);
+
+  const load=async(catId)=>{
+    const filter=catId?`?select=*&category_id=eq.${catId}&order=created_at.desc`:"?select=*&order=created_at.desc";
+    const d=await api("shop_products",{filter});
+    setList(d||[]);
+  };
+  useEffect(()=>{load(filterCat);},[filterCat]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addImage=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{const c=await compressImage(reader.result);setForm(f=>({...f,images:[...f.images,c]}));setUploading(false);e.target.value="";};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+  const removeImage=(idx)=>setForm(f=>({...f,images:f.images.filter((_,i)=>i!==idx)}));
+
+  const uniqueSlug=async(base,skipId)=>{
+    let slug=slugify(base),n=2;
+    // eslint-disable-next-line no-constant-condition
+    while(true){
+      const found=await api("shop_products",{filter:`?select=id&slug=eq.${encodeURIComponent(slug)}`});
+      const clash=(found||[]).some(r=>r.id!==skipId);
+      if(!clash) return slug;
+      slug=`${slugify(base)}-${n}`;n++;
+    }
+  };
+
+  const save=async()=>{
+    if(!form.category_id){setMsg("⚠ Choose a category.");return;}
+    if(!form.name.trim()){setMsg("⚠ Product name required.");return;}
+    setSaving(true);
+    try{
+      const cat=categories.find(c=>c.id===form.category_id);
+      const payload={category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),images:form.images};
+      if(editId){
+        // Only regenerate the slug (and thus the product's URL) if the name changed.
+        if(slugify(form.name.trim())!==slugify(editSlug.replace(new RegExp(`^${cat?.slug}-?`),""))){
+          payload.slug=await uniqueSlug(`${cat?.slug||"item"}-${form.name.trim()}`,editId);
+        }
+        await fetch(`${SB_URL}/rest/v1/shop_products?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      }else{
+        payload.slug=await uniqueSlug(`${cat?.slug||"item"}-${form.name.trim()}`,null);
+        await api("shop_products",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
+      setMsg("✅ Saved.");setForm(blank);setEditId(null);setEditSlug(null);
+      load(filterCat);
+    }catch(e){setMsg("⚠ Save failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[]});setEditId(p.id);setEditSlug(p.slug);};
+  const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
+  const del=async(p)=>{
+    if(!window.confirm(`Delete product "${p.name}"?`))return;
+    await fetch(`${SB_URL}/rest/v1/shop_products?id=eq.${p.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    load(filterCat);
+  };
+
+  const INP={width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"};
+
+  return (
+    <div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"Add"} Product</div>
+        <select value={form.category_id} onChange={e=>setForm(f=>({...f,category_id:e.target.value}))} style={{...INP,marginBottom:10}}>
+          <option value="">Select category…</option>
+          {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Product name" style={{...INP,marginBottom:10}}/>
+        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={3} style={{...INP,marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Images</div>
+        {form.images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+          {form.images.map((img,idx)=>(
+            <div key={idx} style={{position:"relative"}}>
+              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050"}}/>
+              <button onClick={()=>removeImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+            </div>
+          ))}
+        </div>}
+        <div style={{marginBottom:14}}>
+          <input type="file" accept="image/*" onChange={addImage} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
+          {uploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file…</div>}
+        </div>
+
+        <div style={{display:"flex",gap:8}}>
+          {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving…":editId?"Update":"Add"}</button>
+        </div>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>All Products ({list.length})</div>
+        <select value={filterCat} onChange={e=>setFilterCat(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none"}}>
+          <option value="">All categories</option>
+          {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      {list.length===0&&<div style={{fontSize:13,color:"#6b7db3",textAlign:"center",padding:24}}>No products yet.</div>}
+      {list.map(p=>(
+        <div key={p.id} style={{background:"#1a1f2e",borderRadius:12,padding:"10px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,overflow:"hidden"}}>
+            {p.images&&p.images[0]&&<img src={p.images[0]} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6,flexShrink:0}}/>}
+            <div style={{overflow:"hidden"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+              <div style={{fontSize:11,color:"#6b7db3",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>/shop/product/{p.slug}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            <button onClick={()=>edit(p)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Edit</button>
+            <button onClick={()=>del(p)} style={{width:26,height:26,borderRadius:"50%",background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12}}>✕</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── ADMIN PANEL SHELL ──────────────────────────────────────────────────────────
 function AdminPanel({onLogout}) {
   const [tab,setTab]=useState("errors");
@@ -3444,6 +3861,7 @@ function AdminPanel({onLogout}) {
 
   const TABS=[
     {id:"brands",label:"Brands",icon:"🏷️"},
+    {id:"shop",label:"Shop",icon:"🛍️"},
     {id:"errors",label:"Error Codes",icon:"🔴"},
     {id:"wiring",label:"Wiring",icon:"⚡"},
     {id:"sensors",label:"Sensors",icon:"📡"},
@@ -3474,6 +3892,7 @@ function AdminPanel({onLogout}) {
       </div>
       <div style={{paddingBottom:40}}>
         {tab==="brands"&&<AdminBrands/>}
+        {tab==="shop"&&<AdminShop/>}
         {tab==="errors"&&<AdminErrors/>}
         {tab==="wiring"&&<AdminWiring/>}
         {tab==="sensors"&&<AdminSensorValues/>}
@@ -3528,7 +3947,11 @@ export default function PCBCare() {
   const [stage,setStage]=useState("intro");          // intro -> app (auth now shown on-demand, layered over "app")
   const [authView,setAuthView]=useState("login");     // login | signup
   const [user,setUser]=useState(()=>DB.get("pcb_user",null));
-  const [tab,setTab]=useState("home");
+  // If someone lands directly on a /shop, /shop/category/:slug or /shop/product/:slug
+  // URL (a shared link, a bookmark, a search result), open straight to the Shop tab
+  // instead of Home — this is what makes the per-product URLs actually useful.
+  const shopInitialPath=useRef(window.location.pathname.startsWith("/shop")?window.location.pathname:null);
+  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":"home");
   const [pendingTab,setPendingTab]=useState(null);     // tab the user tried to open pre-login, so we can jump there right after
   const [showProfilePopup,setShowProfilePopup]=useState(false);
   const profilePromptedRef=useRef(false);
@@ -3649,14 +4072,21 @@ export default function PCBCare() {
     setTab("home");
   };
 
-  // ── Gate: only "home" is browsable without an account. Any other tab
-  // requires login — clicking one while logged out remembers the tab and
-  // shows the login screen; after a successful login we jump straight there.
+  // ── Gate: "home" and "shop" are browsable without an account — Shop stays
+  // public on purpose so its category/product URLs are actually linkable and
+  // crawlable. Any other tab requires login — clicking one while logged out
+  // remembers the tab and shows the login screen; after a successful login we
+  // jump straight there.
   const goToTab=(id)=>{
-    if(id!=="home"&&!user){
+    if(id!=="home"&&id!=="shop"&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
+    }
+    // Leaving the Shop tab for a different tab — clear any /shop URL so the
+    // address bar matches what's actually on screen.
+    if(id!=="shop"&&window.location.pathname.startsWith("/shop")){
+      try{ window.history.pushState({},"","/"); }catch{}
     }
     setTab(id);
   };
@@ -3673,6 +4103,7 @@ export default function PCBCare() {
 
   const NAV=[
     {id:"home",icon:"🏠",label:"Home"},
+    {id:"shop",icon:"🛍️",label:"Shop"},
     {id:"errors",icon:"🔴",label:"Errors"},
     {id:"wiring",icon:"⚡",label:"Wiring"},
   ];
@@ -3691,6 +4122,7 @@ export default function PCBCare() {
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}
+        {tab==="shop"&&<Shop initialPath={shopInitialPath.current}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring/>}
         {tab==="remote"&&<FindRemote/>}
