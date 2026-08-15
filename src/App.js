@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.3
+// PCB Care — v1.1.4
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -29,16 +29,6 @@ const injectGlobalCSS = () => {
   document.head.appendChild(s);
 };
 injectGlobalCSS();
-
-// Start loading the Firebase SDK the moment the app boots, not on the first
-// click of "Continue with Google". Without this, doGoogleLogin's `await
-// initFirebase()` has to fetch two scripts from Google's CDN before it can
-// call signInWithPopup — and that delay breaks the browser's "this popup was
-// triggered by a direct click" exemption, so the popup silently fails to
-// open. Preloading here means initFirebase() is already resolved (or nearly
-// so) by the time anyone taps the button, so the popup opens reliably on the
-// very first click instead of only working after a refresh.
-initFirebase();
 
 let _fbAuth = null;
 let _fbAuthPromise = null;
@@ -76,6 +66,16 @@ const initFirebase = () => {
   });
   return _fbAuthPromise;
 };
+
+// Start loading the Firebase SDK the moment the app boots, not on the first
+// click of "Continue with Google". Without this, doGoogleLogin's `await
+// initFirebase()` has to fetch two scripts from Google's CDN before it can
+// call signInWithPopup — and that delay breaks the browser's "this popup was
+// triggered by a direct click" exemption, so the popup silently fails to
+// open. Preloading here means initFirebase() is already resolved (or nearly
+// so) by the time anyone taps the button, so the popup opens reliably on the
+// very first click instead of only working after a refresh.
+initFirebase();
 
 // ════════════════════════════════════════════════════════════════════════════
 // CONSTANTS / ASSETS
