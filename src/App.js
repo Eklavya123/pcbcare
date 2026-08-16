@@ -89,7 +89,7 @@ const AC = "#ffd700";
 // ── SHOP: WhatsApp business number for "GET PRICE" enquiries ───────────────────
 // IMPORTANT: replace with your real WhatsApp number in international format,
 // digits only, no "+", no spaces (e.g. India number 98765 43210 → "919876543210").
-const SHOP_WHATSAPP_NUMBER = "919999999999";
+const SHOP_WHATSAPP_NUMBER = "919111839918";
 
 // ── SHOP: slugify — turns "AC Outdoor PCB" into "ac-outdoor-pcb" for clean,
 // SEO-friendly, shareable URLs. Used for both category and product URLs.
@@ -1197,7 +1197,7 @@ function Shop({initialPath}) {
       const step=150; // approx card width + gap
       const atEnd=el.scrollLeft+el.clientWidth>=el.scrollWidth-4;
       el.scrollTo({left:atEnd?0:el.scrollLeft+step,behavior:"smooth"});
-    },1000);
+    },2500);
     return ()=>{clearInterval(interval);clearTimeout(relatedPauseTimeoutRef.current);};
   },[relatedProducts]);
 
