@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.2.1
+// PCB Care — v1.2.2
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -1294,7 +1294,7 @@ function Shop({initialPath,onViewWiring}) {
           {activeCategory&&<span style={{fontSize:12,color:AC,fontWeight:600}}>{activeCategory.name}</span>}
           {p.condition&&<span style={{fontSize:10.5,fontWeight:700,padding:"3px 10px",borderRadius:999,background:p.condition==="new"?`${PC}22`:`${AC}22`,color:p.condition==="new"?PC:AC}}>{p.condition==="new"?"🆕 New":"♻️ Refurbished"}</span>}
         </div>
-        {(p.brands&&p.brands.length>0||p.motor_type)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {((p.brands&&p.brands.length>0)||p.motor_type)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
           {p.brands&&p.brands.map((b,i)=><span key={i} style={{fontSize:10.5,fontWeight:600,color:T.text,background:T.input,border:`1px solid ${T.border}`,borderRadius:999,padding:"3px 10px"}}>{b}</span>)}
           {p.motor_type&&<span style={{fontSize:10.5,fontWeight:600,color:PC,background:T.input,border:`1px solid ${PC}`,borderRadius:999,padding:"3px 10px"}}>⚙️ {p.motor_type}</span>}
         </div>}
