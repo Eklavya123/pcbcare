@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.8
+// PCB Care — v1.2.1
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -95,6 +95,48 @@ const SHOP_WHATSAPP_NUMBER = "919111839918";
 // SEO-friendly, shareable URLs. Used for both category and product URLs.
 const slugify = (s) => (s||"").toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
+
+// ── SITE-WIDE SEO — sets <title>, meta description, Open Graph tags, the
+// canonical link, and an optional JSON-LD block for whatever page is on
+// screen (Shop categories/products, individual Wiring Diagram pages, etc).
+// Runs client-side after React renders, which helps Google's JS-rendering
+// pass and any crawler that executes JS — but NOT link-preview bots
+// (WhatsApp, Facebook, iMessage) since those only ever read the raw,
+// un-rendered HTML.
+const SITE_URL = "https://pcbcare.in";
+const setSEO = ({title,description,path,image,jsonLd,jsonLdId="page-jsonld"}) => {
+  try{
+    if(title) document.title = title;
+    const ensureMeta=(attr,key,content)=>{
+      let el=document.querySelector(`meta[${attr}="${key}"]`);
+      if(!el){ el=document.createElement("meta"); el.setAttribute(attr,key); document.head.appendChild(el); }
+      el.setAttribute("content",content||"");
+    };
+    if(description){ ensureMeta("name","description",description); ensureMeta("property","og:description",description); }
+    if(title) ensureMeta("property","og:title",title);
+    if(image) ensureMeta("property","og:image",image);
+    ensureMeta("property","og:type",jsonLd?"product":"website");
+    const url = path?`${SITE_URL}${path}`:window.location.href;
+    ensureMeta("property","og:url",url);
+    let canon=document.querySelector('link[rel="canonical"]');
+    if(!canon){ canon=document.createElement("link"); canon.setAttribute("rel","canonical"); document.head.appendChild(canon); }
+    canon.setAttribute("href",url);
+    let ld=document.getElementById(jsonLdId);
+    if(jsonLd){
+      if(!ld){ ld=document.createElement("script"); ld.type="application/ld+json"; ld.id=jsonLdId; document.head.appendChild(ld); }
+      ld.textContent=JSON.stringify(jsonLd);
+    }else if(ld){
+      ld.remove();
+    }
+  }catch{}
+};
+const clearSEO = (jsonLdId="page-jsonld") => {
+  try{
+    document.title="PCB Care";
+    const ld=document.getElementById(jsonLdId); if(ld) ld.remove();
+    const canon=document.querySelector('link[rel="canonical"]'); if(canon) canon.remove();
+  }catch{}
+};
 
 // ── Theme tokens ──────────────────────────────────────────────────────────────
 // All components read from these. PCBCare root injects them via a React context
@@ -939,7 +981,7 @@ function Errors() {
 }
 
 // ── WIRING ────────────────────────────────────────────────────────────────────
-function Wiring() {
+function Wiring({initialPath}) {
   const T=useTheme();
   const [cat,setCat]=useState("Fridge");
   const [items,setItems]=useState([]);
@@ -947,6 +989,66 @@ function Wiring() {
   const [modal,setModal]=useState(null);
   const [loading,setLoading]=useState(false);
   useEffect(()=>{setLoading(true);api("wiring_diagrams",{filter:`?category=eq.${cat}&select=*`}).then(d=>{setItems(d||[]);setLoading(false);});},[cat]);
+
+  // ── Direct /wiring/:slug view — each diagram's own live URL ────────────────
+  // undefined = still resolving, null = no direct link (normal browsing), object = found
+  const [directItem,setDirectItem]=useState(undefined);
+  useEffect(()=>{
+    const path=initialPath||(window.location.pathname.startsWith("/wiring/")?window.location.pathname:null);
+    if(!path){ setDirectItem(null); return; }
+    const slug=path.split("/").filter(Boolean)[1];
+    if(!slug){ setDirectItem(null); return; }
+    (async()=>{
+      const d=await api("wiring_diagrams",{filter:`?select=*&slug=eq.${encodeURIComponent(slug)}&limit=1`});
+      const item=(d||[])[0]||null;
+      setDirectItem(item||null);
+      if(item){
+        setSEO({
+          title:`${item.title} — Wiring Diagram | PCB Care`,
+          description:(item.description&&item.description.trim())||`${item.title} wiring diagram and connection guide from PCB Care.`,
+          path:`/wiring/${item.slug}`,
+          image:item.image_url,
+          jsonLdId:"wiring-jsonld",
+        });
+      }
+    })();
+    return ()=>clearSEO("wiring-jsonld");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  const backFromDirect=()=>{
+    setDirectItem(null);
+    clearSEO("wiring-jsonld");
+    try{ window.history.pushState({},"","/"); }catch{}
+  };
+
+  if(directItem===undefined){
+    return <div style={{padding:40,textAlign:"center",color:T.subtext,fontSize:13}}>Loading…</div>;
+  }
+
+  if(directItem){
+    const item=directItem;
+    return (
+      <div style={{padding:16}}>
+        <button onClick={backFromDirect} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← All Wiring Diagrams</button>
+        <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:2}}>{item.title}</div>
+        <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>{item.category}</div>
+        {item.image_url
+          ? <div style={{marginBottom:14}}><img src={item.image_url} alt={item.title} onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/><div style={{textAlign:"center",marginTop:6,fontSize:11,color:T.subtext}}>Tap to fullscreen</div></div>
+          : <div style={{padding:24,textAlign:"center",background:T.card,borderRadius:10,marginBottom:14}}><div style={{fontSize:32,marginBottom:8}}>🖼️</div><div style={{fontSize:12,color:T.subtext}}>Image coming soon</div></div>}
+        {item.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:16,whiteSpace:"pre-wrap"}}>{item.description}</div>}
+        {item.tips&&item.tips.length>0&&<div style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`}}>
+          <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>💡 Tips</div>
+          {item.tips.map((t,ti)=><div key={ti} style={{display:"flex",gap:8,marginBottom:6}}><div style={{width:18,height:18,borderRadius:"50%",background:`${AC}22`,color:AC,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ti+1}</div><div style={{fontSize:12,color:T.muted}}>{t}</div></div>)}
+        </div>}
+        {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+          <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
+          <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
+        </div>}
+      </div>
+    );
+  }
+
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>⚡ Wiring Diagrams</div>
@@ -1007,39 +1109,6 @@ const pushShopPath = (path) => {
   try{ window.history.pushState({},"",path); }catch{}
 };
 
-// ── SHOP: SEO — sets <title>, meta description, Open Graph tags, the canonical
-// link, and a Product JSON-LD block for whatever category/product is on screen.
-// This runs client-side (after React renders), which helps Google's JS-rendering
-// pass and any crawler that executes JS — but NOT link-preview bots (WhatsApp,
-// Facebook, iMessage) since those only ever read the raw, un-rendered HTML.
-const SITE_URL = "https://pcbcare.in";
-const setSEO = ({title,description,path,image,jsonLd}) => {
-  try{
-    if(title) document.title = title;
-    const ensureMeta=(attr,key,content)=>{
-      let el=document.querySelector(`meta[${attr}="${key}"]`);
-      if(!el){ el=document.createElement("meta"); el.setAttribute(attr,key); document.head.appendChild(el); }
-      el.setAttribute("content",content||"");
-    };
-    if(description){ ensureMeta("name","description",description); ensureMeta("property","og:description",description); }
-    if(title) ensureMeta("property","og:title",title);
-    if(image) ensureMeta("property","og:image",image);
-    ensureMeta("property","og:type",jsonLd?"product":"website");
-    const url = path?`${SITE_URL}${path}`:window.location.href;
-    ensureMeta("property","og:url",url);
-    let canon=document.querySelector('link[rel="canonical"]');
-    if(!canon){ canon=document.createElement("link"); canon.setAttribute("rel","canonical"); document.head.appendChild(canon); }
-    canon.setAttribute("href",url);
-    let ld=document.getElementById("shop-jsonld");
-    if(jsonLd){
-      if(!ld){ ld=document.createElement("script"); ld.type="application/ld+json"; ld.id="shop-jsonld"; document.head.appendChild(ld); }
-      ld.textContent=JSON.stringify(jsonLd);
-    }else if(ld){
-      ld.remove();
-    }
-  }catch{}
-};
-
 // ── SHOP: trust badges shown on every product page — same 4 for all products,
 // so this is a static component, not stored in the database.
 function ShopTrustBadges() {
@@ -1063,7 +1132,7 @@ function ShopTrustBadges() {
   );
 }
 
-function Shop({initialPath}) {
+function Shop({initialPath,onViewWiring}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
   const [view,setView]=useState("grid");            // grid | category | product
@@ -1091,6 +1160,7 @@ function Shop({initialPath}) {
       title:`${cat.name} — PCB Care Shop`,
       description:`Browse ${cat.name} parts and PCBs available at PCB Care, Jabalpur. Tap any product for details and the WhatsApp price.`,
       path:`/shop/category/${cat.slug}`,
+      jsonLdId:"shop-jsonld",
     });
     const d=await api("shop_products",{filter:`?select=*&category_id=eq.${cat.id}&order=sort_order,created_at`});
     setCategoryProducts(d||[]);
@@ -1105,6 +1175,7 @@ function Shop({initialPath}) {
       description:desc.slice(0,160),
       path:`/shop/product/${prod.slug}`,
       image:prod.images&&prod.images[0],
+      jsonLdId:"shop-jsonld",
       jsonLd:{
         "@context":"https://schema.org",
         "@type":"Product",
@@ -1132,6 +1203,7 @@ function Shop({initialPath}) {
       title:"Shop — PCB Care | AC & Appliance Parts, PCBs, Sensors, Remotes",
       description:"Browse AC, refrigerator and washing machine PCBs, sensors and remotes at PCB Care, Jabalpur. Tap GET PRICE on WhatsApp for the best price.",
       path:"/shop",
+      jsonLdId:"shop-jsonld",
     });
   };
 
@@ -1144,7 +1216,7 @@ function Shop({initialPath}) {
       const cat=cats.find(c=>c.slug===parsed.slug);
       if(cat) await openCategory(cat,false); else backToGrid();
     }else if(parsed.view==="product"){
-      const d=await api("shop_products",{filter:`?select=*&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
+      const d=await api("shop_products",{filter:`?select=*,wiring_diagrams(title,slug),sensor_values(title,model_number,brand,room_sensor_value,coil_sensor_value,discharge_sensor_value,ambient_sensor_value,condenser_coil_sensor_value)&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
       const prod=(d||[])[0];
       if(prod){ await openProduct(prod,cats.find(c=>c.id===prod.category_id),false); }
       else backToGrid();
@@ -1154,6 +1226,7 @@ function Shop({initialPath}) {
         title:"Shop — PCB Care | AC & Appliance Parts, PCBs, Sensors, Remotes",
         description:"Browse AC, refrigerator and washing machine PCBs, sensors and remotes at PCB Care, Jabalpur. Tap GET PRICE on WhatsApp for the best price.",
         path:"/shop",
+        jsonLdId:"shop-jsonld",
       });
     }
   };
@@ -1172,11 +1245,7 @@ function Shop({initialPath}) {
       // Leaving the Shop tab entirely — clear the product/category-specific
       // title, meta description, canonical link and JSON-LD so they don't
       // linger on whatever tab the person switches to next.
-      document.title="PCB Care";
-      const ld=document.getElementById("shop-jsonld");
-      if(ld) ld.remove();
-      const canon=document.querySelector('link[rel="canonical"]');
-      if(canon) canon.remove();
+      clearSEO("shop-jsonld");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
@@ -1221,13 +1290,33 @@ function Shop({initialPath}) {
             </div>
           : <div style={{width:"100%",height:200,borderRadius:14,marginBottom:14,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36}}>🧩</div>}
         <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:4}}>{p.name}</div>
-        {activeCategory&&<div style={{fontSize:12,color:AC,fontWeight:600,marginBottom:6}}>{activeCategory.name}</div>}
-        {p.brands&&p.brands.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-          {p.brands.map((b,i)=><span key={i} style={{fontSize:10.5,fontWeight:600,color:T.text,background:T.input,border:`1px solid ${T.border}`,borderRadius:999,padding:"3px 10px"}}>{b}</span>)}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+          {activeCategory&&<span style={{fontSize:12,color:AC,fontWeight:600}}>{activeCategory.name}</span>}
+          {p.condition&&<span style={{fontSize:10.5,fontWeight:700,padding:"3px 10px",borderRadius:999,background:p.condition==="new"?`${PC}22`:`${AC}22`,color:p.condition==="new"?PC:AC}}>{p.condition==="new"?"🆕 New":"♻️ Refurbished"}</span>}
+        </div>
+        {(p.brands&&p.brands.length>0||p.motor_type)&&<div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {p.brands&&p.brands.map((b,i)=><span key={i} style={{fontSize:10.5,fontWeight:600,color:T.text,background:T.input,border:`1px solid ${T.border}`,borderRadius:999,padding:"3px 10px"}}>{b}</span>)}
+          {p.motor_type&&<span style={{fontSize:10.5,fontWeight:600,color:PC,background:T.input,border:`1px solid ${PC}`,borderRadius:999,padding:"3px 10px"}}>⚙️ {p.motor_type}</span>}
         </div>}
         {p.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:18,whiteSpace:"pre-wrap"}}>{p.description}</div>}
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
+
+        {(p.wiring_diagrams||p.sensor_values)&&<div style={{marginBottom:22}}>
+          {p.wiring_diagrams&&<button onClick={()=>onViewWiring&&onViewWiring(`/wiring/${p.wiring_diagrams.slug}`)} style={{width:"100%",padding:"13px 14px",borderRadius:10,background:T.card,border:`1px solid ${T.border}`,color:T.text,textAlign:"left",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:p.sensor_values?8:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>⚡ Wiring Diagram: {p.wiring_diagrams.title}</span><span style={{color:AC}}>→</span>
+          </button>}
+          {p.sensor_values&&<div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:8}}>🔧 Sensor Values{p.sensor_values.model_number?` — ${p.sensor_values.model_number}`:""}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:T.muted}}>
+              {p.sensor_values.room_sensor_value&&<div>Room: <b style={{color:T.text}}>{p.sensor_values.room_sensor_value}</b></div>}
+              {p.sensor_values.coil_sensor_value&&<div>Coil: <b style={{color:T.text}}>{p.sensor_values.coil_sensor_value}</b></div>}
+              {p.sensor_values.discharge_sensor_value&&<div>Discharge: <b style={{color:T.text}}>{p.sensor_values.discharge_sensor_value}</b></div>}
+              {p.sensor_values.ambient_sensor_value&&<div>Ambient: <b style={{color:T.text}}>{p.sensor_values.ambient_sensor_value}</b></div>}
+              {p.sensor_values.condenser_coil_sensor_value&&<div>Condenser Coil: <b style={{color:T.text}}>{p.sensor_values.condenser_coil_sensor_value}</b></div>}
+            </div>
+          </div>}
+        </div>}
 
         {relatedProducts.length>0&&<>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>
@@ -1273,7 +1362,8 @@ function Shop({initialPath}) {
                 {p.images&&p.images[0]
                   ? <img src={p.images[0]} alt={p.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
                   : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
-                <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
+                <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
+                {p.condition&&<div style={{fontSize:9.5,fontWeight:700,color:p.condition==="new"?PC:AC,marginBottom:4}}>{p.condition==="new"?"🆕 New":"♻️ Refurbished"}</div>}
                 <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
               </div>
             ))}
@@ -1304,7 +1394,7 @@ function Shop({initialPath}) {
 }
 
 // ── FIND REMOTE ────────────────────────────────────────────────────────────────
-function FindRemote() {
+function FindRemote({onViewProduct}) {
   const T=useTheme();
   const [query,setQuery]=useState("");
   const [brandFilter,setBrandFilter]=useState("");
@@ -1323,7 +1413,7 @@ function FindRemote() {
   const search=async()=>{
     if(!query.trim()&&!brandFilter)return;
     setLoading(true);
-    let filter="?select=*&order=model_number";
+    let filter="?select=*,shop_products(slug,name)&order=model_number";
     if(query.trim()) filter+=`&model_number=ilike.*${encodeURIComponent(query.trim())}*`;
     if(brandFilter) filter+=`&brand=eq.${encodeURIComponent(brandFilter)}`;
     const d=await api("remotes",{filter});
@@ -1364,9 +1454,10 @@ function FindRemote() {
           </div>
 
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote{(item.remote_images||[]).length>1?"s":""}</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:item.shop_products?14:0}}>
             {(item.remote_images||[]).map((img,i)=><img key={i} src={img} alt="" onClick={()=>setModal(img)} style={{width:120,borderRadius:10,cursor:"pointer",border:`1px solid ${AC}44`}}/>)}
           </div>
+          {item.shop_products&&<button onClick={()=>onViewProduct&&onViewProduct(item.shop_products.slug)} style={{width:"100%",padding:"11px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>🛒 View Product: {item.shop_products.name} →</button>}
         </div>
       ))}
 
@@ -2791,8 +2882,22 @@ function AdminWiring() {
     if(!form.title.trim()){setMsg("⚠ Title required.");return;}
     const payload={category:form.category,title:form.title,description:form.description,image_url:form.image_url,tips:form.tips.split("\n").map(t=>t.trim()).filter(Boolean)};
     try{
-      if(editId){await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
-      else{await api("wiring_diagrams",{method:"POST",body:payload,prefer:"return=minimal"});}
+      if(editId){
+        await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      }else{
+        // Every new diagram gets its own live URL (/wiring/:slug) automatically —
+        // no separate "Generate URL" step needed going forward, that button in
+        // Settings is only for backfilling diagrams that existed before this.
+        let slug=slugify(`${form.category}-${form.title}`),n=2;
+        // eslint-disable-next-line no-constant-condition
+        while(true){
+          const found=await api("wiring_diagrams",{filter:`?select=id&slug=eq.${encodeURIComponent(slug)}`});
+          if(!found||found.length===0) break;
+          slug=`${slugify(`${form.category}-${form.title}`)}-${n}`;n++;
+        }
+        payload.slug=slug;
+        await api("wiring_diagrams",{method:"POST",body:payload,prefer:"return=minimal"});
+      }
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
@@ -2827,7 +2932,7 @@ function AdminWiring() {
       <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Diagrams ({list.length})</div>
       {list.map(item=>(
         <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.category}</div></div>
+          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.category}</div>{item.slug?<div style={{fontSize:10.5,color:PC}}>/wiring/{item.slug}</div>:<div style={{fontSize:10.5,color:"#ff9800"}}>No URL yet — use Settings → Generate URL</div>}</div>
           <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
         </div>
       ))}
@@ -3094,15 +3199,16 @@ function AdminRemoteImages() {
 }
 
 function AdminRemotes() {
-  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[]};
+  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[],linked_product_id:""};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
   const [pcbSource,setPcbSource]=useState("upload");const [pcbUrl,setPcbUrl]=useState("");const [pcbUploading,setPcbUploading]=useState(false);
   const [remoteSource,setRemoteSource]=useState("upload");const [remoteUrl,setRemoteUrl]=useState("");const [remoteUploading,setRemoteUploading]=useState(false);
   const [remoteIdInput,setRemoteIdInput]=useState("");const [imageLib,setImageLib]=useState([]);
+  const [productOptions,setProductOptions]=useState([]);
 
   const load=async()=>{const d=await api("remotes",{filter:"?select=*&order=model_number"});setList(d||[]);};
   const loadLib=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setImageLib(d||[]);};
-  useEffect(()=>{load();loadLib();},[]);
+  useEffect(()=>{load();loadLib();api("shop_products",{filter:"?select=id,name&order=name"}).then(d=>setProductOptions(d||[]));},[]);
 
   const addPcbImageFromFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
@@ -3146,14 +3252,14 @@ function AdminRemotes() {
     if(!form.model_number.trim()){setMsg("⚠ Model number required.");return;}
     if(form.pcb_images.length===0){setMsg("⚠ Add at least one PCB image.");return;}
     if(form.remote_images.length===0){setMsg("⚠ Add at least one remote image.");return;}
-    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images};
+    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images,linked_product_id:form.linked_product_id||null};
     try{
       if(editId){await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("remotes",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[]});setEditId(item.id);};
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[],linked_product_id:item.linked_product_id||""});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
@@ -3168,6 +3274,12 @@ function AdminRemotes() {
           <input value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))} placeholder="Brand (optional)" style={{flex:1,padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
         </div>
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Product <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, shows a "View Product →" button on this remote's result</span></div>
+        <select value={form.linked_product_id} onChange={e=>setForm(f=>({...f,linked_product_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}>
+          <option value="">None</option>
+          {productOptions.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Images<span style={{color:"#ff4757"}}> *</span></div>
         {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
@@ -3582,6 +3694,80 @@ function AdminUsers() {
 // writes to Supabase (the actual durable backend) AND mirrors into DB (local
 // storage) immediately on change, then re-reads from Supabase on mount so the
 // UI always reflects the true persisted state rather than a stale default.
+// ── ADMIN: backfill live URLs for Wiring Diagrams created before this feature
+// existed. New diagrams (added via Admin → Wiring) already get a slug/URL
+// automatically the moment they're saved — this tool is only for the ones
+// that were already sitting in the database beforehand.
+function AdminGenerateWiringUrls() {
+  const [pending,setPending]=useState(null);   // null = not checked yet, [] = nothing to do, [...] = rows missing a slug
+  const [running,setRunning]=useState(false);
+  const [progress,setProgress]=useState({done:0,total:0,current:""});
+  const [done,setDone]=useState(false);
+
+  const check=async()=>{
+    const rows=await api("wiring_diagrams",{filter:"?select=id,title,category,slug&order=category"});
+    const missing=(rows||[]).filter(r=>!r.slug);
+    setPending(missing);
+    setDone(false);
+  };
+  useEffect(()=>{check();},[]);
+
+  const run=async()=>{
+    if(!pending||pending.length===0)return;
+    setRunning(true);
+    const existingSlugs=new Set();
+    const all=await api("wiring_diagrams",{filter:"?select=slug"});
+    (all||[]).forEach(r=>{if(r.slug)existingSlugs.add(r.slug);});
+
+    for(let i=0;i<pending.length;i++){
+      const item=pending[i];
+      setProgress({done:i,total:pending.length,current:item.title});
+      let slug=slugify(`${item.category}-${item.title}`),n=2;
+      while(existingSlugs.has(slug)){ slug=`${slugify(`${item.category}-${item.title}`)}-${n}`; n++; }
+      existingSlugs.add(slug);
+      try{
+        await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${item.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({slug})});
+      }catch{/* keep going even if one row fails — it'll show up again in "pending" next check */}
+      setProgress({done:i+1,total:pending.length,current:item.title});
+    }
+    setRunning(false);setDone(true);
+    check();
+  };
+
+  if(pending===null){
+    return (
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>Checking Wiring Diagram URLs…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Generate URLs for Wiring Diagrams</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>
+        {pending.length===0
+          ? "Every Wiring Diagram already has its own live URL. New diagrams get one automatically from now on."
+          : `${pending.length} diagram${pending.length===1?"":"s"} from before this feature ${pending.length===1?"doesn't":"don't"} have a live URL yet.`}
+      </div>
+
+      {running&&<div style={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#b0b8d0",marginBottom:6}}>
+          <span>Converting: {progress.current}</span>
+          <span>{progress.done} / {progress.total}</span>
+        </div>
+        <div style={{width:"100%",height:8,borderRadius:4,background:"#0f1117",overflow:"hidden"}}>
+          <div style={{width:`${progress.total?Math.round((progress.done/progress.total)*100):0}%`,height:"100%",background:`linear-gradient(90deg,${PC},${AC})`,transition:"width 0.3s ease"}}/>
+        </div>
+      </div>}
+
+      {done&&!running&&<div style={{fontSize:12,color:PC,marginBottom:12}}>✅ Done — all caught up.</div>}
+
+      {pending.length>0&&<button onClick={run} disabled={running} style={{width:"100%",padding:"12px",borderRadius:10,background:running?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:running?"#6b7db3":"#0a0d14",border:"none",cursor:running?"default":"pointer",fontWeight:700,fontSize:13}}>{running?"Converting…":`Generate URL (${pending.length})`}</button>}
+    </div>
+  );
+}
+
 function AdminSettings() {
   const blankSettings={id:null,auto_approve:false,parts_enabled:true,ai_daily_limit:5};
   const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
@@ -3688,6 +3874,8 @@ function AdminSettings() {
           <div style={{minWidth:60,textAlign:"center",fontSize:13,fontWeight:700,color:AC}}>{draft.ai_daily_limit}/day</div>
         </div>
       </div>
+
+      <AdminGenerateWiringUrls/>
 
       <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:"#b0b8d0",lineHeight:1.6}}>
         💡 These settings are stored in the <code>app_settings</code> table in Supabase (the live backend), not just in this browser — so they stay correct after a refresh, after closing the app, and for every admin device.
@@ -3852,7 +4040,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
 
 function AdminShopProducts({categories,setMsg}) {
   const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
-  const blank={category_id:"",name:"",description:"",images:[],brands:[]};
+  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",wiring_diagram_id:"",sensor_value_id:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -3860,6 +4048,8 @@ function AdminShopProducts({categories,setMsg}) {
   const [list,setList]=useState([]);
   const [uploading,setUploading]=useState(false);
   const [saving,setSaving]=useState(false);
+  const [wiringOptions,setWiringOptions]=useState([]);
+  const [sensorOptions,setSensorOptions]=useState([]);
 
   const load=async(catId)=>{
     const filter=catId?`?select=*&category_id=eq.${catId}&order=created_at.desc`:"?select=*&order=created_at.desc";
@@ -3867,6 +4057,15 @@ function AdminShopProducts({categories,setMsg}) {
     setList(d||[]);
   };
   useEffect(()=>{load(filterCat);},[filterCat]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{
+    api("wiring_diagrams",{filter:"?select=id,title,category&order=category"}).then(d=>setWiringOptions(d||[]));
+    api("sensor_values",{filter:"?select=id,title,model_number,brand&order=model_number"}).then(d=>setSensorOptions(d||[]));
+  },[]);
+
+  // A PCB category is any category except Sensors and Remotes — motor type
+  // only makes sense for actual PCBs.
+  const selectedCategory=categories.find(c=>c.id===form.category_id);
+  const isPcbCategory=selectedCategory&&!["sensors","remotes"].includes(selectedCategory.slug);
 
   const addImage=(e)=>{
     const file=e.target.files[0];if(!file)return;
@@ -3897,10 +4096,18 @@ function AdminShopProducts({categories,setMsg}) {
   const save=async()=>{
     if(!form.category_id){setMsg("⚠ Choose a category.");return;}
     if(!form.name.trim()){setMsg("⚠ Product name required.");return;}
+    if(form.condition!=="new"&&form.condition!=="refurbished"){setMsg("⚠ Choose whether this PCB is New or Refurbished.");return;}
     setSaving(true);
     try{
       const cat=categories.find(c=>c.id===form.category_id);
-      const payload={category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),images:form.images,brands:form.brands};
+      const catIsPcb=cat&&!["sensors","remotes"].includes(cat.slug);
+      const payload={
+        category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),
+        images:form.images,brands:form.brands,condition:form.condition,
+        motor_type:catIsPcb?(form.motor_type||""):"",
+        wiring_diagram_id:form.wiring_diagram_id||null,
+        sensor_value_id:form.sensor_value_id||null,
+      };
       if(editId){
         // Only regenerate the slug (and thus the product's URL) if the name changed.
         if(slugify(form.name.trim())!==slugify(editSlug.replace(new RegExp(`^${cat?.slug}-?`),""))){
@@ -3917,7 +4124,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[]});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",wiring_diagram_id:p.wiring_diagram_id||"",sensor_value_id:p.sensor_value_id||""});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -3962,6 +4169,33 @@ function AdminShopProducts({categories,setMsg}) {
             );
           })}
         </div>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Condition <span style={{color:"#ff4757"}}>*</span> <span style={{fontWeight:400,color:"#6b7db3"}}>— required, shown as a badge on the product</span></div>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          {[["new","🆕 New"],["refurbished","♻️ Refurbished"]].map(([v,l])=>(
+            <button key={v} type="button" onClick={()=>setForm(f=>({...f,condition:v}))} style={{flex:1,padding:"11px 4px",borderRadius:10,border:form.condition===v?`2px solid ${PC}`:"1px solid #2a3050",background:form.condition===v?`${PC}22`:"#0f1117",color:form.condition===v?PC:"#b0b8d0",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+
+        {isPcbCategory&&<>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Motor Type <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, shown beside the brand tags</span></div>
+          <select value={form.motor_type} onChange={e=>setForm(f=>({...f,motor_type:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
+            <option value="">None</option>
+            {["DC Motor","PG Motor","AC Motor","Fix Speed Motor","UVW Motor"].map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </>}
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Wiring Diagram <span style={{fontWeight:400,color:"#6b7db3"}}>— optional</span></div>
+        <select value={form.wiring_diagram_id} onChange={e=>setForm(f=>({...f,wiring_diagram_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
+          <option value="">None</option>
+          {wiringOptions.map(w=><option key={w.id} value={w.id}>{w.category} — {w.title}</option>)}
+        </select>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Sensor Values <span style={{fontWeight:400,color:"#6b7db3"}}>— optional</span></div>
+        <select value={form.sensor_value_id} onChange={e=>setForm(f=>({...f,sensor_value_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
+          <option value="">None</option>
+          {sensorOptions.map(s=><option key={s.id} value={s.id}>{s.model_number||s.title}{s.brand?` — ${s.brand}`:""}</option>)}
+        </select>
 
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -4151,7 +4385,27 @@ export default function PCBCare() {
   // URL (a shared link, a bookmark, a search result), open straight to the Shop tab
   // instead of Home — this is what makes the per-product URLs actually useful.
   const shopInitialPath=useRef(window.location.pathname.startsWith("/shop")?window.location.pathname:null);
-  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":"home");
+  // Same idea for an individual Wiring Diagram's own URL (/wiring/:slug) — the
+  // Wiring tab is normally gated behind login, but a direct link to one specific
+  // diagram should still open without forcing a login, same as Shop.
+  const wiringInitialPath=useRef(window.location.pathname.startsWith("/wiring/")?window.location.pathname:null);
+  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":"home");
+  // Cross-tab navigation used by Shop product pages / Find Remote results that
+  // link to a specific Wiring Diagram — jumps straight there, bypassing the
+  // normal login gate, since that diagram now has its own public URL.
+  const navigateToWiring=(path)=>{
+    wiringInitialPath.current=path;
+    try{ window.history.pushState({},"",path); }catch{}
+    setTab("wiring");
+  };
+  // Cross-tab navigation used by Find Remote results that link to a Shop
+  // product — Shop is already public, so this can just switch tabs normally.
+  const navigateToShopProduct=(slug)=>{
+    const path=`/shop/product/${slug}`;
+    shopInitialPath.current=path;
+    try{ window.history.pushState({},"",path); }catch{}
+    setTab("shop");
+  };
   const [pendingTab,setPendingTab]=useState(null);     // tab the user tried to open pre-login, so we can jump there right after
   const [showProfilePopup,setShowProfilePopup]=useState(false);
   const profilePromptedRef=useRef(false);
@@ -4322,10 +4576,10 @@ export default function PCBCare() {
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}
-        {tab==="shop"&&<Shop initialPath={shopInitialPath.current}/>}
+        {tab==="shop"&&<Shop initialPath={shopInitialPath.current} onViewWiring={navigateToWiring}/>}
         {tab==="errors"&&<Errors/>}
-        {tab==="wiring"&&<Wiring/>}
-        {tab==="remote"&&<FindRemote/>}
+        {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current}/>}
+        {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
         {tab==="parts"&&<PartFinder/>}
