@@ -1,14 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.4
+// PCB Care — v1.1.5
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
-// ── iOS / Safari detection ────────────────────────────────────────────────────
-const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) ||
-  (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
-const isSafari = () => /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-const needsRedirect = () => isIOS() || isSafari();
 
 // ── CSS helpers injected once at boot ────────────────────────────────────────
 const injectGlobalCSS = () => {
@@ -142,18 +137,19 @@ const DB = {
   remove:(k)=>{try{localStorage.removeItem(k);}catch{}}
 };
 
-// ── Shared Google sign-in: popup on desktop, redirect on iOS/Safari ───────────
-// iOS Safari hard-blocks window.open() popups from async callbacks, so
-// signInWithPopup always throws "auth/popup-blocked". The fix is to use
-// signInWithRedirect (which reloads the page) on those platforms and pick up
-// the result via getRedirectResult on the next mount.
+// ── Shared Google sign-in — ALWAYS uses signInWithRedirect, never
+// signInWithPopup, on every platform. Popups get silently blocked by mobile
+// and embedded browsers whenever the Firebase SDK hasn't 100% finished
+// loading by the exact moment the user taps the button — timing we can
+// reduce (preloading at boot) but never fully guarantee, since a fast tap
+// right after page load can still race the network fetch. A redirect never
+// calls window.open() at all, so there's no popup for any browser to block,
+// on any device, ever. The result is picked up via getRedirectResult() the
+// next time the app mounts (see the REDIRECT_CB_KEY handlers below).
 const googleSignIn = async (auth) => {
   const provider = new window.firebase.auth.GoogleAuthProvider();
-  if (needsRedirect()) {
-    await auth.signInWithRedirect(provider);
-    return null; // page will reload; caller should not proceed
-  }
-  return auth.signInWithPopup(provider);
+  await auth.signInWithRedirect(provider);
+  return null; // page will reload; caller should not proceed
 };
 
 // Stored callback key used to resume after redirect
@@ -292,20 +288,14 @@ function Login({onLogin,onGoSignup,onBack}) {
     setErr("");setGoogleLoading(true);
     try{
       const auth=await initFirebase();
-      // On iOS/Safari signInWithPopup is blocked — use redirect instead.
-      // Store intent so getRedirectResult handler knows which flow to resume.
-      if(needsRedirect()){
-        DB.set(REDIRECT_CB_KEY,"login");
-        await googleSignIn(auth); // triggers page reload; nothing runs after this
-        return;
-      }
-      const result=await googleSignIn(auth);
-      await _processGoogleLoginResult(result,onLogin,setErr);
+      DB.set(REDIRECT_CB_KEY,"login");
+      await googleSignIn(auth); // triggers a full-page redirect to Google; nothing runs after this
+      return;
     }catch(e){setErr(e.message||"Google sign-in failed");}
     setGoogleLoading(false);
   };
 
-  // Handle the redirect result when we land back after iOS redirect
+  // Handle the redirect result when we land back after the Google redirect
   useEffect(()=>{
     if(DB.get(REDIRECT_CB_KEY,null)!=="login") return;
     DB.remove(REDIRECT_CB_KEY);
@@ -434,17 +424,12 @@ function Signup({onGoLogin,onLogin}) {
     setErr("");
     try{
       const auth=await initFirebase();
-      if(needsRedirect()){
-        DB.set(REDIRECT_CB_KEY,"signup");
-        await googleSignIn(auth);
-        return;
-      }
-      const result=await googleSignIn(auth);
-      await _processGoogleSignupResult(result,{setFbUser,setCredEmail,setVerifyMethod,setStep,setErr,onLogin});
+      DB.set(REDIRECT_CB_KEY,"signup");
+      await googleSignIn(auth); // triggers a full-page redirect to Google; nothing runs after this
     }catch(e){setErr(e.message||"Google sign-in failed");}
   };
 
-  // Handle redirect result when landing back from iOS Google redirect
+  // Handle the redirect result when we land back after the Google redirect
   useEffect(()=>{
     if(DB.get(REDIRECT_CB_KEY,null)!=="signup") return;
     DB.remove(REDIRECT_CB_KEY);
@@ -1087,6 +1072,11 @@ function Shop({initialPath}) {
   const [categoryProducts,setCategoryProducts]=useState([]);
   const [relatedProducts,setRelatedProducts]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [zoomImg,setZoomImg]=useState(null);          // full-screen image zoom overlay
+  const [categorySearch,setCategorySearch]=useState(""); // searches only within the open category
+  const relatedScrollRef=useRef(null);                // for the auto-scrolling related-products strip
+  const relatedPauseRef=useRef(false);
+  const relatedPauseTimeoutRef=useRef(null);
 
   const loadCategories=async()=>{
     const d=await api("shop_categories",{filter:"?select=*&order=sort_order"});
@@ -1095,7 +1085,7 @@ function Shop({initialPath}) {
   };
 
   const openCategory=async(cat,push=true)=>{
-    setActiveCategory(cat);setActiveProduct(null);setView("category");
+    setActiveCategory(cat);setActiveProduct(null);setView("category");setCategorySearch("");
     if(push) pushShopPath(`/shop/category/${cat.slug}`);
     setSEO({
       title:`${cat.name} — PCB Care Shop`,
@@ -1191,6 +1181,26 @@ function Shop({initialPath}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
+  // ── Slow, smooth auto-scroll through the "More from [category]" strip ──────
+  // Advances by roughly one card width every 1 second. Pauses for a few
+  // seconds whenever the person touches/scrolls it themselves, then resumes.
+  const handleRelatedUserScroll=()=>{
+    relatedPauseRef.current=true;
+    clearTimeout(relatedPauseTimeoutRef.current);
+    relatedPauseTimeoutRef.current=setTimeout(()=>{relatedPauseRef.current=false;},3000);
+  };
+  useEffect(()=>{
+    if(!relatedProducts.length) return undefined;
+    const interval=setInterval(()=>{
+      const el=relatedScrollRef.current;
+      if(!el||relatedPauseRef.current) return;
+      const step=150; // approx card width + gap
+      const atEnd=el.scrollLeft+el.clientWidth>=el.scrollWidth-4;
+      el.scrollTo({left:atEnd?0:el.scrollLeft+step,behavior:"smooth"});
+    },1000);
+    return ()=>{clearInterval(interval);clearTimeout(relatedPauseTimeoutRef.current);};
+  },[relatedProducts]);
+
   const getPrice=(prod)=>{
     const catName=activeCategory?.name?` (${activeCategory.name})`:"";
     const msg=`Hi, I'm interested in "${prod.name}"${catName} from PCB Care. Could you please share the price?`;
@@ -1207,7 +1217,7 @@ function Shop({initialPath}) {
         <button onClick={()=>activeCategory?openCategory(activeCategory):backToGrid()} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← {activeCategory?activeCategory.name:"Shop"}</button>
         {p.images&&p.images.length>0
           ? <div className="ios-scroll-x" style={{display:"flex",gap:8,overflowX:"auto",marginBottom:14}}>
-              {p.images.map((img,i)=><img key={i} src={img} alt={p.name} style={{width:220,height:220,objectFit:"cover",borderRadius:14,flexShrink:0,border:`1px solid ${T.border}`}}/>)}
+              {p.images.map((img,i)=><img key={i} src={img} alt={p.name} onClick={()=>setZoomImg(img)} style={{width:220,height:220,objectFit:"cover",borderRadius:14,flexShrink:0,border:`1px solid ${T.border}`,cursor:"zoom-in"}}/>)}
             </div>
           : <div style={{width:"100%",height:200,borderRadius:14,marginBottom:14,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:36}}>🧩</div>}
         <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:4}}>{p.name}</div>
@@ -1221,38 +1231,53 @@ function Shop({initialPath}) {
 
         {relatedProducts.length>0&&<>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+          <div ref={relatedScrollRef} onTouchStart={handleRelatedUserScroll} onWheel={handleRelatedUserScroll}
+            className="ios-scroll-x"
+            style={{display:"flex",gap:10,overflowX:"auto",scrollBehavior:"smooth",paddingBottom:4,marginBottom:4}}>
             {relatedProducts.map(rp=>(
-              <div key={rp.id} onClick={()=>openProduct(rp,activeCategory)} style={{background:T.card,borderRadius:12,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+              <div key={rp.id} onClick={()=>openProduct(rp,activeCategory)} style={{flex:"0 0 130px",width:130,background:T.card,borderRadius:12,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
                 {rp.images&&rp.images[0]
-                  ? <img src={rp.images[0]} alt={rp.name} style={{width:"100%",height:100,objectFit:"cover",borderRadius:8,marginBottom:8}}/>
-                  : <div style={{width:"100%",height:100,borderRadius:8,marginBottom:8,background:T.input}}/>}
+                  ? <img src={rp.images[0]} alt={rp.name} style={{width:"100%",height:90,objectFit:"cover",borderRadius:8,marginBottom:8}}/>
+                  : <div style={{width:"100%",height:90,borderRadius:8,marginBottom:8,background:T.input}}/>}
                 <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rp.name}</div>
               </div>
             ))}
           </div>
         </>}
+
+        {zoomImg&&<div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <img src={zoomImg} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12,objectFit:"contain"}}/>
+          <button onClick={()=>setZoomImg(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
+        </div>}
       </div>
     );
   }
 
   // ── CATEGORY PRODUCT GRID ──
   if(view==="category"&&activeCategory){
+    const q=categorySearch.trim().toLowerCase();
+    const filtered=q?categoryProducts.filter(p=>p.name.toLowerCase().includes(q)):categoryProducts;
     return (
-      <div style={{padding:16}}>
-        <button onClick={backToGrid} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← All Categories</button>
-        <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:16}}>{activeCategory.name}</div>
-        {categoryProducts.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>No products in this category yet.</div>}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
-          {categoryProducts.map(p=>(
-            <div key={p.id} onClick={()=>openProduct(p,activeCategory)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
-              {p.images&&p.images[0]
-                ? <img src={p.images[0]} alt={p.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
-                : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
-              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
-              <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
-            </div>
-          ))}
+      <div>
+        <div style={{position:"sticky",top:54,zIndex:4,background:T.bg,padding:"12px 16px 10px"}}>
+          <button onClick={backToGrid} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← All Categories</button>
+          <div style={{fontSize:19,fontWeight:700,color:T.text,marginBottom:12}}>{activeCategory.name}</div>
+          <input value={categorySearch} onChange={e=>setCategorySearch(e.target.value)} placeholder={`Search in ${activeCategory.name}…`}
+            style={{width:"100%",padding:"11px 14px",borderRadius:12,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,outline:"none",boxSizing:"border-box"}}/>
+        </div>
+        <div style={{padding:"0 16px 16px"}}>
+          {filtered.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>{q?`No products match "${categorySearch}" in ${activeCategory.name}.`:"No products in this category yet."}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
+            {filtered.map(p=>(
+              <div key={p.id} onClick={()=>openProduct(p,activeCategory)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+                {p.images&&p.images[0]
+                  ? <img src={p.images[0]} alt={p.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
+                  : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
+                <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
+                <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
