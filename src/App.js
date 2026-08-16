@@ -1197,7 +1197,7 @@ function Shop({initialPath}) {
       const step=150; // approx card width + gap
       const atEnd=el.scrollLeft+el.clientWidth>=el.scrollWidth-4;
       el.scrollTo({left:atEnd?0:el.scrollLeft+step,behavior:"smooth"});
-    },2500);
+    },3000);
     return ()=>{clearInterval(interval);clearTimeout(relatedPauseTimeoutRef.current);};
   },[relatedProducts]);
 
