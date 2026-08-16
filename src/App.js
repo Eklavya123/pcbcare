@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.5
+// PCB Care — v1.1.6
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -89,7 +89,7 @@ const AC = "#ffd700";
 // ── SHOP: WhatsApp business number for "GET PRICE" enquiries ───────────────────
 // IMPORTANT: replace with your real WhatsApp number in international format,
 // digits only, no "+", no spaces (e.g. India number 98765 43210 → "919876543210").
-const SHOP_WHATSAPP_NUMBER = "919111839918";
+const SHOP_WHATSAPP_NUMBER = "919999999999";
 
 // ── SHOP: slugify — turns "AC Outdoor PCB" into "ac-outdoor-pcb" for clean,
 // SEO-friendly, shareable URLs. Used for both category and product URLs.
@@ -1197,7 +1197,7 @@ function Shop({initialPath}) {
       const step=150; // approx card width + gap
       const atEnd=el.scrollLeft+el.clientWidth>=el.scrollWidth-4;
       el.scrollTo({left:atEnd?0:el.scrollLeft+step,behavior:"smooth"});
-    },3000);
+    },1000);
     return ()=>{clearInterval(interval);clearTimeout(relatedPauseTimeoutRef.current);};
   },[relatedProducts]);
 
@@ -1292,7 +1292,9 @@ function Shop({initialPath}) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
         {categories.map(c=>(
           <div key={c.id} onClick={()=>openCategory(c)} style={{background:T.card,borderRadius:14,padding:18,border:`1px solid ${T.border}`,cursor:"pointer",textAlign:"center"}}>
-            <div style={{fontSize:28,marginBottom:8}}>🧩</div>
+            {c.image
+              ? <img src={c.image} alt={c.name} style={{width:56,height:56,objectFit:"cover",borderRadius:12,margin:"0 auto 8px"}}/>
+              : <div style={{fontSize:28,marginBottom:8}}>🧩</div>}
             <div style={{fontSize:13,fontWeight:700,color:T.text}}>{c.name}</div>
           </div>
         ))}
@@ -3732,8 +3734,11 @@ function AdminShop() {
 }
 
 function AdminShopCategories({categories,refresh,setMsg}) {
-  const [name,setName]=useState("");
+  const blank={name:"",image:""};
+  const [form,setForm]=useState(blank);
+  const [editId,setEditId]=useState(null);
   const [saving,setSaving]=useState(false);
+  const [uploading,setUploading]=useState(false);
 
   const uniqueSlug=(base,existing)=>{
     let slug=slugify(base),n=2;
@@ -3741,25 +3746,44 @@ function AdminShopCategories({categories,refresh,setMsg}) {
     return slug;
   };
 
-  const add=async()=>{
-    const trimmed=name.trim();
+  const addImage=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    setUploading(true);
+    const reader=new FileReader();
+    reader.onload=async()=>{const c=await compressImage(reader.result);setForm(f=>({...f,image:c}));setUploading(false);e.target.value="";};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");setUploading(false);};
+    reader.readAsDataURL(file);
+  };
+
+  const save=async()=>{
+    const trimmed=form.name.trim();
     if(!trimmed){setMsg("⚠ Enter a category name.");return;}
     setSaving(true);
     try{
-      const slug=uniqueSlug(trimmed,categories.map(c=>c.slug));
-      const sort_order=categories.length?Math.max(...categories.map(c=>c.sort_order||0))+1:0;
-      await api("shop_categories",{method:"POST",body:{name:trimmed,slug,sort_order},prefer:"return=minimal"});
-      setMsg(`✅ "${trimmed}" added.`);setName("");
+      if(editId){
+        await fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({name:trimmed,image:form.image})});
+        setMsg(`✅ "${trimmed}" updated.`);
+      }else{
+        const slug=uniqueSlug(trimmed,categories.map(c=>c.slug));
+        const sort_order=categories.length?Math.max(...categories.map(c=>c.sort_order||0))+1:0;
+        await api("shop_categories",{method:"POST",body:{name:trimmed,slug,sort_order,image:form.image},prefer:"return=minimal"});
+        setMsg(`✅ "${trimmed}" added.`);
+      }
+      setForm(blank);setEditId(null);
       await refresh();
     }catch(e){setMsg("⚠ Failed: "+e.message);}
     setSaving(false);
   };
+
+  const edit=(c)=>{setForm({name:c.name,image:c.image||""});setEditId(c.id);};
+  const cancelEdit=()=>{setForm(blank);setEditId(null);};
 
   const del=async(cat)=>{
     if(!window.confirm(`Delete category "${cat.name}"? This will also delete every product listed under it — this cannot be undone.`))return;
     try{
       await fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${cat.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
       setMsg(`✅ "${cat.name}" deleted.`);
+      if(editId===cat.id){setForm(blank);setEditId(null);}
       await refresh();
     }catch(e){setMsg("⚠ Failed: "+e.message);}
   };
@@ -3780,22 +3804,44 @@ function AdminShopCategories({categories,refresh,setMsg}) {
   return (
     <div>
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>Add New Category</div>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit Category":"Add New Category"}</div>
+        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="e.g. AC Outdoor PCB" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Thumbnail Image</div>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+          {form.image
+            ? <div style={{position:"relative"}}>
+                <img src={form.image} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:10,border:"1px solid #2a3050"}}/>
+                <button onClick={()=>setForm(f=>({...f,image:""}))} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
+              </div>
+            : <div style={{width:64,height:64,borderRadius:10,background:"#0f1117",border:"1px dashed #2a3050",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🧩</div>}
+          <div>
+            <input type="file" accept="image/*" onChange={addImage} style={{fontSize:12,color:"#6b7db3"}}/>
+            {uploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file…</div>}
+          </div>
+        </div>
+
         <div style={{display:"flex",gap:8}}>
-          <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. AC Outdoor PCB" style={{flex:1,padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none"}}/>
-          <button onClick={add} disabled={saving} style={{padding:"11px 18px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13,whiteSpace:"nowrap"}}>{saving?"Saving…":"Add"}</button>
+          {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"11px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          <button onClick={save} disabled={saving} style={{flex:2,padding:"11px 18px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving…":editId?"Update":"Add"}</button>
         </div>
       </div>
       <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Categories ({categories.length}) <span style={{fontWeight:400,color:"#6b7db3",fontSize:11}}>— use ↑↓ to set display order</span></div>
       {categories.map((c,idx)=>(
         <div key={c.id} style={{background:"#1a1f2e",borderRadius:12,padding:"10px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
-          <div>
-            <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{c.name}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>/shop/category/{c.slug}</div>
+          <div style={{display:"flex",alignItems:"center",gap:10,overflow:"hidden"}}>
+            {c.image
+              ? <img src={c.image} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:8,flexShrink:0}}/>
+              : <div style={{width:36,height:36,borderRadius:8,background:"#0f1117",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>🧩</div>}
+            <div style={{overflow:"hidden"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>{c.name}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>/shop/category/{c.slug}</div>
+            </div>
           </div>
-          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
             <button onClick={()=>move(idx,-1)} disabled={idx===0} style={{width:26,height:26,borderRadius:8,background:"#2a3050",color:idx===0?"#3a4160":"#fff",border:"none",cursor:idx===0?"default":"pointer",fontSize:12}}>↑</button>
             <button onClick={()=>move(idx,1)} disabled={idx===categories.length-1} style={{width:26,height:26,borderRadius:8,background:"#2a3050",color:idx===categories.length-1?"#3a4160":"#fff",border:"none",cursor:idx===categories.length-1?"default":"pointer",fontSize:12}}>↓</button>
+            <button onClick={()=>edit(c)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Edit</button>
             <button onClick={()=>del(c)} style={{width:26,height:26,borderRadius:"50%",background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12}}>✕</button>
           </div>
         </div>
