@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.1.6
+// PCB Care — v1.1.8
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -1197,7 +1197,7 @@ function Shop({initialPath}) {
       const step=150; // approx card width + gap
       const atEnd=el.scrollLeft+el.clientWidth>=el.scrollWidth-4;
       el.scrollTo({left:atEnd?0:el.scrollLeft+step,behavior:"smooth"});
-    },3000);
+    },2500);
     return ()=>{clearInterval(interval);clearTimeout(relatedPauseTimeoutRef.current);};
   },[relatedProducts]);
 
@@ -1291,10 +1291,10 @@ function Shop({initialPath}) {
       {categories.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>No categories yet.</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
         {categories.map(c=>(
-          <div key={c.id} onClick={()=>openCategory(c)} style={{background:T.card,borderRadius:14,padding:18,border:`1px solid ${T.border}`,cursor:"pointer",textAlign:"center"}}>
+          <div key={c.id} onClick={()=>openCategory(c)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
             {c.image
-              ? <img src={c.image} alt={c.name} style={{width:56,height:56,objectFit:"cover",borderRadius:12,margin:"0 auto 8px"}}/>
-              : <div style={{fontSize:28,marginBottom:8}}>🧩</div>}
+              ? <img src={c.image} alt={c.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
+              : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🧩</div>}
             <div style={{fontSize:13,fontWeight:700,color:T.text}}>{c.name}</div>
           </div>
         ))}
