@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.2.2
+// PCB Care — v1.3.0
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -981,7 +981,39 @@ function Errors() {
 }
 
 // ── WIRING ────────────────────────────────────────────────────────────────────
-function Wiring({initialPath}) {
+// ── Shared "View Products" button — used on both a Wiring Diagram page and a
+// Find Remote result to show every product currently linked to that post.
+// Clicking a product jumps straight to its own page.
+function LinkedProductsButton({ids,onViewProduct}) {
+  const T=useTheme();
+  const [products,setProducts]=useState(null);
+  const [open,setOpen]=useState(false);
+  const key=(ids||[]).join(",");
+  useEffect(()=>{
+    if(!ids||ids.length===0){setProducts([]);return;}
+    api("shop_products",{filter:`?select=id,name,slug,images&id=in.(${ids.join(",")})`}).then(d=>setProducts(d||[]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[key]);
+  if(!ids||ids.length===0) return null;
+  return (
+    <div style={{marginTop:10}}>
+      <button onClick={()=>setOpen(o=>!o)} style={{width:"100%",padding:"11px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>🛒 View Product{ids.length>1?"s":""} ({ids.length}) {open?"▲":"▼"}</button>
+      {open&&<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+        {products===null&&<div style={{fontSize:12,color:T.subtext,textAlign:"center",padding:10}}>Loading…</div>}
+        {products&&products.length===0&&<div style={{fontSize:12,color:T.subtext,textAlign:"center",padding:10}}>Linked product not found.</div>}
+        {products&&products.map(p=>(
+          <button key={p.id} onClick={()=>onViewProduct&&onViewProduct(p.slug)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:T.card,border:`1px solid ${T.border}`,cursor:"pointer",textAlign:"left"}}>
+            {p.images&&p.images[0]&&<img src={p.images[0]} alt="" style={{width:36,height:36,objectFit:"cover",borderRadius:6,flexShrink:0}}/>}
+            <span style={{fontSize:12,fontWeight:600,color:T.text,flex:1}}>{p.name}</span>
+            <span style={{color:AC}}>→</span>
+          </button>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+function Wiring({initialPath,onViewProduct}) {
   const T=useTheme();
   const [cat,setCat]=useState("Fridge");
   const [items,setItems]=useState([]);
@@ -1041,6 +1073,7 @@ function Wiring({initialPath}) {
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>💡 Tips</div>
           {item.tips.map((t,ti)=><div key={ti} style={{display:"flex",gap:8,marginBottom:6}}><div style={{width:18,height:18,borderRadius:"50%",background:`${AC}22`,color:AC,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ti+1}</div><div style={{fontSize:12,color:T.muted}}>{t}</div></div>)}
         </div>}
+        <LinkedProductsButton ids={item.linked_product_ids} onViewProduct={onViewProduct}/>
         {modal&&<div onClick={()=>setModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.95)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
           <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
           <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
@@ -1075,6 +1108,7 @@ function Wiring({initialPath}) {
             {item.image_url?<div style={{padding:12,background:T.bg}}><img src={item.image_url} alt={item.title} onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/><div style={{textAlign:"center",marginTop:6,fontSize:11,color:T.subtext}}>Tap to fullscreen</div></div>
             :<div style={{padding:24,textAlign:"center",background:T.bg}}><div style={{fontSize:32,marginBottom:8}}>🖼️</div><div style={{fontSize:12,color:T.subtext}}>Image coming soon</div></div>}
             {item.tips&&item.tips.length>0&&<div style={{padding:14}}><div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>💡 Tips</div>{item.tips.map((t,ti)=><div key={ti} style={{display:"flex",gap:8,marginBottom:6}}><div style={{width:18,height:18,borderRadius:"50%",background:`${AC}22`,color:AC,fontSize:10,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{ti+1}</div><div style={{fontSize:12,color:T.muted}}>{t}</div></div>)}</div>}
+            {item.linked_product_ids&&item.linked_product_ids.length>0&&<div style={{padding:"0 14px 14px"}}><LinkedProductsButton ids={item.linked_product_ids} onViewProduct={onViewProduct}/></div>}
           </div>}
         </div>
       ))}
@@ -1132,7 +1166,7 @@ function ShopTrustBadges() {
   );
 }
 
-function Shop({initialPath,onViewWiring}) {
+function Shop({initialPath}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
   const [view,setView]=useState("grid");            // grid | category | product
@@ -1216,7 +1250,7 @@ function Shop({initialPath,onViewWiring}) {
       const cat=cats.find(c=>c.slug===parsed.slug);
       if(cat) await openCategory(cat,false); else backToGrid();
     }else if(parsed.view==="product"){
-      const d=await api("shop_products",{filter:`?select=*,wiring_diagrams(title,slug),sensor_values(title,model_number,brand,room_sensor_value,coil_sensor_value,discharge_sensor_value,ambient_sensor_value,condenser_coil_sensor_value)&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
+      const d=await api("shop_products",{filter:`?select=*,sensor_values(title,model_number,brand,room_sensor_value,coil_sensor_value,discharge_sensor_value,ambient_sensor_value,condenser_coil_sensor_value)&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
       const prod=(d||[])[0];
       if(prod){ await openProduct(prod,cats.find(c=>c.id===prod.category_id),false); }
       else backToGrid();
@@ -1302,11 +1336,8 @@ function Shop({initialPath,onViewWiring}) {
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
 
-        {(p.wiring_diagrams||p.sensor_values)&&<div style={{marginBottom:22}}>
-          {p.wiring_diagrams&&<button onClick={()=>onViewWiring&&onViewWiring(`/wiring/${p.wiring_diagrams.slug}`)} style={{width:"100%",padding:"13px 14px",borderRadius:10,background:T.card,border:`1px solid ${T.border}`,color:T.text,textAlign:"left",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:p.sensor_values?8:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span>⚡ Wiring Diagram: {p.wiring_diagrams.title}</span><span style={{color:AC}}>→</span>
-          </button>}
-          {p.sensor_values&&<div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14}}>
+        {p.sensor_values&&<div style={{marginBottom:22}}>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14}}>
             <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:8}}>🔧 Sensor Values{p.sensor_values.model_number?` — ${p.sensor_values.model_number}`:""}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:T.muted}}>
               {p.sensor_values.room_sensor_value&&<div>Room: <b style={{color:T.text}}>{p.sensor_values.room_sensor_value}</b></div>}
@@ -1315,7 +1346,7 @@ function Shop({initialPath,onViewWiring}) {
               {p.sensor_values.ambient_sensor_value&&<div>Ambient: <b style={{color:T.text}}>{p.sensor_values.ambient_sensor_value}</b></div>}
               {p.sensor_values.condenser_coil_sensor_value&&<div>Condenser Coil: <b style={{color:T.text}}>{p.sensor_values.condenser_coil_sensor_value}</b></div>}
             </div>
-          </div>}
+          </div>
         </div>}
 
         {relatedProducts.length>0&&<>
@@ -1413,7 +1444,7 @@ function FindRemote({onViewProduct}) {
   const search=async()=>{
     if(!query.trim()&&!brandFilter)return;
     setLoading(true);
-    let filter="?select=*,shop_products(slug,name)&order=model_number";
+    let filter="?select=*&order=model_number";
     if(query.trim()) filter+=`&model_number=ilike.*${encodeURIComponent(query.trim())}*`;
     if(brandFilter) filter+=`&brand=eq.${encodeURIComponent(brandFilter)}`;
     const d=await api("remotes",{filter});
@@ -1454,10 +1485,10 @@ function FindRemote({onViewProduct}) {
           </div>
 
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote{(item.remote_images||[]).length>1?"s":""}</div>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:item.shop_products?14:0}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {(item.remote_images||[]).map((img,i)=><img key={i} src={img} alt="" onClick={()=>setModal(img)} style={{width:120,borderRadius:10,cursor:"pointer",border:`1px solid ${AC}44`}}/>)}
           </div>
-          {item.shop_products&&<button onClick={()=>onViewProduct&&onViewProduct(item.shop_products.slug)} style={{width:"100%",padding:"11px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>🛒 View Product: {item.shop_products.name} →</button>}
+          <LinkedProductsButton ids={item.linked_product_ids} onViewProduct={onViewProduct}/>
         </div>
       ))}
 
@@ -2866,10 +2897,12 @@ function AdminErrors(){
 
 // ── ADMIN: WIRING ─────────────────────────────────────────────────────────────
 function AdminWiring() {
-  const blank={category:"Fridge",title:"",description:"",image_url:"",image_source:"upload",tips:""};
+  const blank={category:"Fridge",title:"",description:"",image_url:"",image_source:"upload",tips:"",linked_product_ids:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
+  const [productOptions,setProductOptions]=useState([]);
   const load=async()=>{const d=await api("wiring_diagrams",{filter:"?select=*&order=category"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{load();api("shop_products",{filter:"?select=id,name&order=name"}).then(d=>setProductOptions(d||[]));},[]);
+  const toggleLinkedProduct=(id)=>setForm(f=>({...f,linked_product_ids:f.linked_product_ids.includes(id)?f.linked_product_ids.filter(x=>x!==id):[...f.linked_product_ids,id]}));
   const handleFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
@@ -2880,7 +2913,7 @@ function AdminWiring() {
   };
   const save=async()=>{
     if(!form.title.trim()){setMsg("⚠ Title required.");return;}
-    const payload={category:form.category,title:form.title,description:form.description,image_url:form.image_url,tips:form.tips.split("\n").map(t=>t.trim()).filter(Boolean)};
+    const payload={category:form.category,title:form.title,description:form.description,image_url:form.image_url,tips:form.tips.split("\n").map(t=>t.trim()).filter(Boolean),linked_product_ids:form.linked_product_ids};
     try{
       if(editId){
         await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
@@ -2901,7 +2934,7 @@ function AdminWiring() {
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({category:item.category,title:item.title,description:item.description,image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",tips:(item.tips||[]).join("\n")});setEditId(item.id);};
+  const edit=(item)=>{setForm({category:item.category,title:item.title,description:item.description,image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",tips:(item.tips||[]).join("\n"),linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
@@ -2923,6 +2956,18 @@ function AdminWiring() {
         </div>}
         {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
         <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Products <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, tap all that apply. Shows a "View Product" button on this diagram's page</span></div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {productOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No Shop products yet.</div>}
+          {productOptions.map(p=>{
+            const on=form.linked_product_ids.includes(p.id);
+            return (
+              <button key={p.id} type="button" onClick={()=>toggleLinkedProduct(p.id)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{p.name}</button>
+            );
+          })}
+        </div>
+
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -3199,7 +3244,7 @@ function AdminRemoteImages() {
 }
 
 function AdminRemotes() {
-  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[],linked_product_id:""};
+  const blank={model_number:"",brand:"",appliance:"AC",title:"",pcb_images:[],remote_images:[],linked_product_ids:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");
   const [pcbSource,setPcbSource]=useState("upload");const [pcbUrl,setPcbUrl]=useState("");const [pcbUploading,setPcbUploading]=useState(false);
   const [remoteSource,setRemoteSource]=useState("upload");const [remoteUrl,setRemoteUrl]=useState("");const [remoteUploading,setRemoteUploading]=useState(false);
@@ -3252,14 +3297,15 @@ function AdminRemotes() {
     if(!form.model_number.trim()){setMsg("⚠ Model number required.");return;}
     if(form.pcb_images.length===0){setMsg("⚠ Add at least one PCB image.");return;}
     if(form.remote_images.length===0){setMsg("⚠ Add at least one remote image.");return;}
-    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images,linked_product_id:form.linked_product_id||null};
+    const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images,linked_product_ids:form.linked_product_ids};
     try{
       if(editId){await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("remotes",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[],linked_product_id:item.linked_product_id||""});setEditId(item.id);};
+  const toggleLinkedProduct=(id)=>setForm(f=>({...f,linked_product_ids:f.linked_product_ids.includes(id)?f.linked_product_ids.filter(x=>x!==id):[...f.linked_product_ids,id]}));
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[],linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
@@ -3275,11 +3321,16 @@ function AdminRemotes() {
         </div>
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
 
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Product <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, shows a "View Product →" button on this remote's result</span></div>
-        <select value={form.linked_product_id} onChange={e=>setForm(f=>({...f,linked_product_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}>
-          <option value="">None</option>
-          {productOptions.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Products <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, tap all that apply. Shows a "View Product" button on this remote's result</span></div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {productOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No Shop products yet.</div>}
+          {productOptions.map(p=>{
+            const on=form.linked_product_ids.includes(p.id);
+            return (
+              <button key={p.id} type="button" onClick={()=>toggleLinkedProduct(p.id)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{p.name}</button>
+            );
+          })}
+        </div>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>PCB Images<span style={{color:"#ff4757"}}> *</span></div>
         {form.pcb_images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
@@ -4040,7 +4091,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
 
 function AdminShopProducts({categories,setMsg}) {
   const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
-  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",wiring_diagram_id:"",sensor_value_id:""};
+  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",sensor_value_id:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -4048,7 +4099,6 @@ function AdminShopProducts({categories,setMsg}) {
   const [list,setList]=useState([]);
   const [uploading,setUploading]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [wiringOptions,setWiringOptions]=useState([]);
   const [sensorOptions,setSensorOptions]=useState([]);
 
   const load=async(catId)=>{
@@ -4058,7 +4108,6 @@ function AdminShopProducts({categories,setMsg}) {
   };
   useEffect(()=>{load(filterCat);},[filterCat]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(()=>{
-    api("wiring_diagrams",{filter:"?select=id,title,category&order=category"}).then(d=>setWiringOptions(d||[]));
     api("sensor_values",{filter:"?select=id,title,model_number,brand&order=model_number"}).then(d=>setSensorOptions(d||[]));
   },[]);
 
@@ -4105,7 +4154,6 @@ function AdminShopProducts({categories,setMsg}) {
         category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),
         images:form.images,brands:form.brands,condition:form.condition,
         motor_type:catIsPcb?(form.motor_type||""):"",
-        wiring_diagram_id:form.wiring_diagram_id||null,
         sensor_value_id:form.sensor_value_id||null,
       };
       if(editId){
@@ -4124,7 +4172,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",wiring_diagram_id:p.wiring_diagram_id||"",sensor_value_id:p.sensor_value_id||""});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",sensor_value_id:p.sensor_value_id||""});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -4184,12 +4232,6 @@ function AdminShopProducts({categories,setMsg}) {
             {["DC Motor","PG Motor","AC Motor","Fix Speed Motor","UVW Motor"].map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </>}
-
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Wiring Diagram <span style={{fontWeight:400,color:"#6b7db3"}}>— optional</span></div>
-        <select value={form.wiring_diagram_id} onChange={e=>setForm(f=>({...f,wiring_diagram_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
-          <option value="">None</option>
-          {wiringOptions.map(w=><option key={w.id} value={w.id}>{w.category} — {w.title}</option>)}
-        </select>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Sensor Values <span style={{fontWeight:400,color:"#6b7db3"}}>— optional</span></div>
         <select value={form.sensor_value_id} onChange={e=>setForm(f=>({...f,sensor_value_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
@@ -4390,16 +4432,9 @@ export default function PCBCare() {
   // diagram should still open without forcing a login, same as Shop.
   const wiringInitialPath=useRef(window.location.pathname.startsWith("/wiring/")?window.location.pathname:null);
   const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":"home");
-  // Cross-tab navigation used by Shop product pages / Find Remote results that
-  // link to a specific Wiring Diagram — jumps straight there, bypassing the
-  // normal login gate, since that diagram now has its own public URL.
-  const navigateToWiring=(path)=>{
-    wiringInitialPath.current=path;
-    try{ window.history.pushState({},"",path); }catch{}
-    setTab("wiring");
-  };
-  // Cross-tab navigation used by Find Remote results that link to a Shop
-  // product — Shop is already public, so this can just switch tabs normally.
+  // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
+  // that link to a Shop product — Shop is already public, so this can just
+  // switch tabs normally.
   const navigateToShopProduct=(slug)=>{
     const path=`/shop/product/${slug}`;
     shopInitialPath.current=path;
@@ -4576,9 +4611,9 @@ export default function PCBCare() {
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}
-        {tab==="shop"&&<Shop initialPath={shopInitialPath.current} onViewWiring={navigateToWiring}/>}
+        {tab==="shop"&&<Shop initialPath={shopInitialPath.current}/>}
         {tab==="errors"&&<Errors/>}
-        {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current}/>}
+        {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current} onViewProduct={navigateToShopProduct}/>}
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
         {tab==="tips"&&<TipsTricks/>}
         {tab==="sensors"&&<SensorValues/>}
