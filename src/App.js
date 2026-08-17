@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.3.0
+// PCB Care — v1.4.0
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -226,6 +226,15 @@ const getPartsEnabled = async () => {
     // exists yet, so the feature isn't silently hidden before any admin has saved.
     return Array.isArray(res)&&res[0]?res[0].parts_enabled!==false:true;
   } catch { return false; } // fail closed on network error — don't show a feature we can't confirm is on
+};
+
+const getRequireLogin = async () => {
+  try {
+    const res = await api("app_settings",{filter:"?select=require_login&limit=1"});
+    // Default to true (current behavior) when no row exists yet — login stays
+    // required until an admin explicitly turns it off in Settings.
+    return Array.isArray(res)&&res[0]?res[0].require_login!==false:true;
+  } catch { return true; } // fail closed on network error — keep the gate up rather than accidentally open the whole site
 };
 
 // A profile is "complete" once city, state and country are all filled in.
@@ -1250,7 +1259,7 @@ function Shop({initialPath}) {
       const cat=cats.find(c=>c.slug===parsed.slug);
       if(cat) await openCategory(cat,false); else backToGrid();
     }else if(parsed.view==="product"){
-      const d=await api("shop_products",{filter:`?select=*,sensor_values(title,model_number,brand,room_sensor_value,coil_sensor_value,discharge_sensor_value,ambient_sensor_value,condenser_coil_sensor_value)&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
+      const d=await api("shop_products",{filter:`?select=*&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
       const prod=(d||[])[0];
       if(prod){ await openProduct(prod,cats.find(c=>c.id===prod.category_id),false); }
       else backToGrid();
@@ -1336,19 +1345,6 @@ function Shop({initialPath}) {
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
 
-        {p.sensor_values&&<div style={{marginBottom:22}}>
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:T.text,marginBottom:8}}>🔧 Sensor Values{p.sensor_values.model_number?` — ${p.sensor_values.model_number}`:""}</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:T.muted}}>
-              {p.sensor_values.room_sensor_value&&<div>Room: <b style={{color:T.text}}>{p.sensor_values.room_sensor_value}</b></div>}
-              {p.sensor_values.coil_sensor_value&&<div>Coil: <b style={{color:T.text}}>{p.sensor_values.coil_sensor_value}</b></div>}
-              {p.sensor_values.discharge_sensor_value&&<div>Discharge: <b style={{color:T.text}}>{p.sensor_values.discharge_sensor_value}</b></div>}
-              {p.sensor_values.ambient_sensor_value&&<div>Ambient: <b style={{color:T.text}}>{p.sensor_values.ambient_sensor_value}</b></div>}
-              {p.sensor_values.condenser_coil_sensor_value&&<div>Condenser Coil: <b style={{color:T.text}}>{p.sensor_values.condenser_coil_sensor_value}</b></div>}
-            </div>
-          </div>
-        </div>}
-
         {relatedProducts.length>0&&<>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>
           <div ref={relatedScrollRef} onTouchStart={handleRelatedUserScroll} onWheel={handleRelatedUserScroll}
@@ -1393,8 +1389,7 @@ function Shop({initialPath}) {
                 {p.images&&p.images[0]
                   ? <img src={p.images[0]} alt={p.name} style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
                   : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
-                <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
-                {p.condition&&<div style={{fontSize:9.5,fontWeight:700,color:p.condition==="new"?PC:AC,marginBottom:4}}>{p.condition==="new"?"🆕 New":"♻️ Refurbished"}</div>}
+                <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
                 <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
               </div>
             ))}
@@ -1543,7 +1538,7 @@ function TipsTricks() {
 }
 
 // ── SENSORS ───────────────────────────────────────────────────────────────────
-function SensorValues() {
+function SensorValues({onViewProduct}) {
   const T=useTheme();
   const [hasData,setHasData]=useState(null); // null = checking, true/false once known
   const [query,setQuery]=useState("");
@@ -1630,6 +1625,7 @@ function SensorValues() {
               </div>}
               {item.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.7}}>{item.description}</div>}
               {item.image_url&&<img src={item.image_url} alt="" onClick={()=>setModal(item.image_url)} style={{width:"100%",borderRadius:10,marginTop:10,cursor:"pointer"}}/>}
+              <LinkedProductsButton ids={item.linked_product_ids} onViewProduct={onViewProduct}/>
             </div>}
           </div>
         ))}
@@ -2900,9 +2896,11 @@ function AdminWiring() {
   const blank={category:"Fridge",title:"",description:"",image_url:"",image_source:"upload",tips:"",linked_product_ids:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
   const [productOptions,setProductOptions]=useState([]);
+  const [productSearch,setProductSearch]=useState("");
   const load=async()=>{const d=await api("wiring_diagrams",{filter:"?select=*&order=category"});setList(d||[]);};
   useEffect(()=>{load();api("shop_products",{filter:"?select=id,name&order=name"}).then(d=>setProductOptions(d||[]));},[]);
   const toggleLinkedProduct=(id)=>setForm(f=>({...f,linked_product_ids:f.linked_product_ids.includes(id)?f.linked_product_ids.filter(x=>x!==id):[...f.linked_product_ids,id]}));
+  const filteredProductOptions=productOptions.filter(p=>p.name.toLowerCase().includes(productSearch.trim().toLowerCase()));
   const handleFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
@@ -2958,9 +2956,11 @@ function AdminWiring() {
         <textarea value={form.tips} onChange={e=>setForm(f=>({...f,tips:e.target.value}))} placeholder="Tips (one per line)" rows={3} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12,resize:"vertical",fontFamily:"inherit"}}/>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Products <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, tap all that apply. Shows a "View Product" button on this diagram's page</span></div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+        <input value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Search products…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14,maxHeight:180,overflowY:"auto"}}>
           {productOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No Shop products yet.</div>}
-          {productOptions.map(p=>{
+          {productOptions.length>0&&filteredProductOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No products match "{productSearch}".</div>}
+          {filteredProductOptions.map(p=>{
             const on=form.linked_product_ids.includes(p.id);
             return (
               <button key={p.id} type="button" onClick={()=>toggleLinkedProduct(p.id)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{p.name}</button>
@@ -2987,10 +2987,14 @@ function AdminWiring() {
 
 // ── ADMIN: SENSOR VALUES ───────────────────────────────────────────────────────
 function AdminSensorValues() {
-  const blank={model_number:"",brand:"",appliance:"Fridge",title:"",description:"",image_url:"",image_source:"upload",pcb_type:"",room_sensor_value:"",coil_sensor_value:"",discharge_sensor_value:"",ambient_sensor_value:"",condenser_coil_sensor_value:""};
+  const blank={model_number:"",brand:"",appliance:"Fridge",title:"",description:"",image_url:"",image_source:"upload",pcb_type:"",room_sensor_value:"",coil_sensor_value:"",discharge_sensor_value:"",ambient_sensor_value:"",condenser_coil_sensor_value:"",linked_product_ids:[]};
   const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
+  const [productOptions,setProductOptions]=useState([]);
+  const [productSearch,setProductSearch]=useState("");
   const load=async()=>{const d=await api("sensor_values",{filter:"?select=*&order=model_number"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{load();api("shop_products",{filter:"?select=id,name&order=name"}).then(d=>setProductOptions(d||[]));},[]);
+  const toggleLinkedProduct=(id)=>setForm(f=>({...f,linked_product_ids:f.linked_product_ids.includes(id)?f.linked_product_ids.filter(x=>x!==id):[...f.linked_product_ids,id]}));
+  const filteredProductOptions=productOptions.filter(p=>p.name.toLowerCase().includes(productSearch.trim().toLowerCase()));
   const handleFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
@@ -3012,6 +3016,7 @@ function AdminSensorValues() {
       discharge_sensor_value:form.pcb_type==="Outdoor"?form.discharge_sensor_value:"",
       ambient_sensor_value:form.pcb_type==="Outdoor"?form.ambient_sensor_value:"",
       condenser_coil_sensor_value:form.pcb_type==="Outdoor"?form.condenser_coil_sensor_value:"",
+      linked_product_ids:form.linked_product_ids,
     };
     try{
       if(editId){await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
@@ -3019,7 +3024,7 @@ function AdminSensorValues() {
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
-  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"Fridge",title:item.title||"",description:item.description||"",image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",pcb_type:item.pcb_type||"",room_sensor_value:item.room_sensor_value||"",coil_sensor_value:item.coil_sensor_value||"",discharge_sensor_value:item.discharge_sensor_value||"",ambient_sensor_value:item.ambient_sensor_value||"",condenser_coil_sensor_value:item.condenser_coil_sensor_value||""});setEditId(item.id);};
+  const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"Fridge",title:item.title||"",description:item.description||"",image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",pcb_type:item.pcb_type||"",room_sensor_value:item.room_sensor_value||"",coil_sensor_value:item.coil_sensor_value||"",discharge_sensor_value:item.discharge_sensor_value||"",ambient_sensor_value:item.ambient_sensor_value||"",condenser_coil_sensor_value:item.condenser_coil_sensor_value||"",linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
   const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
@@ -3066,6 +3071,20 @@ function AdminSensorValues() {
           {form.image_url&&form.image_url.startsWith("data:")&&<div><img src={form.image_url} alt="" style={{maxWidth:"100%",maxHeight:140,borderRadius:8,marginTop:4,marginBottom:4}}/><div style={{fontSize:11,color:PC}}>✓ Image loaded ({Math.round(form.image_url.length/1024)}KB)</div></div>}
         </div>}
         {form.image_source==="url"&&<input value={form.image_url} onChange={e=>setForm(f=>({...f,image_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Products <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, tap all that apply. Shows a "View Product" button on this entry</span></div>
+        <input value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Search products…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14,maxHeight:180,overflowY:"auto"}}>
+          {productOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No Shop products yet.</div>}
+          {productOptions.length>0&&filteredProductOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No products match "{productSearch}".</div>}
+          {filteredProductOptions.map(p=>{
+            const on=form.linked_product_ids.includes(p.id);
+            return (
+              <button key={p.id} type="button" onClick={()=>toggleLinkedProduct(p.id)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{p.name}</button>
+            );
+          })}
+        </div>
+
         {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -3250,10 +3269,12 @@ function AdminRemotes() {
   const [remoteSource,setRemoteSource]=useState("upload");const [remoteUrl,setRemoteUrl]=useState("");const [remoteUploading,setRemoteUploading]=useState(false);
   const [remoteIdInput,setRemoteIdInput]=useState("");const [imageLib,setImageLib]=useState([]);
   const [productOptions,setProductOptions]=useState([]);
+  const [productSearch,setProductSearch]=useState("");
 
   const load=async()=>{const d=await api("remotes",{filter:"?select=*&order=model_number"});setList(d||[]);};
   const loadLib=async()=>{const d=await api("remote_images",{filter:"?select=*&order=image_id"});setImageLib(d||[]);};
   useEffect(()=>{load();loadLib();api("shop_products",{filter:"?select=id,name&order=name"}).then(d=>setProductOptions(d||[]));},[]);
+  const filteredProductOptions=productOptions.filter(p=>p.name.toLowerCase().includes(productSearch.trim().toLowerCase()));
 
   const addPcbImageFromFile=(e)=>{
     const file=e.target.files[0];if(!file)return;
@@ -3322,9 +3343,11 @@ function AdminRemotes() {
         <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title (optional, e.g. Split AC Indoor PCB)" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:14}}/>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Products <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, tap all that apply. Shows a "View Product" button on this remote's result</span></div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+        <input value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Search products…" style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14,maxHeight:180,overflowY:"auto"}}>
           {productOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No Shop products yet.</div>}
-          {productOptions.map(p=>{
+          {productOptions.length>0&&filteredProductOptions.length===0&&<div style={{fontSize:12,color:"#6b7db3"}}>No products match "{productSearch}".</div>}
+          {filteredProductOptions.map(p=>{
             const on=form.linked_product_ids.includes(p.id);
             return (
               <button key={p.id} type="button" onClick={()=>toggleLinkedProduct(p.id)} style={{padding:"7px 13px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,fontWeight:600,cursor:"pointer"}}>{on?"✓ ":""}{p.name}</button>
@@ -3820,7 +3843,7 @@ function AdminGenerateWiringUrls() {
 }
 
 function AdminSettings() {
-  const blankSettings={id:null,auto_approve:false,parts_enabled:true,ai_daily_limit:5};
+  const blankSettings={id:null,auto_approve:false,parts_enabled:true,ai_daily_limit:5,require_login:true};
   const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
   const [draft,setDraft]=useState(blankSettings);    // working copy the admin is editing
   const [loaded,setLoaded]=useState(false);
@@ -3831,7 +3854,7 @@ function AdminSettings() {
   loadSettingsRef.current=async()=>{
     let next=blankSettings;
     try{
-      const rows=await api("app_settings",{filter:"?select=id,auto_approve,parts_enabled,ai_daily_limit&limit=1"});
+      const rows=await api("app_settings",{filter:"?select=id,auto_approve,parts_enabled,ai_daily_limit,require_login&limit=1"});
       const row=Array.isArray(rows)?rows[0]:null;
       if(row){
         next={
@@ -3839,6 +3862,7 @@ function AdminSettings() {
           auto_approve: !!row.auto_approve,
           parts_enabled: row.parts_enabled!==false,
           ai_daily_limit: row.ai_daily_limit!=null?Number(row.ai_daily_limit):DB.get("pcb_ai_daily_limit",5),
+          require_login: row.require_login!==false,
         };
       }
     }catch(e){
@@ -3848,6 +3872,7 @@ function AdminSettings() {
         id:null,
         auto_approve: DB.get("pcb_auto_approve",false),
         ai_daily_limit: DB.get("pcb_ai_daily_limit",5),
+        require_login: DB.get("pcb_require_login",true),
       };
     }
     setSaved(next);setDraft(next);setLoaded(true);
@@ -3859,7 +3884,7 @@ function AdminSettings() {
   const saveAll=async()=>{
     setSaving(true);setMsg("");
     try{
-      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,updated_at:new Date().toISOString()};
+      const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,require_login:draft.require_login,updated_at:new Date().toISOString()};
       let res;
       if(draft.id){
         res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
@@ -3875,6 +3900,7 @@ function AdminSettings() {
       const savedRow=Array.isArray(data)?data[0]:null;
       DB.set("pcb_auto_approve",draft.auto_approve);
       DB.set("pcb_ai_daily_limit",draft.ai_daily_limit);
+      DB.set("pcb_require_login",draft.require_login);
       const confirmed={...draft,id:savedRow?savedRow.id:draft.id};
       setSaved(confirmed);setDraft(confirmed);
       setMsg("✅ Changes saved.");
@@ -3913,6 +3939,18 @@ function AdminSettings() {
           </div>
           <button onClick={()=>setDraft(d=>({...d,parts_enabled:!d.parts_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_enabled?25:3,transition:"left 0.2s"}}/>
+          </button>
+        </div>
+      </div>
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${draft.require_login?"#2a3050":"#ff980055"}`,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Require Login</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>{draft.require_login?"Only Home and Shop are open without an account — everything else needs login/signup.":"⚠ OFF — every feature (Errors, Wiring, Remotes, Sensors, Tips, Requests, Parts) is open to everyone, no login required."}</div>
+          </div>
+          <button onClick={()=>setDraft(d=>({...d,require_login:!d.require_login}))} style={{width:48,height:26,borderRadius:14,background:draft.require_login?PC:"#ff9800",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0,marginLeft:12}}>
+            <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.require_login?25:3,transition:"left 0.2s"}}/>
           </button>
         </div>
       </div>
@@ -4091,7 +4129,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
 
 function AdminShopProducts({categories,setMsg}) {
   const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
-  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",sensor_value_id:""};
+  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -4099,7 +4137,6 @@ function AdminShopProducts({categories,setMsg}) {
   const [list,setList]=useState([]);
   const [uploading,setUploading]=useState(false);
   const [saving,setSaving]=useState(false);
-  const [sensorOptions,setSensorOptions]=useState([]);
 
   const load=async(catId)=>{
     const filter=catId?`?select=*&category_id=eq.${catId}&order=created_at.desc`:"?select=*&order=created_at.desc";
@@ -4107,14 +4144,13 @@ function AdminShopProducts({categories,setMsg}) {
     setList(d||[]);
   };
   useEffect(()=>{load(filterCat);},[filterCat]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(()=>{
-    api("sensor_values",{filter:"?select=id,title,model_number,brand&order=model_number"}).then(d=>setSensorOptions(d||[]));
-  },[]);
 
   // A PCB category is any category except Sensors and Remotes — motor type
-  // only makes sense for actual PCBs.
+  // only makes sense for actual PCBs. Condition (New/Refurbished) doesn't
+  // apply to Remotes, so that selector is hidden there.
   const selectedCategory=categories.find(c=>c.id===form.category_id);
   const isPcbCategory=selectedCategory&&!["sensors","remotes"].includes(selectedCategory.slug);
+  const isRemotesCategory=selectedCategory&&selectedCategory.slug==="remotes";
 
   const addImage=(e)=>{
     const file=e.target.files[0];if(!file)return;
@@ -4145,16 +4181,17 @@ function AdminShopProducts({categories,setMsg}) {
   const save=async()=>{
     if(!form.category_id){setMsg("⚠ Choose a category.");return;}
     if(!form.name.trim()){setMsg("⚠ Product name required.");return;}
-    if(form.condition!=="new"&&form.condition!=="refurbished"){setMsg("⚠ Choose whether this PCB is New or Refurbished.");return;}
+    const catForSave=categories.find(c=>c.id===form.category_id);
+    const catIsRemotes=catForSave&&catForSave.slug==="remotes";
+    if(!catIsRemotes&&form.condition!=="new"&&form.condition!=="refurbished"){setMsg("⚠ Choose whether this PCB is New or Refurbished.");return;}
     setSaving(true);
     try{
-      const cat=categories.find(c=>c.id===form.category_id);
+      const cat=catForSave;
       const catIsPcb=cat&&!["sensors","remotes"].includes(cat.slug);
       const payload={
         category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),
-        images:form.images,brands:form.brands,condition:form.condition,
+        images:form.images,brands:form.brands,condition:catIsRemotes?"":form.condition,
         motor_type:catIsPcb?(form.motor_type||""):"",
-        sensor_value_id:form.sensor_value_id||null,
       };
       if(editId){
         // Only regenerate the slug (and thus the product's URL) if the name changed.
@@ -4172,7 +4209,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",sensor_value_id:p.sensor_value_id||""});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||""});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -4218,12 +4255,14 @@ function AdminShopProducts({categories,setMsg}) {
           })}
         </div>
 
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Condition <span style={{color:"#ff4757"}}>*</span> <span style={{fontWeight:400,color:"#6b7db3"}}>— required, shown as a badge on the product</span></div>
-        <div style={{display:"flex",gap:8,marginBottom:16}}>
-          {[["new","🆕 New"],["refurbished","♻️ Refurbished"]].map(([v,l])=>(
-            <button key={v} type="button" onClick={()=>setForm(f=>({...f,condition:v}))} style={{flex:1,padding:"11px 4px",borderRadius:10,border:form.condition===v?`2px solid ${PC}`:"1px solid #2a3050",background:form.condition===v?`${PC}22`:"#0f1117",color:form.condition===v?PC:"#b0b8d0",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>
-          ))}
-        </div>
+        {!isRemotesCategory&&<>
+          <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Condition <span style={{color:"#ff4757"}}>*</span> <span style={{fontWeight:400,color:"#6b7db3"}}>— required, shown as a badge on the product</span></div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            {[["new","🆕 New"],["refurbished","♻️ Refurbished"]].map(([v,l])=>(
+              <button key={v} type="button" onClick={()=>setForm(f=>({...f,condition:v}))} style={{flex:1,padding:"11px 4px",borderRadius:10,border:form.condition===v?`2px solid ${PC}`:"1px solid #2a3050",background:form.condition===v?`${PC}22`:"#0f1117",color:form.condition===v?PC:"#b0b8d0",fontSize:12,fontWeight:700,cursor:"pointer"}}>{l}</button>
+            ))}
+          </div>
+        </>}
 
         {isPcbCategory&&<>
           <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Motor Type <span style={{fontWeight:400,color:"#6b7db3"}}>— optional, shown beside the brand tags</span></div>
@@ -4232,12 +4271,6 @@ function AdminShopProducts({categories,setMsg}) {
             {["DC Motor","PG Motor","AC Motor","Fix Speed Motor","UVW Motor"].map(m=><option key={m} value={m}>{m}</option>)}
           </select>
         </>}
-
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Link Sensor Values <span style={{fontWeight:400,color:"#6b7db3"}}>— optional</span></div>
-        <select value={form.sensor_value_id} onChange={e=>setForm(f=>({...f,sensor_value_id:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}>
-          <option value="">None</option>
-          {sensorOptions.map(s=><option key={s.id} value={s.id}>{s.model_number||s.title}{s.brand?` — ${s.brand}`:""}</option>)}
-        </select>
 
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -4561,13 +4594,15 @@ export default function PCBCare() {
     setTab("home");
   };
 
-  // ── Gate: "home" and "shop" are browsable without an account — Shop stays
-  // public on purpose so its category/product URLs are actually linkable and
-  // crawlable. Any other tab requires login — clicking one while logged out
-  // remembers the tab and shows the login screen; after a successful login we
-  // jump straight there.
+  // ── Gate: "home" and "shop" are always browsable without an account — Shop
+  // stays public on purpose so its category/product URLs are actually linkable
+  // and crawlable. Whether every OTHER tab needs login is controlled by the
+  // "Require Login" toggle in Admin → Settings (requireLogin state below);
+  // when it's off, everything is open to everyone.
+  const [requireLogin,setRequireLogin]=useState(true);
+  useEffect(()=>{ getRequireLogin().then(setRequireLogin); },[]);
   const goToTab=(id)=>{
-    if(id!=="home"&&id!=="shop"&&!user){
+    if(id!=="home"&&id!=="shop"&&requireLogin&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
@@ -4616,7 +4651,7 @@ export default function PCBCare() {
         {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current} onViewProduct={navigateToShopProduct}/>}
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
         {tab==="tips"&&<TipsTricks/>}
-        {tab==="sensors"&&<SensorValues/>}
+        {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder/>}
         {tab==="requests"&&<Requests user={user}/>}
       </div>
