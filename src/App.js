@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.4.0
+// PCB Care — v1.5.0
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -271,6 +271,111 @@ const compressImage = (dataUrl, maxPx=1200, quality=0.82) => new Promise((resolv
     img.src=dataUrl;
   }catch{resolve(dataUrl);}
 });
+
+// ── Precise zoom/pan thumbnail cropper — used wherever an admin uploads a
+// category or product thumbnail, so images that come in too zoomed-out or
+// too zoomed-in can be adjusted to look clean and consistent on the frontend.
+// Fine-grained zoom (slider + tiny-step buttons + mouse wheel) so even a
+// few-pixel adjustment is possible; drag to reposition; outputs a fixed
+// outputSize x outputSize square image baked from exactly what's framed.
+function ImageCropModal({src,onConfirm,onCancel,outputSize=640,allowBackground=false}) {
+  const frameSize=280;
+  const [natural,setNatural]=useState(null); // {w,h} of the source image
+  const [scale,setScale]=useState(1);        // 1 = image just covers the frame
+  const [pos,setPos]=useState({x:0,y:0});    // pan offset in frame pixels
+  const [bgColor,setBgColor]=useState("#ffffff"); // only used when allowBackground
+  const dragRef=useRef(null);
+  const imgRef=useRef(null);
+  // Normally the image can never zoom out past "just covers the frame" (min
+  // scale 1), so there's nothing to see behind it. When a background color is
+  // offered, allow zooming out further so the photo can shrink smaller than
+  // the frame and the chosen color shows around it, like a product card.
+  const minScale = allowBackground ? 0.5 : 1;
+  const maxScale = 4;
+
+  const baseScale = natural ? Math.max(frameSize/natural.w, frameSize/natural.h) : 0;
+  const renderScale = baseScale*scale;
+  const dispW = natural ? natural.w*renderScale : 0;
+  const dispH = natural ? natural.h*renderScale : 0;
+  const maxX = Math.max(0,(dispW-frameSize)/2);
+  const maxY = Math.max(0,(dispH-frameSize)/2);
+  const clampPos=(p)=>({x:Math.max(-maxX,Math.min(maxX,p.x)),y:Math.max(-maxY,Math.min(maxY,p.y))});
+
+  useEffect(()=>{ setPos(p=>clampPos(p)); // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[scale,natural]);
+
+  const onImgLoad=(e)=>{ setNatural({w:e.target.naturalWidth,h:e.target.naturalHeight}); setPos({x:0,y:0}); };
+
+  const startDrag=(clientX,clientY)=>{ dragRef.current={startX:clientX,startY:clientY,origX:pos.x,origY:pos.y}; };
+  const moveDrag=(clientX,clientY)=>{
+    if(!dragRef.current)return;
+    const dx=clientX-dragRef.current.startX, dy=clientY-dragRef.current.startY;
+    setPos(clampPos({x:dragRef.current.origX+dx,y:dragRef.current.origY+dy}));
+  };
+  const endDrag=()=>{dragRef.current=null;};
+
+  const nudgeZoom=(delta)=>setScale(s=>Math.max(minScale,Math.min(maxScale,+(s+delta).toFixed(3))));
+  const onWheel=(e)=>{ e.preventDefault(); nudgeZoom(e.deltaY>0?-0.02:0.02); };
+
+  const confirm=()=>{
+    if(!natural||!imgRef.current)return;
+    const canvas=document.createElement("canvas");
+    canvas.width=outputSize;canvas.height=outputSize;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle=allowBackground?bgColor:"#ffffff";
+    ctx.fillRect(0,0,outputSize,outputSize);
+    const f=outputSize/frameSize; // frame-px → output-px factor
+    const imgLeft=frameSize/2-dispW/2+pos.x;
+    const imgTop=frameSize/2-dispH/2+pos.y;
+    ctx.drawImage(imgRef.current, imgLeft*f, imgTop*f, dispW*f, dispH*f);
+    onConfirm(canvas.toDataURL("image/jpeg",0.9));
+  };
+
+  const PRESET_COLORS=["#ffffff","#000000","#f3f4f6","#4caf50","#ffd700","#1a1f2e"];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:99999,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20,gap:14}}>
+      <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>Adjust {allowBackground?"Image":"Thumbnail"}</div>
+      <div
+        onMouseDown={(e)=>startDrag(e.clientX,e.clientY)}
+        onMouseMove={(e)=>{if(dragRef.current)moveDrag(e.clientX,e.clientY);}}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        onTouchStart={(e)=>{const t=e.touches[0];startDrag(t.clientX,t.clientY);}}
+        onTouchMove={(e)=>{const t=e.touches[0];moveDrag(t.clientX,t.clientY);}}
+        onTouchEnd={endDrag}
+        onWheel={onWheel}
+        style={{width:frameSize,height:frameSize,borderRadius:16,overflow:"hidden",position:"relative",background:allowBackground?bgColor:"#000",border:"2px solid #ffd700",cursor:"grab",touchAction:"none"}}
+      >
+        <img ref={imgRef} src={src} onLoad={onImgLoad} alt="" draggable={false}
+          style={{position:"absolute",left:"50%",top:"50%",width:dispW,height:dispH,transform:`translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,userSelect:"none",pointerEvents:"none"}}/>
+        {!natural&&<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#6b7db3",fontSize:12}}>Loading…</div>}
+        {/* rule-of-thirds guide overlay */}
+        <div style={{position:"absolute",inset:0,pointerEvents:"none",background:"linear-gradient(to right, transparent 33%, rgba(255,255,255,0.15) 33%, rgba(255,255,255,0.15) 34%, transparent 34%, transparent 66%, rgba(255,255,255,0.15) 66%, rgba(255,255,255,0.15) 67%, transparent 67%), linear-gradient(to bottom, transparent 33%, rgba(255,255,255,0.15) 33%, rgba(255,255,255,0.15) 34%, transparent 34%, transparent 66%, rgba(255,255,255,0.15) 66%, rgba(255,255,255,0.15) 67%, transparent 67%)"}}/>
+      </div>
+
+      {allowBackground&&<div style={{display:"flex",alignItems:"center",gap:8,width:frameSize,justifyContent:"center"}}>
+        <span style={{fontSize:10.5,color:"#6b7db3",marginRight:2}}>Background:</span>
+        {PRESET_COLORS.map(c=>(
+          <button key={c} onClick={()=>setBgColor(c)} style={{width:24,height:24,borderRadius:"50%",background:c,border:bgColor===c?`2px solid ${AC}`:"1px solid #2a3050",cursor:"pointer",padding:0}}/>
+        ))}
+        <input type="color" value={bgColor} onChange={e=>setBgColor(e.target.value)} title="Custom color" style={{width:26,height:26,border:"none",background:"none",cursor:"pointer",padding:0}}/>
+      </div>}
+
+      <div style={{display:"flex",alignItems:"center",gap:10,width:frameSize}}>
+        <button onClick={()=>nudgeZoom(-0.01)} style={{width:30,height:30,borderRadius:8,background:"#2a3050",color:"#fff",border:"none",cursor:"pointer",fontSize:16,fontWeight:700,flexShrink:0}}>−</button>
+        <input type="range" min={minScale} max={maxScale} step={0.005} value={scale} onChange={e=>setScale(Number(e.target.value))} style={{flex:1}}/>
+        <button onClick={()=>nudgeZoom(0.01)} style={{width:30,height:30,borderRadius:8,background:"#2a3050",color:"#fff",border:"none",cursor:"pointer",fontSize:16,fontWeight:700,flexShrink:0}}>+</button>
+      </div>
+      <div style={{fontSize:10.5,color:"#6b7db3",textAlign:"center",width:frameSize}}>Drag to reposition • scroll, +/−, or the slider to zoom precisely</div>
+
+      <div style={{display:"flex",gap:10,marginTop:6}}>
+        <button onClick={onCancel} style={{padding:"11px 22px",borderRadius:10,background:"#2a3050",color:"#b0b8d0",border:"none",cursor:"pointer",fontSize:13,fontWeight:600}}>Cancel</button>
+        <button onClick={confirm} disabled={!natural} style={{padding:"11px 26px",borderRadius:10,background:natural?`linear-gradient(135deg,${PC},${AC})`:"#2a3050",color:natural?"#0a0d14":"#6b7db3",border:"none",cursor:natural?"pointer":"default",fontSize:13,fontWeight:700}}>Use This</button>
+      </div>
+    </div>
+  );
+}
 
 // ── AUTO-SYNC TO IMAGE LIBRARY ───────────────────────────────────────────────
 // Call after any image upload anywhere in the app. Silently saves a copy to
@@ -4015,7 +4120,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [saving,setSaving]=useState(false);
-  const [uploading,setUploading]=useState(false);
+  const [cropSrc,setCropSrc]=useState(null);
 
   const uniqueSlug=(base,existing)=>{
     let slug=slugify(base),n=2;
@@ -4025,11 +4130,11 @@ function AdminShopCategories({categories,refresh,setMsg}) {
 
   const addImage=(e)=>{
     const file=e.target.files[0];if(!file)return;
-    setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const c=await compressImage(reader.result);setForm(f=>({...f,image:c}));setUploading(false);e.target.value="";};
-    reader.onerror=()=>{setMsg("⚠ Could not read image.");setUploading(false);};
+    reader.onload=()=>{setCropSrc(reader.result);};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");};
     reader.readAsDataURL(file);
+    e.target.value="";
   };
 
   const save=async()=>{
@@ -4094,9 +4199,11 @@ function AdminShopCategories({categories,refresh,setMsg}) {
             : <div style={{width:64,height:64,borderRadius:10,background:"#0f1117",border:"1px dashed #2a3050",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🧩</div>}
           <div>
             <input type="file" accept="image/*" onChange={addImage} style={{fontSize:12,color:"#6b7db3"}}/>
-            {uploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file…</div>}
+            {form.image&&<button onClick={()=>setCropSrc(form.image)} style={{display:"block",marginTop:6,padding:"5px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust zoom/crop</button>}
           </div>
         </div>
+
+        {cropSrc&&<ImageCropModal src={cropSrc} onConfirm={(dataUrl)=>{setForm(f=>({...f,image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)}/>}
 
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"11px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -4135,7 +4242,6 @@ function AdminShopProducts({categories,setMsg}) {
   const [editSlug,setEditSlug]=useState(null);
   const [filterCat,setFilterCat]=useState("");
   const [list,setList]=useState([]);
-  const [uploading,setUploading]=useState(false);
   const [saving,setSaving]=useState(false);
 
   const load=async(catId)=>{
@@ -4152,13 +4258,24 @@ function AdminShopProducts({categories,setMsg}) {
   const isPcbCategory=selectedCategory&&!["sensors","remotes"].includes(selectedCategory.slug);
   const isRemotesCategory=selectedCategory&&selectedCategory.slug==="remotes";
 
+  const [cropSrc,setCropSrc]=useState(null);
+  const [cropEditIdx,setCropEditIdx]=useState(null); // set when re-adjusting an existing image instead of adding a new one
   const addImage=(e)=>{
     const file=e.target.files[0];if(!file)return;
-    setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const c=await compressImage(reader.result);setForm(f=>({...f,images:[...f.images,c]}));setUploading(false);e.target.value="";};
-    reader.onerror=()=>{setMsg("⚠ Could not read image.");setUploading(false);};
+    reader.onload=()=>{setCropEditIdx(null);setCropSrc(reader.result);};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");};
     reader.readAsDataURL(file);
+    e.target.value="";
+  };
+  const reAdjustImage=(idx)=>{setCropEditIdx(idx);setCropSrc(form.images[idx]);};
+  const cropConfirmed=(dataUrl)=>{
+    if(cropEditIdx!==null){
+      setForm(f=>({...f,images:f.images.map((img,i)=>i===cropEditIdx?dataUrl:img)}));
+    }else{
+      setForm(f=>({...f,images:[...f.images,dataUrl]}));
+    }
+    setCropSrc(null);setCropEditIdx(null);
   };
   const removeImage=(idx)=>setForm(f=>({...f,images:f.images.filter((_,i)=>i!==idx)}));
 
@@ -4234,15 +4351,17 @@ function AdminShopProducts({categories,setMsg}) {
         {form.images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
           {form.images.map((img,idx)=>(
             <div key={idx} style={{position:"relative"}}>
-              <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050"}}/>
+              <img src={img} alt="" onClick={()=>reAdjustImage(idx)} style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050",cursor:"pointer"}}/>
               <button onClick={()=>removeImage(idx)} style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:"50%",background:"#ff4757",color:"#fff",border:"none",cursor:"pointer",fontSize:11,lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>}
+        {form.images.length>0&&<div style={{fontSize:10,color:"#6b7db3",marginBottom:10,marginTop:-4}}>Tap an image to re-adjust its zoom, crop or background color</div>}
         <div style={{marginBottom:14}}>
           <input type="file" accept="image/*" onChange={addImage} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
-          {uploading&&<div style={{fontSize:11,color:AC,marginTop:6}}>Reading file…</div>}
         </div>
+
+        {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={cropConfirmed} onCancel={()=>{setCropSrc(null);setCropEditIdx(null);}}/>}
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Brands <span style={{fontWeight:400,color:"#6b7db3"}}>— tap all that apply, this part may be sold under more than one brand</span></div>
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
