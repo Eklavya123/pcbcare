@@ -284,8 +284,22 @@ function ImageCropModal({src,onConfirm,onCancel,outputSize=640,allowBackground=f
   const [scale,setScale]=useState(1);        // 1 = image just covers the frame
   const [pos,setPos]=useState({x:0,y:0});    // pan offset in frame pixels
   const [bgColor,setBgColor]=useState("#ffffff"); // only used when allowBackground
+  const [hexInput,setHexInput]=useState("#ffffff"); // raw text field mirror of bgColor, so a partial/incomplete hex while typing doesn't get rejected
   const dragRef=useRef(null);
   const imgRef=useRef(null);
+
+  // Accepts 3- or 6-digit hex (with or without leading #), typed by the admin,
+  // and only commits it as the actual background once it's a complete, valid
+  // hex code — so mid-typing states like "#f" or "#ff5" don't throw errors or
+  // flash an unintended color.
+  const HEX_RE=/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+  const onHexChange=(raw)=>{
+    setHexInput(raw);
+    if(HEX_RE.test(raw)){
+      const normalized=raw.startsWith("#")?raw:`#${raw}`;
+      setBgColor(normalized);
+    }
+  };
   // Normally the image can never zoom out past "just covers the frame" (min
   // scale 1), so there's nothing to see behind it. When a background color is
   // offered, allow zooming out further so the photo can shrink smaller than
@@ -357,9 +371,10 @@ function ImageCropModal({src,onConfirm,onCancel,outputSize=640,allowBackground=f
       {allowBackground&&<div style={{display:"flex",alignItems:"center",gap:8,width:frameSize,justifyContent:"center"}}>
         <span style={{fontSize:10.5,color:"#6b7db3",marginRight:2}}>Background:</span>
         {PRESET_COLORS.map(c=>(
-          <button key={c} onClick={()=>setBgColor(c)} style={{width:24,height:24,borderRadius:"50%",background:c,border:bgColor===c?`2px solid ${AC}`:"1px solid #2a3050",cursor:"pointer",padding:0}}/>
+          <button key={c} onClick={()=>{setBgColor(c);setHexInput(c);}} style={{width:24,height:24,borderRadius:"50%",background:c,border:bgColor===c?`2px solid ${AC}`:"1px solid #2a3050",cursor:"pointer",padding:0}}/>
         ))}
-        <input type="color" value={bgColor} onChange={e=>setBgColor(e.target.value)} title="Custom color" style={{width:26,height:26,border:"none",background:"none",cursor:"pointer",padding:0}}/>
+        <input type="color" value={bgColor} onChange={e=>{setBgColor(e.target.value);setHexInput(e.target.value);}} title="Custom color" style={{width:26,height:26,border:"none",background:"none",cursor:"pointer",padding:0}}/>
+        <input type="text" value={hexInput} onChange={e=>onHexChange(e.target.value)} onBlur={()=>setHexInput(bgColor)} placeholder="#RRGGBB" maxLength={7} style={{width:74,padding:"5px 7px",borderRadius:6,border:`1px solid ${HEX_RE.test(hexInput)?"#2a3050":"#ff4757"}`,background:"#0f1117",color:"#fff",fontSize:11,outline:"none",fontFamily:"monospace"}}/>
       </div>}
 
       <div style={{display:"flex",alignItems:"center",gap:10,width:frameSize}}>
@@ -4199,11 +4214,11 @@ function AdminShopCategories({categories,refresh,setMsg}) {
             : <div style={{width:64,height:64,borderRadius:10,background:"#0f1117",border:"1px dashed #2a3050",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>🧩</div>}
           <div>
             <input type="file" accept="image/*" onChange={addImage} style={{fontSize:12,color:"#6b7db3"}}/>
-            {form.image&&<button onClick={()=>setCropSrc(form.image)} style={{display:"block",marginTop:6,padding:"5px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust zoom/crop</button>}
+            {form.image&&<button onClick={()=>setCropSrc(form.image)} style={{display:"block",marginTop:6,padding:"5px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust zoom/crop/background</button>}
           </div>
         </div>
 
-        {cropSrc&&<ImageCropModal src={cropSrc} onConfirm={(dataUrl)=>{setForm(f=>({...f,image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)}/>}
+        {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={(dataUrl)=>{setForm(f=>({...f,image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)}/>}
 
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"11px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
