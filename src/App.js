@@ -430,6 +430,201 @@ const syncToLibrary = async (imageData) => {
   } catch (_) {}
 };
 
+// ── BLOG: flat URL routing — /blog and /blog/:slug — same pushState +
+// popstate pattern already used for /shop, so post URLs are real, shareable,
+// bookmarkable, and crawlable on their own.
+const parseBlogPath = (pathname) => {
+  const parts = (pathname||"").split("/").filter(Boolean); // "/blog/my-post" → ["blog","my-post"]
+  if(parts[0]!=="blog") return {view:"list"};
+  if(parts[1]) return {view:"post",slug:decodeURIComponent(parts[1])};
+  return {view:"list"};
+};
+const pushBlogPath = (path) => {
+  try{ window.history.pushState({},"",path); }catch{}
+};
+
+// ── BLOG: light sanitizer run on post HTML before it's saved. The editor is
+// admin-only (same trust boundary as every other rich field in this app), but
+// this still strips the genuinely dangerous stuff — script/style/iframe tags,
+// inline event-handler attributes, and javascript: links — in case content is
+// ever pasted in from somewhere untrusted.
+const sanitizeHTML = (html) => {
+  if(!html) return "";
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi,"")
+    .replace(/<style[\s\S]*?<\/style>/gi,"")
+    .replace(/<iframe[\s\S]*?<\/iframe>/gi,"")
+    .replace(/\son\w+="[^"]*"/gi,"").replace(/\son\w+='[^']*'/gi,"")
+    .replace(/(href|src)\s*=\s*"javascript:[^"]*"/gi,'$1="#"')
+    .replace(/(href|src)\s*=\s*'javascript:[^']*'/gi,"$1='#'");
+};
+
+// ── BLOG: searches Blog Posts (published), Shop Products and Shop Categories
+// so the admin can drop a real internal link into a post in a couple of
+// clicks — this is what actually builds the site's internal-linking / SEO
+// structure, instead of the admin having to remember and hand-type URLs.
+function InternalLinkPicker({onPick,onClose}) {
+  const [q,setQ]=useState("");
+  const [scope,setScope]=useState("all"); // all | posts | products | categories
+  const [results,setResults]=useState({posts:[],products:[],categories:[]});
+  const [loading,setLoading]=useState(false);
+
+  useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    const term=q.trim();
+    const enc=encodeURIComponent(`*${term}*`);
+    Promise.all([
+      term?api("blog_posts",{filter:`?select=id,title,slug&status=eq.published&title=ilike.${enc}&limit=8`}):api("blog_posts",{filter:"?select=id,title,slug&status=eq.published&order=published_at.desc&limit=8"}),
+      term?api("shop_products",{filter:`?select=id,name,slug&name=ilike.${enc}&limit=8`}):api("shop_products",{filter:"?select=id,name,slug&order=created_at.desc&limit=8"}),
+      term?api("shop_categories",{filter:`?select=id,name,slug&name=ilike.${enc}&limit=8`}):api("shop_categories",{filter:"?select=id,name,slug&order=sort_order&limit=8"}),
+    ]).then(([posts,products,categories])=>{
+      if(cancelled) return;
+      setResults({posts:posts||[],products:products||[],categories:categories||[]});
+      setLoading(false);
+    }).catch(()=>{ if(!cancelled) setLoading(false); });
+    return ()=>{cancelled=true;};
+  },[q]);
+
+  const groups=[
+    scope!=="all"&&scope!=="posts"?null:{label:"Blog Posts",icon:"📝",items:results.posts.map(p=>({label:p.title,url:`/blog/${p.slug}`}))},
+    scope!=="all"&&scope!=="products"?null:{label:"Shop Products",icon:"📦",items:results.products.map(p=>({label:p.name,url:`/shop/product/${p.slug}`}))},
+    scope!=="all"&&scope!=="categories"?null:{label:"Shop Categories",icon:"🗂️",items:results.categories.map(c=>({label:c.name,url:`/shop/category/${c.slug}`}))},
+  ].filter(Boolean);
+
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:9999,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#1a1f2e",borderRadius:"16px 16px 0 0",padding:16,width:"100%",maxWidth:480,maxHeight:"75vh",display:"flex",flexDirection:"column"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>🔗 Insert Internal Link</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#6b7db3",fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <input autoFocus value={q} onChange={e=>setQ(e.target.value)} placeholder="Search posts, products, categories…" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
+        <div style={{display:"flex",gap:6,marginBottom:10}}>
+          {[["all","All"],["posts","Posts"],["products","Products"],["categories","Categories"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setScope(v)} style={{padding:"5px 10px",borderRadius:16,border:scope===v?`1px solid ${AC}`:"1px solid #2a3050",background:scope===v?`${AC}22`:"transparent",color:scope===v?AC:"#6b7db3",fontSize:11,cursor:"pointer"}}>{l}</button>
+          ))}
+        </div>
+        <div style={{overflowY:"auto",flex:1}}>
+          {loading&&<div style={{textAlign:"center",color:"#6b7db3",fontSize:12,padding:16}}>Searching…</div>}
+          {!loading&&groups.every(g=>g.items.length===0)&&<div style={{textAlign:"center",color:"#6b7db3",fontSize:12,padding:16}}>No matches.</div>}
+          {!loading&&groups.map(g=>g.items.length>0&&(
+            <div key={g.label} style={{marginBottom:10}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#6b7db3",textTransform:"uppercase",marginBottom:4}}>{g.icon} {g.label}</div>
+              {g.items.map((it,i)=>(
+                <button key={i} onClick={()=>onPick(it.url,it.label)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 10px",borderRadius:8,background:"#0f1117",border:"1px solid #2a3050",color:"#fff",fontSize:12.5,cursor:"pointer",marginBottom:4}}>
+                  {it.label}<span style={{color:"#6b7db3",fontSize:10.5}}> — {it.url}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── BLOG: lightweight rich-text editor — a contentEditable area with a simple
+// formatting toolbar (bold, italic, headings, lists, links). No external
+// editor library is loaded, keeping the app a single dependency-free file.
+// Internal links are inserted through InternalLinkPicker so every link the
+// admin adds is a real, correct site URL — this is what builds out the
+// site's internal-linking structure for SEO.
+function RichTextEditor({value,onChange,placeholder}) {
+  const editorRef=useRef(null);
+  const savedRange=useRef(null);
+  const [showLinkPicker,setShowLinkPicker]=useState(false);
+  const [showExternalLink,setShowExternalLink]=useState(false);
+  const [extUrl,setExtUrl]=useState("");
+  const [extText,setExtText]=useState("");
+  const mountedValue=useRef(value);
+
+  // Only ever push `value` INTO the DOM once, on mount / when swapping to a
+  // different post — never on every keystroke, which would fight the browser
+  // over cursor position while typing.
+  useEffect(()=>{
+    if(editorRef.current && editorRef.current.innerHTML!==value && value!==mountedValue.current){
+      editorRef.current.innerHTML=value||"";
+      mountedValue.current=value;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[value]);
+
+  const saveSelection=()=>{
+    const sel=window.getSelection();
+    if(sel&&sel.rangeCount>0) savedRange.current=sel.getRangeAt(0).cloneRange();
+  };
+  const restoreSelection=()=>{
+    const sel=window.getSelection();
+    if(savedRange.current&&sel){ sel.removeAllRanges(); sel.addRange(savedRange.current); }
+  };
+  const emitChange=()=>{ if(editorRef.current) onChange(editorRef.current.innerHTML); };
+  const exec=(cmd,arg)=>{ editorRef.current&&editorRef.current.focus(); restoreSelection(); document.execCommand(cmd,false,arg); emitChange(); };
+
+  const insertLinkHTML=(url,label)=>{
+    editorRef.current&&editorRef.current.focus();
+    restoreSelection();
+    const sel=window.getSelection();
+    const hasSelectedText=sel&&sel.toString().trim().length>0;
+    const html=`<a href="${url.replace(/"/g,"&quot;")}">${hasSelectedText?sel.toString():(label||url)}</a>`;
+    document.execCommand("insertHTML",false,html);
+    emitChange();
+  };
+
+  const BTN={padding:"7px 9px",borderRadius:7,background:"#0f1117",border:"1px solid #2a3050",color:"#e8eaf0",cursor:"pointer",fontSize:12,fontWeight:600};
+
+  return (
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:6,padding:8,background:"#0f1117",borderRadius:"10px 10px 0 0",border:"1px solid #2a3050",borderBottom:"none"}}>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("bold")} style={{...BTN,fontWeight:800}}>B</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("italic")} style={{...BTN,fontStyle:"italic"}}>I</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("formatBlock","<h2>")} style={BTN}>H2</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("formatBlock","<h3>")} style={BTN}>H3</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("formatBlock","<p>")} style={BTN}>¶</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("insertUnorderedList")} style={BTN}>• List</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("insertOrderedList")} style={BTN}>1. List</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>{saveSelection();setShowLinkPicker(true);}} style={{...BTN,color:AC}}>🔗 Internal</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>{saveSelection();setExtUrl("");setExtText(window.getSelection()?.toString()||"");setShowExternalLink(true);}} style={BTN}>🌐 External</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("unlink")} style={BTN}>Unlink</button>
+        <button type="button" onMouseDown={e=>{e.preventDefault();saveSelection();}} onClick={()=>exec("removeFormat")} style={BTN}>Clear</button>
+      </div>
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={emitChange}
+        onBlur={emitChange}
+        data-placeholder={placeholder||"Write your post…"}
+        style={{minHeight:260,padding:"12px 14px",borderRadius:"0 0 10px 10px",border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:14,lineHeight:1.7,outline:"none"}}
+        className="pcb-rte"
+      />
+      <style>{`.pcb-rte:empty:before{content:attr(data-placeholder);color:#6b7db3;}
+        .pcb-rte h2{font-size:19px;font-weight:700;margin:14px 0 8px;}
+        .pcb-rte h3{font-size:16px;font-weight:700;margin:12px 0 6px;}
+        .pcb-rte p{margin:0 0 10px;}
+        .pcb-rte ul,.pcb-rte ol{margin:0 0 10px;padding-left:22px;}
+        .pcb-rte a{color:${AC};text-decoration:underline;}`}</style>
+
+      {showLinkPicker&&<InternalLinkPicker
+        onClose={()=>setShowLinkPicker(false)}
+        onPick={(url,label)=>{ insertLinkHTML(url,label); setShowLinkPicker(false); }}
+      />}
+
+      {showExternalLink&&<div onClick={()=>setShowExternalLink(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div onClick={e=>e.stopPropagation()} style={{background:"#1a1f2e",borderRadius:14,padding:16,width:"100%",maxWidth:380}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>🌐 Insert External Link</div>
+          <input value={extText} onChange={e=>setExtText(e.target.value)} placeholder="Link text" style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:8}}/>
+          <input value={extUrl} onChange={e=>setExtUrl(e.target.value)} placeholder="https://example.com" style={{width:"100%",padding:"9px 11px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12}}/>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>setShowExternalLink(false)} style={{flex:1,padding:"9px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12}}>Cancel</button>
+            <button onClick={()=>{ if(extUrl.trim()){ insertLinkHTML(extUrl.trim(),extText.trim()); } setShowExternalLink(false); }} style={{flex:1,padding:"9px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Insert</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
 // Only prompt for the missing details once 24 hours have passed since the
 // person chose "I'll do this later" at signup — never prompts otherwise,
 // since a profile that's incomplete for any other reason isn't this flow.
@@ -844,7 +1039,7 @@ function Home({setTab,user}) {
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
     {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
-    {id:"tips",icon:"💡",title:"Tips & Tricks",desc:"Expert repair tips",color:"#ffd700"},
+    {id:"blog",icon:"📝",title:"Blog",desc:"Guides, tips & how-tos",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
@@ -1643,44 +1838,214 @@ function FindRemote({onViewProduct}) {
   );
 }
 
-// ── TIPS ──────────────────────────────────────────────────────────────────────
-function TipsTricks() {
+// ── BLOG ──────────────────────────────────────────────────────────────────────
+// A WordPress-style blog: categories, a rich-text editor with internal linking,
+// its own /blog/:slug URL per post, and full on-page SEO/AEO/GEO metadata —
+// meta title & description, canonical link, Open Graph tags, and JSON-LD
+// structured data (Article, FAQPage when the post has FAQs, and a breadcrumb
+// trail) so posts are positioned to rank in classic search (SEO), get pulled
+// into direct-answer boxes (AEO), and get cited correctly by AI answer
+// engines (GEO) that read structured, clearly-labeled content.
+function BlogFAQSection({faqs}) {
   const T=useTheme();
-  const [sub,setSub]=useState("All");const [tips,setTips]=useState([]);const [sel,setSel]=useState(null);const [loading,setLoading]=useState(true);
-  const [searchQ]=useState("");
-  const SUBS=["All","Wiring Connection","Sensor Values","General","Safety","Tools"];
-  useEffect(()=>{api("tips_tricks",{filter:"?select=*&order=created_at.desc"}).then(d=>{setTips(d||[]);setLoading(false);});},[]);
-  const filtered=tips.filter(t=>{
-    const matchSub=sub==="All"||t.sub_category===sub||t.category===sub;
-    const matchSearch=!searchQ.trim()||t.title?.toLowerCase().includes(searchQ.toLowerCase())||t.description?.toLowerCase().includes(searchQ.toLowerCase());
-    return matchSub&&matchSearch;
-  });
+  const [open,setOpen]=useState(null);
+  if(!faqs||faqs.length===0) return null;
   return (
-    <div style={{padding:16}}>
-      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>💡 Tips & Tricks</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:12}}>Expert repair knowledge</div>
-      <div style={{overflowX:"auto",display:"flex",gap:8,marginBottom:16,paddingBottom:4}}>
-        {SUBS.map(s=><button key={s} onClick={()=>{setSub(s);setSel(null);}} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:sub===s?`2px solid ${AC}`:"1px solid #2a3050",background:sub===s?`${AC}22`:"#1a1f2e",color:sub===s?AC:"#6b7db3",fontSize:11,cursor:"pointer",fontWeight:sub===s?600:400}}>{s}</button>)}
-      </div>
-      {loading&&<div style={{textAlign:"center",color:T.subtext,padding:20}}>Loading...</div>}
-      {!loading&&filtered.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>💡</div><div style={{fontSize:13,color:T.subtext}}>No tips yet.</div></div>}
-      {filtered.map((tip,i)=>(
-        <div key={tip.id} style={{background:T.card,borderRadius:14,border:`1px solid ${AC}22`,marginBottom:12,overflow:"hidden"}}>
-          <div onClick={()=>setSel(sel===i?null:i)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,justifyContent:"space-between"}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:38,height:38,borderRadius:10,background:`${AC}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>💡</div>
-              <div><div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:2}}>{tip.title}</div><div style={{fontSize:11,color:AC}}>{tip.sub_category||tip.category||"General"}</div></div>
-            </div>
-            <div style={{color:AC,fontSize:16}}>{sel===i?"▲":"▼"}</div>
+    <div style={{marginTop:28}}>
+      <div style={{fontSize:16,fontWeight:700,color:T.text,marginBottom:12}}>Frequently Asked Questions</div>
+      {faqs.map((f,i)=>(
+        <div key={i} style={{background:T.card,borderRadius:12,border:`1px solid ${T.border}`,marginBottom:8,overflow:"hidden"}}>
+          <div onClick={()=>setOpen(open===i?null:i)} style={{padding:"12px 14px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+            <div style={{fontSize:13,fontWeight:600,color:T.text}}>{f.q}</div>
+            <div style={{color:AC,fontSize:14,flexShrink:0}}>{open===i?"▲":"▼"}</div>
           </div>
-          {sel===i&&<div style={{borderTop:`1px solid ${T.border}`,padding:"14px 16px"}}>
-            <div style={{fontSize:13,color:T.muted,lineHeight:1.7,marginBottom:12}}>{tip.description}</div>
-            {tip.media_type==="image"&&tip.media_url&&<img src={tip.media_url} alt="" style={{width:"100%",borderRadius:10,marginBottom:8}}/>}
-            {tip.media_type==="video_url"&&tip.media_url&&<a href={tip.media_url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:10,background:`${AC}11`,borderRadius:10,padding:"12px 16px",border:`1px solid ${AC}33`,textDecoration:"none"}}><div style={{fontSize:24}}>▶️</div><div style={{fontSize:12,color:AC,fontWeight:600}}>Watch Video</div></a>}
-            {tip.media_type==="upload"&&tip.media_data&&<img src={tip.media_data} alt="" style={{width:"100%",borderRadius:10}}/>}
-          </div>}
+          {open===i&&<div style={{padding:"0 14px 14px",fontSize:12.5,color:T.muted,lineHeight:1.7}}>{f.a}</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+function BlogPostCard({post,category,onOpen}) {
+  const T=useTheme();
+  const dateStr=post.published_at?new Date(post.published_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"";
+  return (
+    <div onClick={onOpen} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",cursor:"pointer",marginBottom:14}}>
+      {post.featured_image&&<img src={post.featured_image} alt={post.title} style={{width:"100%",height:150,objectFit:"cover"}}/>}
+      <div style={{padding:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          {category&&<span style={{background:`${AC}22`,color:AC,borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700}}>{category.name}</span>}
+          {dateStr&&<span style={{fontSize:10.5,color:T.subtext}}>{dateStr}</span>}
+        </div>
+        <div style={{fontWeight:700,fontSize:14.5,color:T.text,marginBottom:5,lineHeight:1.35}}>{post.title}</div>
+        {post.excerpt&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{post.excerpt}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Blog({initialPath}) {
+  const T=useTheme();
+  const [categories,setCategories]=useState([]);
+  const [posts,setPosts]=useState([]);
+  const [view,setView]=useState("list");        // list | post
+  const [activePost,setActivePost]=useState(null);
+  const [relatedPosts,setRelatedPosts]=useState([]);
+  const [catFilter,setCatFilter]=useState("all");
+  const [loading,setLoading]=useState(true);
+
+  const loadCategories=async()=>{
+    const d=await api("blog_categories",{filter:"?select=*&order=sort_order,name"});
+    setCategories(d||[]);
+    return d||[];
+  };
+  const loadPosts=async()=>{
+    const d=await api("blog_posts",{filter:"?select=*&status=eq.published&order=published_at.desc"});
+    setPosts(d||[]);
+    return d||[];
+  };
+
+  const catById=(id)=>categories.find(c=>c.id===id);
+
+  const showList=(push=true)=>{
+    setView("list");setActivePost(null);
+    if(push) pushBlogPath("/blog");
+    setSEO({
+      title:"Blog — PCB Care | AC & Appliance Repair Guides, Tips & Wiring Help",
+      description:"Guides, wiring help and troubleshooting tips for AC, washing machine, refrigerator and microwave PCB repair — from PCB Care, Jabalpur.",
+      path:"/blog",
+      jsonLdId:"blog-jsonld",
+    });
+  };
+
+  const openPost=async(post,push=true,catsIn)=>{
+    const cats=catsIn||categories;
+    setActivePost(post);setView("post");
+    if(push) pushBlogPath(`/blog/${post.slug}`);
+    const cat=cats.find(c=>c.id===post.category_id);
+    const metaTitle=post.meta_title||`${post.title} — PCB Care Blog`;
+    const metaDesc=(post.meta_description||post.excerpt||"").slice(0,160);
+    const jsonLdGraph=[
+      {
+        "@context":"https://schema.org",
+        "@type":"BlogPosting",
+        headline:post.title,
+        description:metaDesc,
+        image:post.featured_image?[post.featured_image]:undefined,
+        datePublished:post.published_at||post.created_at,
+        dateModified:post.updated_at||post.published_at||post.created_at,
+        author:{"@type":"Organization",name:"PCB Care"},
+        publisher:{"@type":"Organization",name:"PCB Care",logo:{"@type":"ImageObject",url:LOGO}},
+        mainEntityOfPage:{"@type":"WebPage","@id":`${SITE_URL}/blog/${post.slug}`},
+      },
+      {
+        "@context":"https://schema.org",
+        "@type":"BreadcrumbList",
+        itemListElement:[
+          {"@type":"ListItem",position:1,name:"Home",item:SITE_URL},
+          {"@type":"ListItem",position:2,name:"Blog",item:`${SITE_URL}/blog`},
+          {"@type":"ListItem",position:3,name:post.title,item:`${SITE_URL}/blog/${post.slug}`},
+        ],
+      },
+    ];
+    if(post.faqs&&post.faqs.length>0){
+      jsonLdGraph.push({
+        "@context":"https://schema.org",
+        "@type":"FAQPage",
+        mainEntity:post.faqs.map(f=>({"@type":"Question",name:f.q,acceptedAnswer:{"@type":"Answer",text:f.a}})),
+      });
+    }
+    setSEO({
+      title:metaTitle,
+      description:metaDesc,
+      path:`/blog/${post.slug}`,
+      image:post.featured_image,
+      jsonLdId:"blog-jsonld",
+      jsonLd:jsonLdGraph,
+    });
+    if(cat){
+      const d=await api("blog_posts",{filter:`?select=*&status=eq.published&category_id=eq.${cat.id}&id=neq.${post.id}&order=published_at.desc&limit=4`});
+      setRelatedPosts(d||[]);
+    }else{
+      setRelatedPosts([]);
+    }
+  };
+
+  const resolvePath=async(path,catsIn,postsIn)=>{
+    const parsed=parseBlogPath(path);
+    const cats=catsIn||categories;
+    if(parsed.view==="post"){
+      const list=postsIn||posts;
+      let post=list.find(p=>p.slug===parsed.slug);
+      if(!post){
+        const d=await api("blog_posts",{filter:`?select=*&status=eq.published&slug=eq.${encodeURIComponent(parsed.slug)}&limit=1`});
+        post=(d||[])[0];
+      }
+      if(post) await openPost(post,false,cats); else showList(false);
+    }else{
+      showList(false);
+    }
+  };
+
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true);
+      const [cats,pts]=await Promise.all([loadCategories(),loadPosts()]);
+      await resolvePath(initialPath||window.location.pathname,cats,pts);
+      setLoading(false);
+    })();
+    const onPop=()=>resolvePath(window.location.pathname);
+    window.addEventListener("popstate",onPop);
+    return ()=>{
+      window.removeEventListener("popstate",onPop);
+      clearSEO("blog-jsonld");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  const filteredPosts=catFilter==="all"?posts:posts.filter(p=>p.category_id===catFilter);
+
+  if(loading) return <div style={{padding:40,textAlign:"center",color:T.subtext}}>Loading…</div>;
+
+  if(view==="post"&&activePost){
+    const cat=catById(activePost.category_id);
+    const dateStr=activePost.published_at?new Date(activePost.published_at).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"}):"";
+    return (
+      <div style={{padding:16,maxWidth:720,margin:"0 auto"}}>
+        <button onClick={()=>showList()} style={{background:"none",border:"none",color:AC,fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← Back to Blog</button>
+        <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>
+          <span>Home</span> › <span>Blog</span> {cat&&<>› <span>{cat.name}</span></>}
+        </div>
+        {cat&&<span style={{background:`${AC}22`,color:AC,borderRadius:6,padding:"3px 10px",fontSize:11,fontWeight:700}}>{cat.name}</span>}
+        <div style={{fontSize:23,fontWeight:800,color:T.text,margin:"10px 0 6px",lineHeight:1.3}}>{activePost.title}</div>
+        {dateStr&&<div style={{fontSize:11.5,color:T.subtext,marginBottom:16}}>{dateStr}</div>}
+        {activePost.featured_image&&<img src={activePost.featured_image} alt={activePost.title} style={{width:"100%",borderRadius:14,marginBottom:20}}/>}
+        <div
+          style={{fontSize:14.5,color:T.muted,lineHeight:1.8}}
+          className="pcb-rte"
+          dangerouslySetInnerHTML={{__html:sanitizeHTML(activePost.content||"")}}
+        />
+        <BlogFAQSection faqs={activePost.faqs}/>
+        {relatedPosts.length>0&&<div style={{marginTop:32}}>
+          <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}}>Related Posts</div>
+          {relatedPosts.map(p=><BlogPostCard key={p.id} post={p} category={cat} onOpen={()=>openPost(p)}/>)}
+        </div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4}}>📝 Blog</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:12}}>Guides, tips & how-tos from PCB Care</div>
+      <div style={{overflowX:"auto",display:"flex",gap:8,marginBottom:16,paddingBottom:4}}>
+        <button onClick={()=>setCatFilter("all")} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:catFilter==="all"?`2px solid ${AC}`:"1px solid #2a3050",background:catFilter==="all"?`${AC}22`:T.card,color:catFilter==="all"?AC:T.subtext,fontSize:11,cursor:"pointer",fontWeight:catFilter==="all"?600:400}}>All</button>
+        {categories.map(c=>(
+          <button key={c.id} onClick={()=>setCatFilter(c.id)} style={{whiteSpace:"nowrap",padding:"7px 14px",borderRadius:20,border:catFilter===c.id?`2px solid ${AC}`:"1px solid #2a3050",background:catFilter===c.id?`${AC}22`:T.card,color:catFilter===c.id?AC:T.subtext,fontSize:11,cursor:"pointer",fontWeight:catFilter===c.id?600:400}}>{c.name}</button>
+        ))}
+      </div>
+      {filteredPosts.length===0&&<div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}><div style={{fontSize:32,marginBottom:8}}>📝</div><div style={{fontSize:13,color:T.subtext}}>No posts yet.</div></div>}
+      {filteredPosts.map(p=><BlogPostCard key={p.id} post={p} category={catById(p.category_id)} onOpen={()=>openPost(p)}/>)}
     </div>
   );
 }
@@ -3250,66 +3615,290 @@ function AdminSensorValues() {
   );
 }
 
-// ── ADMIN: TIPS ───────────────────────────────────────────────────────────────
-function AdminTips() {
-  const blank={title:"",description:"",sub_category:"General",media_type:"none",media_url:"",media_data:""};
-  const [form,setForm]=useState(blank);const [list,setList]=useState([]);const [editId,setEditId]=useState(null);const [msg,setMsg]=useState("");const [uploading,setUploading]=useState(false);
-  const SUBS=["General","Wiring Connection","Sensor Values","Safety","Tools"];
-  const load=async()=>{const d=await api("tips_tricks",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
-  useEffect(()=>{load();},[]);
-  const handleFile=(e)=>{
-    const file=e.target.files[0];if(!file)return;
-    setUploading(true);
-    const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,media_data:compressed,media_type:"upload"}));syncToLibrary(compressed);setUploading(false);};
-    reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
-    reader.readAsDataURL(file);
+// ── ADMIN: BLOG ───────────────────────────────────────────────────────────────
+function AdminBlog() {
+  const [section,setSection]=useState("posts"); // posts | categories
+  const [categories,setCategories]=useState([]);
+  const [msg,setMsg]=useState("");
+
+  const loadCategories=async()=>{
+    const d=await api("blog_categories",{filter:"?select=*&order=sort_order,name"});
+    setCategories(d||[]);
+    return d||[];
   };
-  const save=async()=>{
-    if(!form.title.trim()||!form.description.trim()){setMsg("⚠ Title and description required.");return;}
-    const payload={title:form.title,description:form.description,sub_category:form.sub_category,category:form.sub_category,media_type:form.media_type,media_url:form.media_type==="video_url"?form.media_url:"",media_data:form.media_type==="upload"?form.media_data:""};
-    if(editId){await fetch(`${SB_URL}/rest/v1/tips_tricks?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
-    else{await api("tips_tricks",{method:"POST",body:payload,prefer:"return=minimal"});}
-    setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
-  };
-  const edit=(item)=>{setForm({title:item.title,description:item.description,sub_category:item.sub_category||item.category||"General",media_type:item.media_type||"none",media_url:item.media_url||"",media_data:item.media_data||""});setEditId(item.id);};
-  const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/tips_tricks?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  useEffect(()=>{loadCategories();},[]);
+
   return (
     <div style={{padding:16}}>
-      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>💡 {editId?"Edit":"Add"} Tip</div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:`1px solid ${"#2a3050"}`,marginBottom:18}}>
-        <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Title" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>
-        <select value={form.sub_category} onChange={e=>setForm(f=>({...f,sub_category:e.target.value}))} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}>
-          {SUBS.map(s=><option key={s} value={s}>{s}</option>)}
-        </select>
-        <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={4} style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
-        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Media (optional)</div>
-        <div style={{display:"flex",gap:6,marginBottom:10}}>
-          {[["none","None"],["image","Image URL"],["video_url","Video Link"],["upload","Upload File"]].map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,media_type:v}))} style={{flex:1,padding:"8px 4px",borderRadius:8,border:form.media_type===v?`2px solid ${AC}`:"1px solid #2a3050",background:form.media_type===v?`${AC}22`:"#0f1117",color:form.media_type===v?AC:"#6b7db3",fontSize:10,cursor:"pointer"}}>{l}</button>)}
-        </div>
-        {form.media_type==="image"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://...image.jpg" style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        {form.media_type==="video_url"&&<input value={form.media_url} onChange={e=>setForm(f=>({...f,media_url:e.target.value}))} placeholder="https://youtube.com/..." style={{width:"100%",padding:"11px 12px",borderRadius:10,border:`1px solid ${"#2a3050"}`,background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}}/>}
-        {form.media_type==="upload"&&<div style={{marginBottom:10}}>
-          <input type="file" accept="image/*,video/*" onChange={handleFile} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:6}}/>
-          {uploading&&<div style={{fontSize:11,color:AC}}>Reading file...</div>}
-          {form.media_data&&<div style={{fontSize:11,color:PC}}>✓ File loaded ({Math.round(form.media_data.length/1024)}KB)</div>}
-        </div>}
-        {msg&&<div style={{fontSize:12,marginBottom:10,color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>📝 Blog</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Write and manage posts customers see on the public Blog tab — categories, internal links, images, and SEO metadata all live here.</div>
+      <div style={{display:"flex",gap:8,marginBottom:18}}>
+        {[["posts","📝 Posts"],["categories","🗂️ Categories"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"10px",borderRadius:10,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:"1px solid #2a3050",cursor:"pointer",fontWeight:700,fontSize:13}}>{label}</button>
+        ))}
+      </div>
+      {section==="categories"
+        ? <AdminBlogCategories categories={categories} refresh={loadCategories} setMsg={setMsg}/>
+        : <AdminBlogPosts categories={categories} setMsg={setMsg}/>}
+      {msg&&<div style={{fontSize:12,marginTop:14,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
+    </div>
+  );
+}
+
+function AdminBlogCategories({categories,refresh,setMsg}) {
+  const blank={name:""};
+  const [form,setForm]=useState(blank);
+  const [editId,setEditId]=useState(null);
+  const [saving,setSaving]=useState(false);
+
+  const uniqueSlug=(base,existing)=>{
+    let slug=slugify(base),n=2;
+    while(existing.includes(slug)){ slug=`${slugify(base)}-${n}`; n++; }
+    return slug;
+  };
+
+  const save=async()=>{
+    const trimmed=form.name.trim();
+    if(!trimmed){setMsg("⚠ Enter a category name.");return;}
+    setSaving(true);
+    try{
+      if(editId){
+        await api("blog_categories",{method:"PATCH",filter:`?id=eq.${editId}`,body:{name:trimmed},prefer:"return=minimal"});
+        setMsg(`✅ "${trimmed}" updated.`);
+      }else{
+        const slug=uniqueSlug(trimmed,categories.map(c=>c.slug));
+        const sort_order=categories.length?Math.max(...categories.map(c=>c.sort_order||0))+1:0;
+        await api("blog_categories",{method:"POST",body:{name:trimmed,slug,sort_order},prefer:"return=minimal"});
+        setMsg(`✅ "${trimmed}" added.`);
+      }
+      setForm(blank);setEditId(null);
+      await refresh();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const edit=(c)=>{setForm({name:c.name});setEditId(c.id);};
+  const del=async(c)=>{
+    if(!window.confirm(`Delete "${c.name}"? Posts in this category will keep their category_id pointing nowhere — reassign them first if needed.`)) return;
+    await api("blog_categories",{method:"DELETE",filter:`?id=eq.${c.id}`});
+    setMsg(`✅ "${c.name}" deleted.`);
+    await refresh();
+  };
+
+  const INP={width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"};
+
+  return (
+    <div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"Add"} Category</div>
+        <input value={form.name} onChange={e=>setForm({name:e.target.value})} placeholder="Category name, e.g. Wiring Guides" style={{...INP,marginBottom:10}}/>
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={()=>{setForm(blank);setEditId(null);}} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
-          <button onClick={save} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{editId?"Update":"Add"}</button>
+          <button onClick={save} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving…":editId?"Update":"Add"}</button>
         </div>
       </div>
-      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Tips ({list.length})</div>
-      {list.map(item=>(
-        <div key={item.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:`1px solid ${"#2a3050"}`,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div><div style={{fontSize:12,color:"#b0b8d0",fontWeight:600}}>{item.title}</div><div style={{fontSize:11,color:"#6b7db3"}}>{item.sub_category||item.category}</div></div>
-          <div style={{display:"flex",gap:6}}><button onClick={()=>edit(item)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button><button onClick={()=>del(item.id)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button></div>
+      <div style={{fontSize:14,fontWeight:700,color:"#fff",marginBottom:10}}>All Categories ({categories.length})</div>
+      {categories.map(c=>(
+        <div key={c.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontSize:12,color:"#fff",fontWeight:600}}>{c.name}</div><div style={{fontSize:10.5,color:"#6b7db3"}}>/blog · {c.slug}</div></div>
+          <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>edit(c)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            <button onClick={()=>del(c)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
+          </div>
         </div>
       ))}
     </div>
   );
 }
+
+function AdminBlogPosts({categories,setMsg}) {
+  const blank={title:"",slug:"",category_id:"",excerpt:"",content:"",featured_image:"",meta_title:"",meta_description:"",faqs:[],status:"draft"};
+  const [form,setForm]=useState(blank);
+  const [list,setList]=useState([]);
+  const [editId,setEditId]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [cropSrc,setCropSrc]=useState(null);
+  const [statusFilter,setStatusFilter]=useState("all");
+  const [slugTouched,setSlugTouched]=useState(false);
+
+  const load=async()=>{
+    const d=await api("blog_posts",{filter:"?select=*&order=created_at.desc"});
+    setList(d||[]);
+  };
+  useEffect(()=>{load();},[]);
+
+  const uniqueSlug=async(base,skipId)=>{
+    let slug=slugify(base),n=2;
+    // eslint-disable-next-line no-constant-condition
+    while(true){
+      const found=await api("blog_posts",{filter:`?select=id&slug=eq.${encodeURIComponent(slug)}`});
+      const clash=(found||[]).some(r=>r.id!==skipId);
+      if(!clash) return slug;
+      slug=`${slugify(base)}-${n}`;n++;
+    }
+  };
+
+  const addImage=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=()=>{setCropSrc(reader.result);};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");};
+    reader.readAsDataURL(file);
+    e.target.value="";
+  };
+
+  const addFAQ=()=>setForm(f=>({...f,faqs:[...f.faqs,{q:"",a:""}]}));
+  const updateFAQ=(i,key,val)=>setForm(f=>({...f,faqs:f.faqs.map((x,idx)=>idx===i?{...x,[key]:val}:x)}));
+  const removeFAQ=(i)=>setForm(f=>({...f,faqs:f.faqs.filter((_,idx)=>idx!==i)}));
+
+  const save=async(publish)=>{
+    const title=form.title.trim();
+    if(!title){setMsg("⚠ Enter a title.");return;}
+    if(!form.category_id){setMsg("⚠ Choose a category.");return;}
+    setSaving(true);
+    try{
+      const status=publish?"published":(form.status==="published"?"published":"draft");
+      const isNewlyPublishing=publish&&!(editId&&list.find(p=>p.id===editId)?.published_at);
+      const payload={
+        title,category_id:form.category_id,excerpt:form.excerpt.trim(),
+        content:sanitizeHTML(form.content),featured_image:form.featured_image,
+        meta_title:form.meta_title.trim(),meta_description:form.meta_description.trim(),
+        faqs:form.faqs.filter(f=>f.q.trim()&&f.a.trim()),
+        status,updated_at:new Date().toISOString(),
+      };
+      if(isNewlyPublishing) payload.published_at=new Date().toISOString();
+      if(editId){
+        if(!form.slug.trim()){setMsg("⚠ Slug can't be empty.");setSaving(false);return;}
+        payload.slug=slugTouched?await uniqueSlug(form.slug.trim(),editId):form.slug;
+        await api("blog_posts",{method:"PATCH",filter:`?id=eq.${editId}`,body:payload,prefer:"return=minimal"});
+        setMsg(`✅ "${title}" updated${publish?" and published":""}.`);
+      }else{
+        payload.slug=await uniqueSlug(form.slug.trim()||title,null);
+        await api("blog_posts",{method:"POST",body:payload,prefer:"return=minimal"});
+        setMsg(`✅ "${title}" ${publish?"published":"saved as draft"}.`);
+      }
+      setForm(blank);setEditId(null);setSlugTouched(false);
+      await load();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const edit=(p)=>{
+    setForm({
+      title:p.title,slug:p.slug,category_id:p.category_id||"",excerpt:p.excerpt||"",
+      content:p.content||"",featured_image:p.featured_image||"",
+      meta_title:p.meta_title||"",meta_description:p.meta_description||"",
+      faqs:p.faqs||[],status:p.status||"draft",
+    });
+    setEditId(p.id);setSlugTouched(false);
+  };
+  const reset=()=>{setForm(blank);setEditId(null);setSlugTouched(false);};
+  const del=async(p)=>{
+    if(!window.confirm(`Delete "${p.title}"? This can't be undone.`)) return;
+    await api("blog_posts",{method:"DELETE",filter:`?id=eq.${p.id}`});
+    setMsg(`✅ "${p.title}" deleted.`);
+    await load();
+  };
+
+  const catName=(id)=>categories.find(c=>c.id===id)?.name||"—";
+  const filtered=list.filter(p=>statusFilter==="all"||p.status===statusFilter);
+
+  const INP={width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const metaTitleLen=(form.meta_title||form.title).length;
+  const metaDescLen=(form.meta_description||form.excerpt).length;
+
+  return (
+    <div>
+      {cropSrc&&<ImageCropModal src={cropSrc} onConfirm={(dataUrl)=>{setForm(f=>({...f,featured_image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"New"} Post</div>
+
+        <input value={form.title} onChange={e=>{const v=e.target.value;setForm(f=>({...f,title:v,slug:slugTouched?f.slug:slugify(v)}));}} placeholder="Post title" style={{...INP,marginBottom:10}}/>
+
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <span style={{fontSize:11,color:"#6b7db3"}}>/blog/</span>
+          <input value={form.slug} onChange={e=>{setSlugTouched(true);setForm(f=>({...f,slug:slugify(e.target.value)}));}} placeholder="post-url-slug" style={{...INP,flex:1}}/>
+        </div>
+
+        <select value={form.category_id} onChange={e=>setForm(f=>({...f,category_id:e.target.value}))} style={{...INP,marginBottom:10}}>
+          <option value="">Select category…</option>
+          {categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Featured Image</div>
+        {form.featured_image
+          ? <div style={{marginBottom:10}}>
+              <img src={form.featured_image} alt="" style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:10,marginBottom:6}}/>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={()=>setCropSrc(form.featured_image)} style={{flex:1,padding:"7px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust</button>
+                <button onClick={()=>setForm(f=>({...f,featured_image:""}))} style={{flex:1,padding:"7px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Remove</button>
+              </div>
+            </div>
+          : <input type="file" accept="image/*" onChange={addImage} style={{width:"100%",fontSize:12,color:"#6b7db3",marginBottom:10}}/>}
+
+        <textarea value={form.excerpt} onChange={e=>setForm(f=>({...f,excerpt:e.target.value}))} placeholder="Short excerpt — shown on the blog list and used as the default meta description" rows={2} style={{...INP,marginBottom:4,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:10,color:"#6b7db3",marginBottom:10}}>{form.excerpt.length} characters</div>
+
+        <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:6}}>Content</div>
+        <div style={{marginBottom:14}}>
+          <RichTextEditor value={form.content} onChange={html=>setForm(f=>({...f,content:html}))} placeholder="Write the post — use 🔗 Internal to link to other posts, products or categories."/>
+        </div>
+
+        <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:8}}>SEO / AEO / GEO</div>
+        <input value={form.meta_title} onChange={e=>setForm(f=>({...f,meta_title:e.target.value}))} placeholder={`Meta title (default: "${form.title||"post title"}")`} style={{...INP,marginBottom:4}}/>
+        <div style={{fontSize:10,color:metaTitleLen>60?"#ff9800":"#6b7db3",marginBottom:10}}>{metaTitleLen}/60 characters recommended</div>
+        <textarea value={form.meta_description} onChange={e=>setForm(f=>({...f,meta_description:e.target.value}))} placeholder="Meta description (default: excerpt above)" rows={2} style={{...INP,marginBottom:4,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{fontSize:10,color:metaDescLen>155?"#ff9800":"#6b7db3",marginBottom:14}}>{metaDescLen}/155 characters recommended</div>
+
+        <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:8}}>FAQs (optional — powers the FAQ schema for AI/answer-engine results)</div>
+        {form.faqs.map((f,i)=>(
+          <div key={i} style={{background:"#0f1117",border:"1px solid #2a3050",borderRadius:10,padding:10,marginBottom:8}}>
+            <input value={f.q} onChange={e=>updateFAQ(i,"q",e.target.value)} placeholder="Question" style={{...INP,marginBottom:6}}/>
+            <textarea value={f.a} onChange={e=>updateFAQ(i,"a",e.target.value)} placeholder="Answer" rows={2} style={{...INP,marginBottom:6,resize:"vertical",fontFamily:"inherit"}}/>
+            <button onClick={()=>removeFAQ(i)} style={{padding:"5px 10px",borderRadius:7,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:10.5}}>Remove</button>
+          </div>
+        ))}
+        <button onClick={addFAQ} style={{padding:"8px 12px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,marginBottom:16}}>+ Add FAQ</button>
+
+        {editId&&<div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>Status: <span style={{color:form.status==="published"?PC:"#ffb300",fontWeight:700}}>{form.status==="published"?"Published":"Draft"}</span></div>}
+
+        <div style={{display:"flex",gap:8}}>
+          {editId&&<button onClick={reset} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
+          <button onClick={()=>save(false)} disabled={saving} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving…":"Save Draft"}</button>
+          <button onClick={()=>save(true)} disabled={saving} style={{flex:2,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{saving?"Saving…":"Publish"}</button>
+        </div>
+      </div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>All Posts ({list.length})</div>
+        <select value={statusFilter} onChange={e=>setStatusFilter(e.target.value)} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#0f1117",color:"#b0b8d0",fontSize:12,outline:"none"}}>
+          <option value="all">All</option>
+          <option value="published">Published</option>
+          <option value="draft">Draft</option>
+        </select>
+      </div>
+      {filtered.map(p=>(
+        <div key={p.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",border:"1px solid #2a3050",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",gap:10}}>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+              <span style={{background:p.status==="published"?"#4caf5022":"#ffb30022",color:p.status==="published"?PC:"#ffb300",borderRadius:6,padding:"2px 8px",fontSize:10,fontWeight:700}}>{p.status==="published"?"Published":"Draft"}</span>
+              <span style={{fontSize:11,color:"#6b7db3"}}>{catName(p.category_id)}</span>
+            </div>
+            <div style={{fontSize:12,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.title}</div>
+            <div style={{fontSize:10.5,color:"#6b7db3"}}>/blog/{p.slug}</div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            {p.status==="published"&&<a href={`${SITE_URL}/blog/${p.slug}`} target="_blank" rel="noreferrer" style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,textDecoration:"none"}}>View</a>}
+            <button onClick={()=>edit(p)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            <button onClick={()=>del(p)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 // ── ADMIN: FIND REMOTE ──────────────────────────────────────────────────────────
 // ── ADMIN: REMOTE IMAGE LIBRARY ──────────────────────────────────────────────
@@ -4299,6 +4888,7 @@ const generateBulkTemplate = async (categories, allBrands) => {
     ["2. Row 2 (an example) shows the expected format — delete it before uploading your real data."],
     ["3. Fill in one product per row. Product Name, Category and Condition are required (Condition isn't needed for Remotes)."],
     ["4. Category, Condition and Motor Type have dropdown lists in columns B, D and E — use the dropdown arrow instead of typing, to avoid typos."],
+    ["   Tip: hover over any header (the little red triangle) to see every valid option for that column listed right there."],
     ["5. Brand(s) is optional — separate multiple brands with a comma, e.g. \"LG, Whirlpool\". Names should match Admin → Brands."],
     ["6. Save as .xlsx and upload it back here in Admin → Products → Bulk Upload (Excel)."],
   ];
@@ -4328,6 +4918,17 @@ const generateBulkTemplate = async (categories, allBrands) => {
   ];
   const wsProd = XLSX.utils.aoa_to_sheet(productRows);
   wsProd["!cols"] = [{wch:34},{wch:22},{wch:26},{wch:16},{wch:18},{wch:44}];
+
+  // Hover-hint on every header lists ALL current valid options, live from the
+  // site's own data — not just a pointer to "see the dropdown".
+  const setHint=(ref,text)=>{ if(wsProd[ref]) wsProd[ref].c=[{a:"PCB Care",t:text}]; };
+  setHint("A1","Required. The exact product name customers will see.\nExample: Voltas 1.5 Ton AC PCB");
+  setHint("B1",`Required. Must match a Category already created in Admin → Shop Categories.\n\nAll ${catNames.length} valid options:\n`+catNames.map(c=>`• ${c}`).join("\n"));
+  setHint("C1",`Optional. One or more brand names separated by commas.\nExample: ${brandNames.slice(0,2).join(", ")||"LG, Whirlpool"}\n\nAll ${brandNames.length} valid options:\n`+brandNames.map(b=>`• ${b}`).join("\n"));
+  setHint("D1",`Required (except for Remotes category).\n\nAll ${conditions.length} valid options:\n`+conditions.map(c=>`• ${c}`).join("\n"));
+  setHint("E1",`Optional. Only applies to PCB categories — leave blank for Sensors/Remotes.\n\nAll ${MOTOR_TYPES.length} valid options:\n`+MOTOR_TYPES.map(m=>`• ${m}`).join("\n"));
+  setHint("F1","Optional. A short description shown on the product page.");
+
   const catLetter="B", condLetter="D", motorLetter="E";
   wsProd["!dataValidation"]=[
     {sqref:`${catLetter}2:${catLetter}500`, type:"list", formula1:`Reference!$A$2:$A$${maxLen+1}`},
@@ -4769,7 +5370,7 @@ function AdminPanel({onLogout}) {
     {id:"remote",label:"Remote",icon:"🎮"},
     {id:"images",label:"Image Library",icon:"🖼️"},
     {id:"parts",label:"Parts",icon:"🔩"},
-    {id:"tips",label:"Tips",icon:"💡"},
+    {id:"blog",label:"Blog",icon:"📝"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"settings",label:"Settings",icon:"⚙️"},
@@ -4800,7 +5401,7 @@ function AdminPanel({onLogout}) {
         {tab==="remote"&&<AdminRemotes/>}
         {tab==="images"&&<AdminRemoteImages/>}
         {tab==="parts"&&<AdminParts/>}
-        {tab==="tips"&&<AdminTips/>}
+        {tab==="blog"&&<AdminBlog/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="users"&&<AdminUsers/>}
         {tab==="settings"&&<AdminSettings/>}
@@ -4856,7 +5457,11 @@ export default function PCBCare() {
   // Wiring tab is normally gated behind login, but a direct link to one specific
   // diagram should still open without forcing a login, same as Shop.
   const wiringInitialPath=useRef(window.location.pathname.startsWith("/wiring/")?window.location.pathname:null);
-  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":"home");
+  // Blog is public SEO content, same reasoning as Shop — a direct /blog or
+  // /blog/:slug link (shared, bookmarked, or from a search result) needs to
+  // open straight to the post, not get intercepted by the login gate.
+  const blogInitialPath=useRef(window.location.pathname.startsWith("/blog")?window.location.pathname:null);
+  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":"home");
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
   // that link to a Shop product — Shop is already public, so this can just
   // switch tabs normally.
@@ -4986,22 +5591,25 @@ export default function PCBCare() {
     setTab("home");
   };
 
-  // ── Gate: "home" and "shop" are always browsable without an account — Shop
-  // stays public on purpose so its category/product URLs are actually linkable
-  // and crawlable. Whether every OTHER tab needs login is controlled by the
-  // "Require Login" toggle in Admin → Settings (requireLogin state below);
-  // when it's off, everything is open to everyone.
+  // ── Gate: "home", "shop" and "blog" are always browsable without an
+  // account — both stay public on purpose so their URLs are actually linkable
+  // and crawlable for SEO. Whether every OTHER tab needs login is controlled
+  // by the "Require Login" toggle in Admin → Settings (requireLogin state
+  // below); when it's off, everything is open to everyone.
   const [requireLogin,setRequireLogin]=useState(true);
   useEffect(()=>{ getRequireLogin().then(setRequireLogin); },[]);
   const goToTab=(id)=>{
-    if(id!=="home"&&id!=="shop"&&requireLogin&&!user){
+    if(id!=="home"&&id!=="shop"&&id!=="blog"&&requireLogin&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
     }
-    // Leaving the Shop tab for a different tab — clear any /shop URL so the
-    // address bar matches what's actually on screen.
+    // Leaving the Shop or Blog tab for a different tab — clear any /shop or
+    // /blog URL so the address bar matches what's actually on screen.
     if(id!=="shop"&&window.location.pathname.startsWith("/shop")){
+      try{ window.history.pushState({},"","/"); }catch{}
+    }
+    if(id!=="blog"&&window.location.pathname.startsWith("/blog")){
       try{ window.history.pushState({},"","/"); }catch{}
     }
     setTab(id);
@@ -5042,7 +5650,7 @@ export default function PCBCare() {
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current} onViewProduct={navigateToShopProduct}/>}
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
-        {tab==="tips"&&<TipsTricks/>}
+        {tab==="blog"&&<Blog initialPath={blogInitialPath.current}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder/>}
         {tab==="requests"&&<Requests user={user}/>}
