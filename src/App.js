@@ -3809,7 +3809,7 @@ function AdminBlogPosts({categories,setMsg}) {
 
   return (
     <div>
-      {cropSrc&&<ImageCropModal src={cropSrc} onConfirm={(dataUrl)=>{setForm(f=>({...f,featured_image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
+      {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={(dataUrl)=>{setForm(f=>({...f,featured_image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
         <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"New"} Post</div>
@@ -3831,7 +3831,7 @@ function AdminBlogPosts({categories,setMsg}) {
           ? <div style={{marginBottom:10}}>
               <img src={form.featured_image} alt="" style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:10,marginBottom:6}}/>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>setCropSrc(form.featured_image)} style={{flex:1,padding:"7px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust</button>
+                <button onClick={()=>setCropSrc(form.featured_image)} style={{flex:1,padding:"7px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>🔍 Re-adjust zoom/crop/background</button>
                 <button onClick={()=>setForm(f=>({...f,featured_image:""}))} style={{flex:1,padding:"7px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Remove</button>
               </div>
             </div>
