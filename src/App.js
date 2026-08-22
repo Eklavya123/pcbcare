@@ -1041,7 +1041,7 @@ function Home({setTab,user}) {
     {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
     {id:"blog",icon:"📝",title:"Blog",desc:"Guides, tips & how-tos",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
-    ...(partsEnabled?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
+    ...(partsEnabled&&user?.role==="viewer"?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
   ];
   return (
@@ -2154,9 +2154,10 @@ function SensorValues({onViewProduct}) {
 
 // ── PART FINDER (user-facing) ──────────────────────────────────────────────────
 // Reads parts_data (written by admin's AdminParts screen). Gated at the Home-tile
-// level by parts_enabled, but also self-checks the flag here in case someone is
-// already on this screen when an admin flips it off mid-session.
-function PartFinder() {
+// level by parts_enabled AND the user's role, but also self-checks both here in
+// case someone is already on this screen when an admin flips the switch or
+// changes their role mid-session (e.g. by navigating here directly via tab state).
+function PartFinder({user}) {
   const T=useTheme();
   const [enabled,setEnabled]=useState(null); // null = checking
   const [hasData,setHasData]=useState(null);
@@ -2193,7 +2194,7 @@ function PartFinder() {
   };
 
   if(enabled===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
-  if(enabled===false) return (
+  if(enabled===false||user?.role!=="viewer") return (
     <div style={{padding:16}}>
       <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}>
         <div style={{fontSize:32,marginBottom:8}}>🔩</div>
@@ -4453,6 +4454,13 @@ function AdminUsers() {
     return()=>clearInterval(t);
   },[]);
   const setStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
+  const setRole=async(id,role)=>{
+    setList(l=>l.map(u=>u.id===id?{...u,role}:u)); // optimistic so the toggle feels instant
+    try{
+      await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({role})});
+    }catch(e){/* next poll will resync if this failed */}
+    load();
+  };
   const onlineCount = list.filter(isOnline).length;
   const base = section==="online" ? list.filter(isOnline) : list;
   const filtered = base.filter(u=>filter==="all"?true:u.status===filter);
@@ -4486,6 +4494,15 @@ function AdminUsers() {
           </div>
           <div style={{fontSize:11,color:online?"#4caf50":"#6b7db3",fontWeight:600,marginBottom:10}}>
             {online?"🟢 Online now":`⚪ Last seen: ${timeAgo(u.last_seen)}`}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#0f1117",borderRadius:8,marginBottom:10,border:"1px solid #2a3050"}}>
+            <div>
+              <div style={{fontSize:11.5,fontWeight:600,color:"#fff"}}>🔩 Viewer role</div>
+              <div style={{fontSize:10,color:"#6b7db3"}}>Grants access to Part Finder on their device</div>
+            </div>
+            <button onClick={()=>setRole(u.id,u.role==="viewer"?null:"viewer")} style={{width:44,height:24,borderRadius:12,background:u.role==="viewer"?"#8e44ad":"#2a3050",border:"none",cursor:"pointer",position:"relative",flexShrink:0,marginLeft:10}}>
+              <div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:u.role==="viewer"?23:3,transition:"left 0.2s"}}/>
+            </button>
           </div>
           {u.status==="pending"&&<div style={{display:"flex",gap:6}}>
             <button onClick={()=>setStatus(u.id,"approved")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>
@@ -4672,7 +4689,7 @@ function AdminSettings() {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
           <div>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Parts Identifier</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>Show/hide the Part Finder feature for all users</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>Master switch for Part Finder. Even when ON, only users with the "Viewer" role (set per-user in Users → Approvals) can see or open it — everyone else stays disabled regardless of this toggle.</div>
           </div>
           <button onClick={()=>setDraft(d=>({...d,parts_enabled:!d.parts_enabled}))} style={{width:48,height:26,borderRadius:14,background:draft.parts_enabled?PC:"#2a3050",border:"none",cursor:"pointer",position:"relative",transition:"background 0.2s"}}>
             <div style={{width:20,height:20,borderRadius:"50%",background:"#fff",position:"absolute",top:3,left:draft.parts_enabled?25:3,transition:"left 0.2s"}}/>
@@ -5652,7 +5669,7 @@ export default function PCBCare() {
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
         {tab==="blog"&&<Blog initialPath={blogInitialPath.current}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
-        {tab==="parts"&&<PartFinder/>}
+        {tab==="parts"&&<PartFinder user={user}/>}
         {tab==="requests"&&<Requests user={user}/>}
       </div>
 
