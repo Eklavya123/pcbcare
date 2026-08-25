@@ -3713,7 +3713,7 @@ function AdminBlogCategories({categories,refresh,setMsg}) {
 }
 
 function AdminBlogPosts({categories,setMsg}) {
-  const blank={title:"",slug:"",category_id:"",excerpt:"",content:"",featured_image:"",meta_title:"",meta_description:"",faqs:[],status:"draft"};
+  const blank={title:"",slug:"",category_id:"",excerpt:"",content:"",featured_image:"",meta_title:"",meta_description:"",faqs:[],tags:[],status:"draft"};
   const [form,setForm]=useState(blank);
   const [list,setList]=useState([]);
   const [editId,setEditId]=useState(null);
@@ -3721,6 +3721,9 @@ function AdminBlogPosts({categories,setMsg}) {
   const [cropSrc,setCropSrc]=useState(null);
   const [statusFilter,setStatusFilter]=useState("all");
   const [slugTouched,setSlugTouched]=useState(false);
+  const [importOpen,setImportOpen]=useState(false);
+  const [importText,setImportText]=useState("");
+  const [tagInput,setTagInput]=useState("");
 
   const load=async()=>{
     const d=await api("blog_posts",{filter:"?select=*&order=created_at.desc"});
@@ -3752,6 +3755,61 @@ function AdminBlogPosts({categories,setMsg}) {
   const updateFAQ=(i,key,val)=>setForm(f=>({...f,faqs:f.faqs.map((x,idx)=>idx===i?{...x,[key]:val}:x)}));
   const removeFAQ=(i)=>setForm(f=>({...f,faqs:f.faqs.filter((_,idx)=>idx!==i)}));
 
+  const addTag=()=>{
+    const t=tagInput.trim();
+    if(!t) return;
+    setForm(f=>f.tags.includes(t)?f:{...f,tags:[...f.tags,t]});
+    setTagInput("");
+  };
+  const removeTag=(t)=>setForm(f=>({...f,tags:f.tags.filter(x=>x!==t)}));
+
+  // ── HTML paste-import ─────────────────────────────────────────────────────
+  // Lets an AI-generated blog post (formatted with the expected tags/classes,
+  // see the template shown in the import panel) be pasted in as raw HTML and
+  // auto-fill every field in one go, instead of copying each piece by hand.
+  const parseHtmlImport=(html)=>{
+    const doc=new DOMParser().parseFromString(html,"text/html");
+    const text=(el)=>el?el.textContent.trim():"";
+    const title=text(doc.querySelector("title"))||text(doc.querySelector("h1"))||"";
+    const metaDescEl=doc.querySelector('meta[name="description"]');
+    const metaDescription=metaDescEl?(metaDescEl.getAttribute("content")||"").trim():"";
+    const metaTitleEl=doc.querySelector('meta[name="title"]');
+    const metaTitle=metaTitleEl?(metaTitleEl.getAttribute("content")||"").trim():title;
+    const excerptEl=doc.querySelector(".excerpt");
+    const excerpt=excerptEl?text(excerptEl):metaDescription;
+    const contentEl=doc.querySelector(".content")||doc.querySelector("article")||doc.body;
+    const content=contentEl?contentEl.innerHTML.trim():"";
+    const tagsEl=doc.querySelector(".tags");
+    const tags=tagsEl?text(tagsEl).split(",").map(t=>t.trim()).filter(Boolean):[];
+    const faqs=Array.from(doc.querySelectorAll(".faqs .faq")).map(el=>({
+      q:text(el.querySelector(".q")),
+      a:(el.querySelector(".a")?.innerHTML||"").trim()||text(el.querySelector(".a")),
+    })).filter(f=>f.q&&f.a);
+    return {title,metaTitle,metaDescription,excerpt,content,tags,faqs};
+  };
+
+  const runImport=()=>{
+    if(!importText.trim()){setMsg("⚠ Paste the HTML first.");return;}
+    try{
+      const parsed=parseHtmlImport(importText);
+      if(!parsed.title&&!parsed.content){setMsg("⚠ Couldn't find a title or content in that HTML — check it matches the template.");return;}
+      setForm(f=>({
+        ...f,
+        title:parsed.title||f.title,
+        slug:parsed.title?slugify(parsed.title):f.slug,
+        excerpt:parsed.excerpt||f.excerpt,
+        content:parsed.content||f.content,
+        meta_title:parsed.metaTitle||f.meta_title,
+        meta_description:parsed.metaDescription||f.meta_description,
+        tags:parsed.tags.length?parsed.tags:f.tags,
+        faqs:parsed.faqs.length?parsed.faqs:f.faqs,
+      }));
+      setSlugTouched(true);
+      setImportText("");setImportOpen(false);
+      setMsg("✅ Fields filled from HTML. Review, pick a category, then save.");
+    }catch(e){setMsg("⚠ Couldn't parse that HTML: "+e.message);}
+  };
+
   const save=async(publish)=>{
     const title=form.title.trim();
     if(!title){setMsg("⚠ Enter a title.");return;}
@@ -3764,7 +3822,7 @@ function AdminBlogPosts({categories,setMsg}) {
         title,category_id:form.category_id,excerpt:form.excerpt.trim(),
         content:sanitizeHTML(form.content),featured_image:form.featured_image,
         meta_title:form.meta_title.trim(),meta_description:form.meta_description.trim(),
-        faqs:form.faqs.filter(f=>f.q.trim()&&f.a.trim()),
+        faqs:form.faqs.filter(f=>f.q.trim()&&f.a.trim()),tags:form.tags,
         status,updated_at:new Date().toISOString(),
       };
       if(isNewlyPublishing) payload.published_at=new Date().toISOString();
@@ -3789,7 +3847,7 @@ function AdminBlogPosts({categories,setMsg}) {
       title:p.title,slug:p.slug,category_id:p.category_id||"",excerpt:p.excerpt||"",
       content:p.content||"",featured_image:p.featured_image||"",
       meta_title:p.meta_title||"",meta_description:p.meta_description||"",
-      faqs:p.faqs||[],status:p.status||"draft",
+      faqs:p.faqs||[],tags:p.tags||[],status:p.status||"draft",
     });
     setEditId(p.id);setSlugTouched(false);
   };
@@ -3814,6 +3872,15 @@ function AdminBlogPosts({categories,setMsg}) {
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
         <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"New"} Post</div>
+
+        <button type="button" onClick={()=>setImportOpen(o=>!o)} style={{padding:"9px 12px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11.5,fontWeight:600,marginBottom:10}}>{importOpen?"✕ Close HTML Import":"📋 Paste HTML to auto-fill"}</button>
+        {importOpen&&<div style={{background:"#0f1117",border:"1px solid #2a3050",borderRadius:10,padding:12,marginBottom:14}}>
+          <div style={{fontSize:10.5,color:"#6b7db3",lineHeight:1.6,marginBottom:8}}>
+            Paste HTML using this structure and every field below fills itself — title, slug, excerpt, content, meta title/description, tags and FAQs: <code>&lt;title&gt;</code>, <code>&lt;meta name="description" content="..."&gt;</code>, <code>&lt;div class="excerpt"&gt;</code>, <code>&lt;div class="content"&gt;</code> (your article HTML, including any internal/external <code>&lt;a&gt;</code> links), <code>&lt;div class="tags"&gt;tag1, tag2&lt;/div&gt;</code>, and <code>&lt;div class="faqs"&gt;&lt;div class="faq"&gt;&lt;div class="q"&gt;...&lt;/div&gt;&lt;div class="a"&gt;...&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;</code>.
+          </div>
+          <textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder="Paste the full HTML response here..." rows={8} style={{width:"100%",padding:"10px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:11.5,fontFamily:"monospace",resize:"vertical",boxSizing:"border-box",marginBottom:8}}/>
+          <button type="button" onClick={runImport} style={{width:"100%",padding:"10px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:12.5}}>Parse & Fill Fields</button>
+        </div>}
 
         <input value={form.title} onChange={e=>{const v=e.target.value;setForm(f=>({...f,title:v,slug:slugTouched?f.slug:slugify(v)}));}} placeholder="Post title" style={{...INP,marginBottom:10}}/>
 
@@ -3851,6 +3918,20 @@ function AdminBlogPosts({categories,setMsg}) {
         <div style={{fontSize:10,color:metaTitleLen>60?"#ff9800":"#6b7db3",marginBottom:10}}>{metaTitleLen}/60 characters recommended</div>
         <textarea value={form.meta_description} onChange={e=>setForm(f=>({...f,meta_description:e.target.value}))} placeholder="Meta description (default: excerpt above)" rows={2} style={{...INP,marginBottom:4,resize:"vertical",fontFamily:"inherit"}}/>
         <div style={{fontSize:10,color:metaDescLen>155?"#ff9800":"#6b7db3",marginBottom:14}}>{metaDescLen}/155 characters recommended</div>
+
+        <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:8}}>Tags</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+          {form.tags.map(t=>(
+            <div key={t} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 5px 5px 10px",borderRadius:20,background:"#2a3050",color:"#fff",fontSize:11.5}}>
+              {t}
+              <button type="button" onClick={()=>removeTag(t)} style={{background:"none",border:"none",color:"#6b7db3",cursor:"pointer",fontSize:13,padding:"0 4px",lineHeight:1}}>✕</button>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          <input value={tagInput} onChange={e=>setTagInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addTag();}}} placeholder="Type a tag, press Enter" style={{...INP,flex:1}}/>
+          <button type="button" onClick={addTag} style={{padding:"0 16px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+        </div>
 
         <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:8}}>FAQs (optional — powers the FAQ schema for AI/answer-engine results)</div>
         {form.faqs.map((f,i)=>(
