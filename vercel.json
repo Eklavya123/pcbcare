@@ -1,6 +1,28 @@
 {
   "rewrites": [
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    {
+      "source": "/shop/product/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(Google|bingbot|YandexBot|Baiduspider|DuckDuckBot|Applebot|facebookexternalhit|Facebot|WhatsApp|Slackbot|TelegramBot|LinkedInBot|Twitterbot|Discordbot|Pinterest|redditbot|SkypeUriPreview|W3C_Validator|AhrefsBot|SemrushBot|MJ12bot|GPTBot|ClaudeBot|PerplexityBot|Bytespider)"
+        }
+      ],
+      "destination": "/api/product-meta?slug=:slug"
+    },
+    {
+      "source": "/blog/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(Google|bingbot|YandexBot|Baiduspider|DuckDuckBot|Applebot|facebookexternalhit|Facebot|WhatsApp|Slackbot|TelegramBot|LinkedInBot|Twitterbot|Discordbot|Pinterest|redditbot|SkypeUriPreview|W3C_Validator|AhrefsBot|SemrushBot|MJ12bot|GPTBot|ClaudeBot|PerplexityBot|Bytespider)"
+        }
+      ],
+      "destination": "/api/blog-meta?slug=:slug"
+    },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
