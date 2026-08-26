@@ -1535,12 +1535,13 @@ function ReviewsSection({targetType,targetId,user}) {
   const [loading,setLoading]=useState(true);
   const [rating,setRating]=useState(0);
   const [comment,setComment]=useState("");
+  const [guestName,setGuestName]=useState("");
   const [submitting,setSubmitting]=useState(false);
   const [msg,setMsg]=useState("");
 
   const load=async()=>{
     setLoading(true);
-    const d=await api("reviews",{filter:`?select=*&target_type=eq.${targetType}&target_id=eq.${encodeURIComponent(targetId)}&order=created_at.desc`});
+    const d=await api("reviews",{filter:`?select=*&status=eq.approved&order=created_at.desc`});
     setReviews(d||[]);
     setLoading(false);
   };
@@ -1549,16 +1550,17 @@ function ReviewsSection({targetType,targetId,user}) {
   const avg=reviews.length?reviews.reduce((s,r)=>s+r.rating,0)/reviews.length:0;
 
   const submit=async()=>{
-    if(!user){setMsg("⚠ Please log in to leave a review.");return;}
+    const reviewerName=user?(user.full_name||"Customer"):guestName.trim();
+    if(!reviewerName){setMsg("⚠ Please enter your name.");return;}
     if(!rating){setMsg("⚠ Pick a star rating first.");return;}
     setSubmitting(true);
     try{
       await fetch(`${SB_URL}/rest/v1/reviews`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({
         target_type:targetType,target_id:targetId,
-        user_name:user.full_name||"Customer",user_id:user.id||null,
-        rating,comment:comment.trim()||null,
+        user_name:reviewerName,user_id:user?.id||null,
+        rating,comment:comment.trim()||null,status:"pending",
       })});
-      setRating(0);setComment("");setMsg("✅ Thanks for your review!");
+      setRating(0);setComment("");setGuestName("");setMsg("✅ Thanks! Your review will go live once our team approves it.");
       load();
     }catch(e){setMsg("⚠ Couldn't submit — please try again.");}
     setSubmitting(false);
@@ -1577,15 +1579,13 @@ function ReviewsSection({targetType,targetId,user}) {
 
       <div style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:18}}>
         <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:9}}>Leave a review</div>
-        {user?(
-          <>
+        <>
+            {!user&&<input value={guestName} onChange={e=>setGuestName(e.target.value)} placeholder="Your name" style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,boxSizing:"border-box",marginBottom:9,fontFamily:"inherit"}}/>}
             <div style={{marginBottom:10}}><StarRating value={rating} onChange={setRating} size={23}/></div>
             <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Share your experience (optional)" rows={3} style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,resize:"vertical",boxSizing:"border-box",marginBottom:9,fontFamily:"inherit"}}/>
             <button onClick={submit} disabled={submitting} style={{padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:submitting?"default":"pointer",fontWeight:700,fontSize:12.5,opacity:submitting?0.6:1}}>{submitting?"Submitting…":"Submit Review"}</button>
+            {!user&&<div style={{fontSize:10.5,color:T.subtext,marginTop:8}}>Reviews are checked by our team before they appear.</div>}
           </>
-        ):(
-          <div style={{fontSize:12,color:T.subtext}}>Please log in to leave a rating and review.</div>
-        )}
         {msg&&<div style={{fontSize:11.5,color:msg.startsWith("✅")?"#4caf50":"#ff9800",marginTop:8}}>{msg}</div>}
       </div>
 
@@ -1599,6 +1599,53 @@ function ReviewsSection({targetType,targetId,user}) {
           <div style={{fontSize:10,color:T.subtext,marginTop:4}}>{new Date(r.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function AdminReviews() {
+  const [list,setList]=useState([]);
+  const [filter,setFilter]=useState("pending");
+  const load=async()=>{const d=await api("reviews",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
+  useEffect(()=>{load();const iv=setInterval(load,15000);return()=>clearInterval(iv);},[]);
+  const setStatus=async(id,status)=>{
+    setList(l=>l.map(r=>r.id===id?{...r,status}:r)); // optimistic
+    try{await fetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});}catch(e){/* next poll resyncs */}
+    load();
+  };
+  const del=async(id)=>{
+    if(!window.confirm("Delete this review permanently?"))return;
+    try{await fetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});}catch(e){}
+    load();
+  };
+  const statusOf=(r)=>r.status||"pending";
+  const filtered=list.filter(r=>filter==="all"?true:statusOf(r)===filter);
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>⭐ Reviews</div>
+      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Approve reviews before they go live. Approved reviews are shown site-wide — the same list appears under every product and blog post.</div>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        {["pending","approved","rejected","all"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{flex:1,padding:"8px 4px",borderRadius:10,border:filter===f?`2px solid ${PC}`:"1px solid #2a3050",background:filter===f?"#1a2a1a":"#1a1f2e",color:filter===f?"#fff":"#6b7db3",fontSize:11,cursor:"pointer",textTransform:"capitalize"}}>{f} ({f==="all"?list.length:list.filter(r=>statusOf(r)===f).length})</button>)}
+      </div>
+      {filtered.length===0&&<div style={{textAlign:"center",color:"#6b7db3",padding:30}}>No reviews in this category.</div>}
+      {filtered.map(r=>{
+        const st=statusOf(r);
+        return (
+        <div key={r.id} style={{background:"#1a1f2e",borderRadius:12,padding:14,border:"1px solid #2a3050",marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6,gap:8}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{r.user_name||"Anonymous"}{!r.user_id&&<span style={{fontSize:9,fontWeight:600,color:"#6b7db3",marginLeft:6,padding:"1px 6px",borderRadius:5,background:"#2a3050"}}>GUEST</span>}</div>
+            <div style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:st==="pending"?"#ffa50222":st==="approved"?"#4caf5022":"#ff475722",color:st==="pending"?"#ffa502":st==="approved"?PC:"#ff4757"}}>{st}</div>
+          </div>
+          <div style={{marginBottom:6}}><StarRating value={r.rating} readOnly size={13}/></div>
+          {r.comment&&<div style={{fontSize:12.5,color:"#b0b8d0",lineHeight:1.5,marginBottom:6}}>{r.comment}</div>}
+          <div style={{fontSize:10,color:"#6b7db3",marginBottom:10}}>{r.target_type?`on ${r.target_type}: ${r.target_id} · `:""}{new Date(r.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</div>
+          <div style={{display:"flex",gap:6}}>
+            {st!=="approved"&&<button onClick={()=>setStatus(r.id,"approved")} style={{flex:1,padding:"8px",borderRadius:8,background:"#4caf5022",color:PC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✓ Approve</button>}
+            {st!=="rejected"&&<button onClick={()=>setStatus(r.id,"rejected")} style={{flex:1,padding:"8px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>✕ Reject</button>}
+            <button onClick={()=>del(r.id)} style={{padding:"8px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12}}>🗑</button>
+          </div>
+        </div>
+      );})}
     </div>
   );
 }
@@ -5560,6 +5607,7 @@ function AdminPanel({onLogout}) {
     {id:"images",label:"Image Library",icon:"🖼️"},
     {id:"parts",label:"Parts",icon:"🔩"},
     {id:"blog",label:"Blog",icon:"📝"},
+    {id:"reviews",label:"Reviews",icon:"⭐"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"settings",label:"Settings",icon:"⚙️"},
@@ -5591,6 +5639,7 @@ function AdminPanel({onLogout}) {
         {tab==="images"&&<AdminRemoteImages/>}
         {tab==="parts"&&<AdminParts/>}
         {tab==="blog"&&<AdminBlog/>}
+        {tab==="reviews"&&<AdminReviews/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="users"&&<AdminUsers/>}
         {tab==="settings"&&<AdminSettings/>}
