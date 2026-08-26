@@ -49,6 +49,17 @@ module.exports = async (req, res) => {
     const image = isRealUrl(post.featured_image) ? post.featured_image : DEFAULT_IMAGE;
     const url = `${SITE_URL}/blog/${post.slug}`;
 
+    const reviewsRes = await fetch(
+      `${SB_URL}/rest/v1/reviews?select=rating,comment,user_name,created_at&target_type=eq.blog&target_id=eq.${encodeURIComponent(slug)}&order=created_at.desc&limit=20`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } }
+    );
+    const postReviews = await reviewsRes.json().catch(() => []);
+    const reviewList = Array.isArray(postReviews) ? postReviews : [];
+    const reviewCount = reviewList.length;
+    const avgRating = reviewCount
+      ? reviewList.reduce((s, rv) => s + rv.rating, 0) / reviewCount
+      : 0;
+
     const jsonLdGraph = [
       {
         "@context": "https://schema.org",
@@ -65,6 +76,15 @@ module.exports = async (req, res) => {
           logo: { "@type": "ImageObject", url: DEFAULT_IMAGE },
         },
         mainEntityOfPage: { "@type": "WebPage", "@id": url },
+        ...(reviewCount > 0
+          ? {
+              aggregateRating: {
+                "@type": "AggregateRating",
+                ratingValue: Math.round(avgRating * 10) / 10,
+                reviewCount,
+              },
+            }
+          : {}),
       },
       {
         "@context": "https://schema.org",

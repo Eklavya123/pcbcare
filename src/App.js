@@ -1518,7 +1518,92 @@ function ShopTrustBadges() {
   );
 }
 
-function Shop({initialPath}) {
+// ── RATINGS & REVIEWS (shared by Shop products and Blog posts) ─────────────────
+function StarRating({value,onChange,size=16,readOnly}) {
+  return (
+    <div style={{display:"flex",gap:2}}>
+      {[1,2,3,4,5].map(n=>(
+        <span key={n} onClick={()=>!readOnly&&onChange&&onChange(n)} style={{fontSize:size,lineHeight:1,cursor:readOnly?"default":"pointer",color:n<=value?"#f5a623":"#3a4060",userSelect:"none"}}>★</span>
+      ))}
+    </div>
+  );
+}
+
+function ReviewsSection({targetType,targetId,user}) {
+  const T=useTheme();
+  const [reviews,setReviews]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [rating,setRating]=useState(0);
+  const [comment,setComment]=useState("");
+  const [submitting,setSubmitting]=useState(false);
+  const [msg,setMsg]=useState("");
+
+  const load=async()=>{
+    setLoading(true);
+    const d=await api("reviews",{filter:`?select=*&target_type=eq.${targetType}&target_id=eq.${encodeURIComponent(targetId)}&order=created_at.desc`});
+    setReviews(d||[]);
+    setLoading(false);
+  };
+  useEffect(()=>{load();},[targetType,targetId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const avg=reviews.length?reviews.reduce((s,r)=>s+r.rating,0)/reviews.length:0;
+
+  const submit=async()=>{
+    if(!user){setMsg("⚠ Please log in to leave a review.");return;}
+    if(!rating){setMsg("⚠ Pick a star rating first.");return;}
+    setSubmitting(true);
+    try{
+      await fetch(`${SB_URL}/rest/v1/reviews`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({
+        target_type:targetType,target_id:targetId,
+        user_name:user.full_name||"Customer",user_id:user.id||null,
+        rating,comment:comment.trim()||null,
+      })});
+      setRating(0);setComment("");setMsg("✅ Thanks for your review!");
+      load();
+    }catch(e){setMsg("⚠ Couldn't submit — please try again.");}
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{marginTop:28,paddingTop:20,borderTop:`1px solid ${T.border}`}}>
+      <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:10}}>Ratings & Reviews</div>
+      {!loading&&reviews.length>0&&(
+        <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:16}}>
+          <StarRating value={Math.round(avg)} readOnly/>
+          <div style={{fontSize:12.5,color:T.subtext}}>{avg.toFixed(1)} out of 5 · {reviews.length} review{reviews.length===1?"":"s"}</div>
+        </div>
+      )}
+      {!loading&&reviews.length===0&&<div style={{fontSize:12,color:T.subtext,marginBottom:16}}>No reviews yet — be the first to share your experience.</div>}
+
+      <div style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`,marginBottom:18}}>
+        <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:9}}>Leave a review</div>
+        {user?(
+          <>
+            <div style={{marginBottom:10}}><StarRating value={rating} onChange={setRating} size={23}/></div>
+            <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Share your experience (optional)" rows={3} style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,resize:"vertical",boxSizing:"border-box",marginBottom:9,fontFamily:"inherit"}}/>
+            <button onClick={submit} disabled={submitting} style={{padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:submitting?"default":"pointer",fontWeight:700,fontSize:12.5,opacity:submitting?0.6:1}}>{submitting?"Submitting…":"Submit Review"}</button>
+          </>
+        ):(
+          <div style={{fontSize:12,color:T.subtext}}>Please log in to leave a rating and review.</div>
+        )}
+        {msg&&<div style={{fontSize:11.5,color:msg.startsWith("✅")?"#4caf50":"#ff9800",marginTop:8}}>{msg}</div>}
+      </div>
+
+      {reviews.map(r=>(
+        <div key={r.id} style={{padding:"12px 0",borderBottom:`1px solid ${T.border}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4,gap:8}}>
+            <div style={{fontSize:12.5,fontWeight:600,color:T.text}}>{r.user_name}</div>
+            <StarRating value={r.rating} readOnly size={13}/>
+          </div>
+          {r.comment&&<div style={{fontSize:12.5,color:T.muted,lineHeight:1.5}}>{r.comment}</div>}
+          <div style={{fontSize:10,color:T.subtext,marginTop:4}}>{new Date(r.created_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Shop({initialPath,user}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
   const [view,setView]=useState("grid");            // grid | category | product
@@ -1685,6 +1770,7 @@ function Shop({initialPath}) {
           {p.motor_type&&<span style={{fontSize:10.5,fontWeight:600,color:PC,background:T.input,border:`1px solid ${PC}`,borderRadius:999,padding:"3px 10px"}}>⚙️ {p.motor_type}</span>}
         </div>}
         {p.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:18,whiteSpace:"pre-wrap"}}>{p.description}</div>}
+        {p.starting_price&&<div style={{fontSize:15,fontWeight:700,color:PC,marginBottom:10}}>Starting from ₹{Number(p.starting_price).toLocaleString("en-IN")}</div>}
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
 
@@ -1703,6 +1789,8 @@ function Shop({initialPath}) {
             ))}
           </div>
         </>}
+
+        <ReviewsSection targetType="product" targetId={p.slug} user={user}/>
 
         {zoomImg&&<div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <img src={zoomImg} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12,objectFit:"contain"}}/>
@@ -1884,7 +1972,7 @@ function BlogPostCard({post,category,onOpen}) {
   );
 }
 
-function Blog({initialPath}) {
+function Blog({initialPath,user}) {
   const T=useTheme();
   const [categories,setCategories]=useState([]);
   const [posts,setPosts]=useState([]);
@@ -2026,6 +2114,7 @@ function Blog({initialPath}) {
           dangerouslySetInnerHTML={{__html:sanitizeHTML(activePost.content||"")}}
         />
         <BlogFAQSection faqs={activePost.faqs}/>
+        <ReviewsSection targetType="blog" targetId={activePost.slug} user={user}/>
         {relatedPosts.length>0&&<div style={{marginTop:32}}>
           <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}}>Related Posts</div>
           {relatedPosts.map(p=><BlogPostCard key={p.id} post={p} category={cat} onOpen={()=>openPost(p)}/>)}
@@ -5207,7 +5296,7 @@ function AdminBulkUploadProducts({categories,allBrands,onImported,setMsg}) {
 
 function AdminShopProducts({categories,setMsg}) {
   const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
-  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:""};
+  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",starting_price:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -5280,6 +5369,7 @@ function AdminShopProducts({categories,setMsg}) {
         category_id:form.category_id,name:form.name.trim(),description:form.description.trim(),
         images:form.images,brands:form.brands,condition:catIsRemotes?"":form.condition,
         motor_type:catIsPcb?(form.motor_type||""):"",
+        starting_price:form.starting_price===""?null:Number(form.starting_price),
       };
       if(editId){
         // Only regenerate the slug (and thus the product's URL) if the name changed.
@@ -5297,7 +5387,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||""});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",starting_price:p.starting_price??""});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -5318,6 +5408,7 @@ function AdminShopProducts({categories,setMsg}) {
         </select>
         <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Product name" style={{...INP,marginBottom:10}}/>
         <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={3} style={{...INP,marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
+        <input value={form.starting_price} onChange={e=>setForm(f=>({...f,starting_price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="Starting price in ₹ (optional — shown as 'Starting from' and used for Google's price snippet)" inputMode="decimal" style={{...INP,marginBottom:10}}/>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Images</div>
         {form.images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
@@ -5744,11 +5835,11 @@ export default function PCBCare() {
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}
-        {tab==="shop"&&<Shop initialPath={shopInitialPath.current}/>}
+        {tab==="shop"&&<Shop initialPath={shopInitialPath.current} user={user}/>}
         {tab==="errors"&&<Errors/>}
         {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current} onViewProduct={navigateToShopProduct}/>}
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
-        {tab==="blog"&&<Blog initialPath={blogInitialPath.current}/>}
+        {tab==="blog"&&<Blog initialPath={blogInitialPath.current} user={user}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder user={user}/>}
         {tab==="requests"&&<Requests user={user}/>}

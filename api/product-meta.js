@@ -59,6 +59,20 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // Pull real reviews too — Google's Product rich result requires at least
+    // one of offers/review/aggregateRating, and we'd rather show genuine
+    // customer ratings than fake/omit them.
+    const reviewsRes = await fetch(
+      `${SB_URL}/rest/v1/reviews?select=rating,comment,user_name,created_at&target_type=eq.product&target_id=eq.${encodeURIComponent(slug)}&order=created_at.desc&limit=20`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } }
+    );
+    const productReviews = await reviewsRes.json().catch(() => []);
+    const reviewList = Array.isArray(productReviews) ? productReviews : [];
+    const reviewCount = reviewList.length;
+    const avgRating = reviewCount
+      ? reviewList.reduce((s, rv) => s + rv.rating, 0) / reviewCount
+      : 0;
+
     const title = `${prod.name} — PCB Care Shop`;
     const description = (
       (prod.description && prod.description.trim()) ||
@@ -81,15 +95,30 @@ module.exports = async (req, res) => {
       image: realImages.length ? realImages : [DEFAULT_IMAGE],
       url,
       brand: { "@type": "Organization", name: "PCB Care" },
-      ...(prod.price
+      ...(prod.starting_price
         ? {
             offers: {
               "@type": "Offer",
-              price: prod.price,
+              price: prod.starting_price,
               priceCurrency: "INR",
               availability: "https://schema.org/InStock",
               url,
             },
+          }
+        : {}),
+      ...(reviewCount > 0
+        ? {
+            aggregateRating: {
+              "@type": "AggregateRating",
+              ratingValue: Math.round(avgRating * 10) / 10,
+              reviewCount,
+            },
+            review: reviewList.slice(0, 5).map((rv) => ({
+              "@type": "Review",
+              reviewRating: { "@type": "Rating", ratingValue: rv.rating },
+              author: { "@type": "Person", name: rv.user_name || "Customer" },
+              ...(rv.comment ? { reviewBody: rv.comment } : {}),
+            })),
           }
         : {}),
     };
