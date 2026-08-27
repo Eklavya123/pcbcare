@@ -1,10 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-<<<<<<< HEAD
-// PCB Care — v1.5.5
-=======
-// PCB Care — v1.5.4
->>>>>>> 7388e27056bf2325b57a08e46c0f1dc261a7957f
+// PCB Care — v1.6.0
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -129,7 +125,6 @@ const SHOP_WHATSAPP_NUMBER = "919111839918";
 // file storage instead of embedding base64, this filter becomes a no-op.
 const realImageUrls=(images)=>(images||[]).filter(img=>img&&!img.startsWith("data:"));
 
-<<<<<<< HEAD
 // ── Supabase Storage upload ─────────────────────────────────────────────────
 // Converts a base64 data: URL into an actual uploaded file in the "site-images"
 // bucket and returns its public URL. Used everywhere an image previously went
@@ -159,8 +154,6 @@ const uploadImageToStorage = async (dataUrl, folder="uploads") => {
   }
 };
 
-=======
->>>>>>> 7388e27056bf2325b57a08e46c0f1dc261a7957f
 const slugify = (s) => (s||"").toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
 
@@ -2261,7 +2254,107 @@ function Blog({initialPath,user}) {
   );
 }
 
-// ── SENSORS ───────────────────────────────────────────────────────────────────
+// ── STATIC PAGES ──────────────────────────────────────────────────────────────
+// Standalone pages at clean root-level URLs (pcbcare.in/<slug>) — for landing
+// pages, local-SEO service-area pages, About, etc. Reuses the Blog's HTML
+// rendering + FAQ accordion. When a page's schema_type is "service", emits
+// Service + LocalBusiness JSON-LD with an areaServed list instead of plain
+// WebPage schema, so a single page can legitimately target many nearby towns
+// at once (the correct alternative to spinning up separate near-duplicate
+// pages per city, which Google treats as spammy "doorway pages").
+function StaticPage({initialPath,onNotFound}) {
+  const T=useTheme();
+  const [page,setPage]=useState(undefined); // undefined = loading, null = not found
+  const slug=(initialPath||window.location.pathname||"").replace(/^\/+/,"").split("/")[0];
+
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
+      const d=await api("pages",{filter:`?select=*&status=eq.published&slug=eq.${encodeURIComponent(slug)}&limit=1`}).catch(()=>null);
+      if(cancelled) return;
+      const found=(d&&d[0])||null;
+      setPage(found);
+      if(!found) return;
+      const metaTitle=found.meta_title||found.title;
+      const metaDesc=(found.meta_description||found.excerpt||"").slice(0,160);
+      const jsonLdGraph=[];
+      if(found.schema_type==="service"){
+        jsonLdGraph.push({
+          "@context":"https://schema.org",
+          "@type":"Service",
+          name:found.title,
+          description:metaDesc,
+          provider:{
+            "@type":"LocalBusiness",
+            name:"PCB Care",
+            image:LOGO,
+            address:{"@type":"PostalAddress",addressLocality:"Jabalpur",addressRegion:"Madhya Pradesh",addressCountry:"IN"},
+            url:SITE_URL,
+          },
+          areaServed:(found.service_areas||[]).map(city=>({"@type":"City",name:city})),
+          url:`${SITE_URL}/${found.slug}`,
+        });
+      }else{
+        jsonLdGraph.push({
+          "@context":"https://schema.org",
+          "@type":"WebPage",
+          name:found.title,
+          description:metaDesc,
+          image:found.featured_image?[found.featured_image]:undefined,
+          dateModified:found.updated_at||found.published_at||found.created_at,
+          url:`${SITE_URL}/${found.slug}`,
+        });
+      }
+      jsonLdGraph.push({
+        "@context":"https://schema.org",
+        "@type":"BreadcrumbList",
+        itemListElement:[
+          {"@type":"ListItem",position:1,name:"Home",item:SITE_URL},
+          {"@type":"ListItem",position:2,name:found.title,item:`${SITE_URL}/${found.slug}`},
+        ],
+      });
+      if(found.faqs&&found.faqs.length>0){
+        jsonLdGraph.push({
+          "@context":"https://schema.org",
+          "@type":"FAQPage",
+          mainEntity:found.faqs.map(f=>({"@type":"Question",name:f.q,acceptedAnswer:{"@type":"Answer",text:f.a}})),
+        });
+      }
+      setSEO({title:metaTitle,description:metaDesc,path:`/${found.slug}`,image:realImageUrls([found.featured_image])[0],jsonLdId:"page-jsonld",jsonLd:jsonLdGraph});
+    })();
+    return ()=>{cancelled=true;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[slug]);
+
+  if(page===undefined) return <div style={{padding:40,textAlign:"center",color:T.subtext}}>Loading…</div>;
+
+  if(page===null){
+    if(onNotFound) onNotFound();
+    return (
+      <div style={{padding:40,textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:8}}>🔍</div>
+        <div style={{fontSize:14,color:T.subtext,marginBottom:16}}>Page not found.</div>
+        <button onClick={()=>{try{window.history.pushState({},"","/");}catch{}window.location.reload();}} style={{padding:"10px 18px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Go Home</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding:16,maxWidth:720,margin:"0 auto"}}>
+      <div style={{fontSize:11,color:T.subtext,marginBottom:8}}><span>Home</span> › <span>{page.title}</span></div>
+      <div style={{fontSize:23,fontWeight:800,color:T.text,margin:"4px 0 16px",lineHeight:1.3}}>{page.title}</div>
+      {page.featured_image&&<img src={page.featured_image} alt={page.title} style={{width:"100%",borderRadius:14,marginBottom:20}}/>}
+      <div
+        style={{fontSize:14.5,color:T.muted,lineHeight:1.8}}
+        className="pcb-rte"
+        dangerouslySetInnerHTML={{__html:sanitizeHTML(page.content||"")}}
+      />
+      <BlogFAQSection faqs={page.faqs}/>
+    </div>
+  );
+}
+
+
 function SensorValues({onViewProduct}) {
   const T=useTheme();
   const [hasData,setHasData]=useState(null); // null = checking, true/false once known
@@ -4193,7 +4286,279 @@ function AdminBlogPosts({categories,setMsg}) {
 }
 
 
-// ── ADMIN: FIND REMOTE ──────────────────────────────────────────────────────────
+// ── ADMIN: STATIC PAGES ──────────────────────────────────────────────────────
+// Same interface as Blog Posts (HTML paste-import, FAQ builder, featured
+// image) but for standalone pages served at clean root-level URLs
+// (pcbcare.in/<slug>) instead of /blog/<slug>. Adds schema_type +
+// service_areas for local-SEO landing pages — when schema_type is "service",
+// the public page emits Service + LocalBusiness structured data with an
+// areaServed list built from service_areas, instead of plain WebPage schema.
+function AdminPages() {
+  const blank={title:"",slug:"",excerpt:"",content:"",featured_image:"",meta_title:"",meta_description:"",faqs:[],schema_type:"webpage",service_areas:[],status:"draft"};
+  const [form,setForm]=useState(blank);
+  const [list,setList]=useState([]);
+  const [editId,setEditId]=useState(null);
+  const [saving,setSaving]=useState(false);
+  const [cropSrc,setCropSrc]=useState(null);
+  const [statusFilter,setStatusFilter]=useState("all");
+  const [slugTouched,setSlugTouched]=useState(false);
+  const [importOpen,setImportOpen]=useState(false);
+  const [importText,setImportText]=useState("");
+  const [msg,setMsg]=useState("");
+  const [areaInput,setAreaInput]=useState("");
+
+  const load=async()=>{
+    const d=await api("pages",{filter:"?select=*&order=created_at.desc"});
+    setList(d||[]);
+  };
+  useEffect(()=>{load();},[]);
+
+  const uniqueSlug=async(base,skipId)=>{
+    let slug=slugify(base),n=2;
+    // eslint-disable-next-line no-constant-condition
+    while(true){
+      const found=await api("pages",{filter:`?select=id&slug=eq.${encodeURIComponent(slug)}`});
+      const clash=(found||[]).some(r=>r.id!==skipId);
+      if(!clash) return slug;
+      slug=`${slugify(base)}-${n}`;n++;
+    }
+  };
+
+  const addImage=(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=()=>{setCropSrc(reader.result);};
+    reader.onerror=()=>{setMsg("⚠ Could not read image.");};
+    reader.readAsDataURL(file);
+    e.target.value="";
+  };
+
+  const addFAQ=()=>setForm(f=>({...f,faqs:[...f.faqs,{q:"",a:""}]}));
+  const updateFAQ=(i,key,val)=>setForm(f=>({...f,faqs:f.faqs.map((x,idx)=>idx===i?{...x,[key]:val}:x)}));
+  const removeFAQ=(i)=>setForm(f=>({...f,faqs:f.faqs.filter((_,idx)=>idx!==i)}));
+
+  const addArea=()=>{
+    const a=areaInput.trim();
+    if(!a) return;
+    setForm(f=>f.service_areas.includes(a)?f:{...f,service_areas:[...f.service_areas,a]});
+    setAreaInput("");
+  };
+  const removeArea=(a)=>setForm(f=>({...f,service_areas:f.service_areas.filter(x=>x!==a)}));
+
+  // ── HTML paste-import — same template convention as Blog: <title>,
+  // <meta name="description">, <div class="excerpt">, <div class="content">,
+  // <div class="faqs"><div class="faq"><div class="q">...<div class="a">.
+  // Additionally reads <div class="service-areas">City1, City2, ...</div> to
+  // fill service_areas in one paste.
+  const parseHtmlImport=(html)=>{
+    const doc=new DOMParser().parseFromString(html,"text/html");
+    const text=(el)=>el?el.textContent.trim():"";
+    const title=text(doc.querySelector("title"))||text(doc.querySelector("h1"))||"";
+    const metaDescEl=doc.querySelector('meta[name="description"]');
+    const metaDescription=metaDescEl?(metaDescEl.getAttribute("content")||"").trim():"";
+    const metaTitleEl=doc.querySelector('meta[name="title"]');
+    const metaTitle=metaTitleEl?(metaTitleEl.getAttribute("content")||"").trim():title;
+    const excerptEl=doc.querySelector(".excerpt");
+    const excerpt=excerptEl?text(excerptEl):metaDescription;
+    const contentEl=doc.querySelector(".content")||doc.querySelector("article")||doc.body;
+    const content=contentEl?contentEl.innerHTML.trim():"";
+    const faqs=Array.from(doc.querySelectorAll(".faqs .faq")).map(el=>({
+      q:text(el.querySelector(".q")),
+      a:(el.querySelector(".a")?.innerHTML||"").trim()||text(el.querySelector(".a")),
+    })).filter(f=>f.q&&f.a);
+    const areasEl=doc.querySelector(".service-areas");
+    const serviceAreas=areasEl?text(areasEl).split(",").map(t=>t.trim()).filter(Boolean):[];
+    return {title,metaTitle,metaDescription,excerpt,content,faqs,serviceAreas};
+  };
+
+  const runImport=()=>{
+    if(!importText.trim()){setMsg("⚠ Paste the HTML first.");return;}
+    try{
+      const parsed=parseHtmlImport(importText);
+      if(!parsed.title&&!parsed.content){setMsg("⚠ Couldn't find a title or content in that HTML — check it matches the template.");return;}
+      setForm(f=>({
+        ...f,
+        title:parsed.title||f.title,
+        slug:parsed.title?slugify(parsed.title):f.slug,
+        excerpt:parsed.excerpt||f.excerpt,
+        content:parsed.content||f.content,
+        meta_title:parsed.metaTitle||f.meta_title,
+        meta_description:parsed.metaDescription||f.meta_description,
+        faqs:parsed.faqs.length?parsed.faqs:f.faqs,
+        service_areas:parsed.serviceAreas.length?parsed.serviceAreas:f.service_areas,
+      }));
+      setSlugTouched(true);
+      setImportText("");setImportOpen(false);
+      setMsg("✅ Fields filled from HTML. Review, then save.");
+    }catch(e){setMsg("⚠ Couldn't parse that HTML: "+e.message);}
+  };
+
+  const save=async(publish)=>{
+    const title=form.title.trim();
+    if(!title){setMsg("⚠ Enter a title.");return;}
+    setSaving(true);
+    try{
+      const status=publish?"published":(form.status==="published"?"published":"draft");
+      const isNewlyPublishing=publish&&!(editId&&list.find(p=>p.id===editId)?.published_at);
+      const payload={
+        title,excerpt:form.excerpt.trim(),
+        content:sanitizeHTML(form.content),featured_image:form.featured_image,
+        meta_title:form.meta_title.trim(),meta_description:form.meta_description.trim(),
+        faqs:form.faqs.filter(f=>f.q.trim()&&f.a.trim()),
+        schema_type:form.schema_type,service_areas:form.service_areas,
+        status,updated_at:new Date().toISOString(),
+      };
+      if(isNewlyPublishing) payload.published_at=new Date().toISOString();
+      if(editId){
+        if(!form.slug.trim()){setMsg("⚠ Slug can't be empty.");setSaving(false);return;}
+        payload.slug=slugTouched?await uniqueSlug(form.slug.trim(),editId):form.slug;
+        await api("pages",{method:"PATCH",filter:`?id=eq.${editId}`,body:payload,prefer:"return=minimal"});
+        setMsg(`✅ "${title}" updated${publish?" and published":""}.`);
+      }else{
+        payload.slug=await uniqueSlug(form.slug.trim()||title,null);
+        await api("pages",{method:"POST",body:payload,prefer:"return=minimal"});
+        setMsg(`✅ "${title}" ${publish?"published":"saved as draft"}.`);
+      }
+      setForm(blank);setEditId(null);setSlugTouched(false);
+      await load();
+    }catch(e){setMsg("⚠ Failed: "+e.message);}
+    setSaving(false);
+  };
+
+  const edit=(p)=>{
+    setForm({
+      title:p.title,slug:p.slug,excerpt:p.excerpt||"",
+      content:p.content||"",featured_image:p.featured_image||"",
+      meta_title:p.meta_title||"",meta_description:p.meta_description||"",
+      faqs:p.faqs||[],schema_type:p.schema_type||"webpage",service_areas:p.service_areas||[],
+      status:p.status||"draft",
+    });
+    setEditId(p.id);setSlugTouched(false);
+  };
+  const reset=()=>{setForm(blank);setEditId(null);setSlugTouched(false);};
+  const del=async(p)=>{
+    if(!window.confirm(`Delete "${p.title}"? This can't be undone.`)) return;
+    await api("pages",{method:"DELETE",filter:`?id=eq.${p.id}`});
+    setMsg(`✅ "${p.title}" deleted.`);
+    await load();
+  };
+
+  const filtered=list.filter(p=>statusFilter==="all"||p.status===statusFilter);
+  const INP={width:"100%",padding:"11px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",fontSize:13,outline:"none",boxSizing:"border-box"};
+  const LBL={fontSize:11,fontWeight:600,color:"#6b7db3",marginBottom:6,display:"block"};
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>📄 Pages</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>Standalone pages served at pcbcare.in/&lt;slug&gt; — for landing pages, local-SEO pages, About, etc.</div>
+      {msg&&<div style={{padding:"8px 12px",borderRadius:8,background:"#1a1f2e",color:"#fff",fontSize:12,marginBottom:12}}>{msg}</div>}
+
+      {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={async(dataUrl)=>{setCropSrc(null);setForm(f=>({...f,featured_image:dataUrl}));const url=await uploadImageToStorage(dataUrl,"pages");setForm(f=>({...f,featured_image:url}));}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>{editId?"Edit Page":"New Page"}</div>
+          <button onClick={()=>setImportOpen(v=>!v)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>{importOpen?"Close Import":"Paste HTML to Import"}</button>
+        </div>
+
+        {importOpen&&<div style={{marginBottom:14,padding:12,borderRadius:10,background:"#0f1117",border:"1px solid #2a3050"}}>
+          <div style={{fontSize:10.5,color:"#6b7db3",marginBottom:8,lineHeight:1.6}}>
+            Paste HTML using this structure and every field fills itself: <code>&lt;title&gt;</code>, <code>&lt;meta name="description" content="..."&gt;</code>, <code>&lt;div class="excerpt"&gt;</code>, <code>&lt;div class="content"&gt;</code> (page HTML, including any internal/external <code>&lt;a&gt;</code> links), <code>&lt;div class="service-areas"&gt;City1, City2, City3&lt;/div&gt;</code> (optional, comma-separated city names), and <code>&lt;div class="faqs"&gt;&lt;div class="faq"&gt;&lt;div class="q"&gt;...&lt;/div&gt;&lt;div class="a"&gt;...&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;</code>.
+          </div>
+          <textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder="Paste HTML here…" rows={6} style={{...INP,fontFamily:"monospace",fontSize:11,resize:"vertical"}}/>
+          <button onClick={runImport} style={{marginTop:8,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:12}}>Fill Fields From HTML</button>
+        </div>}
+
+        <label style={LBL}>Title</label>
+        <input value={form.title} onChange={e=>{const v=e.target.value;setForm(f=>({...f,title:v,slug:slugTouched?f.slug:slugify(v)}));}} style={{...INP,marginBottom:10}}/>
+
+        <label style={LBL}>URL — pcbcare.in/</label>
+        <input value={form.slug} onChange={e=>{setSlugTouched(true);setForm(f=>({...f,slug:e.target.value}));}} style={{...INP,marginBottom:10}}/>
+
+        <label style={LBL}>Excerpt / meta description fallback</label>
+        <textarea value={form.excerpt} onChange={e=>setForm(f=>({...f,excerpt:e.target.value}))} rows={2} style={{...INP,marginBottom:10,resize:"vertical"}}/>
+
+        <label style={LBL}>Content (HTML)</label>
+        <textarea value={form.content} onChange={e=>setForm(f=>({...f,content:e.target.value}))} rows={10} style={{...INP,marginBottom:10,fontFamily:"monospace",fontSize:11.5,resize:"vertical"}}/>
+
+        <label style={LBL}>Featured Image</label>
+        {form.featured_image?(
+          <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:10}}>
+            <img src={form.featured_image} alt="" style={{height:70,borderRadius:8,border:"1px solid #2a3050"}}/>
+            <button onClick={()=>setForm(f=>({...f,featured_image:""}))} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Remove</button>
+          </div>
+        ):(
+          <label style={{display:"inline-block",padding:"8px 14px",borderRadius:8,background:"#2a3050",color:"#6b7db3",fontSize:11,cursor:"pointer",marginBottom:10}}>
+            Upload Image<input type="file" accept="image/*" onChange={addImage} style={{display:"none"}}/>
+          </label>
+        )}
+
+        <label style={LBL}>Meta Title</label>
+        <input value={form.meta_title} onChange={e=>setForm(f=>({...f,meta_title:e.target.value}))} placeholder={form.title} style={{...INP,marginBottom:10}}/>
+
+        <label style={LBL}>Meta Description</label>
+        <textarea value={form.meta_description} onChange={e=>setForm(f=>({...f,meta_description:e.target.value}))} rows={2} style={{...INP,marginBottom:10,resize:"vertical"}}/>
+
+        <label style={LBL}>Structured Data Type</label>
+        <select value={form.schema_type} onChange={e=>setForm(f=>({...f,schema_type:e.target.value}))} style={{...INP,marginBottom:10}}>
+          <option value="webpage">Standard Page (WebPage schema)</option>
+          <option value="service">Local Service / Area Page (Service + LocalBusiness schema)</option>
+        </select>
+
+        {form.schema_type==="service"&&<>
+          <label style={LBL}>Service Areas (cities/towns — for areaServed schema)</label>
+          <div style={{display:"flex",gap:8,marginBottom:8}}>
+            <input value={areaInput} onChange={e=>setAreaInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();addArea();}}} placeholder="City name, press Enter" style={{...INP,flex:1}}/>
+            <button onClick={addArea} style={{padding:"0 16px",borderRadius:10,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:12,fontWeight:600}}>Add</button>
+          </div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            {form.service_areas.map(a=>(
+              <span key={a} style={{padding:"4px 10px",borderRadius:20,background:"#2a3050",color:"#fff",fontSize:11,display:"flex",alignItems:"center",gap:6}}>
+                {a}<span onClick={()=>removeArea(a)} style={{cursor:"pointer",color:"#ff4757",fontWeight:700}}>×</span>
+              </span>
+            ))}
+          </div>
+        </>}
+
+        <label style={LBL}>FAQs (optional — powers FAQ rich results)</label>
+        {form.faqs.map((f,i)=>(
+          <div key={i} style={{marginBottom:8,padding:10,borderRadius:8,background:"#0f1117",border:"1px solid #2a3050"}}>
+            <input value={f.q} onChange={e=>updateFAQ(i,"q",e.target.value)} placeholder="Question" style={{...INP,marginBottom:6}}/>
+            <textarea value={f.a} onChange={e=>updateFAQ(i,"a",e.target.value)} placeholder="Answer" rows={2} style={{...INP,resize:"vertical"}}/>
+            <button onClick={()=>removeFAQ(i)} style={{marginTop:6,padding:"4px 10px",borderRadius:6,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:10.5}}>Remove</button>
+          </div>
+        ))}
+        <button onClick={addFAQ} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11,marginBottom:14}}>+ Add FAQ</button>
+
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>save(false)} disabled={saving} style={{flex:1,padding:"12px",borderRadius:10,background:"#2a3050",color:"#fff",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>Save Draft</button>
+          <button onClick={()=>save(true)} disabled={saving} style={{flex:1,padding:"12px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving…":"Publish"}</button>
+          {editId&&<button onClick={reset} style={{padding:"12px 16px",borderRadius:10,background:"#0f1117",color:"#6b7db3",border:"1px solid #2a3050",cursor:"pointer",fontSize:13}}>Cancel</button>}
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        {["all","published","draft"].map(s=>(
+          <button key={s} onClick={()=>setStatusFilter(s)} style={{padding:"6px 12px",borderRadius:8,background:statusFilter===s?PC:"#1a1f2e",color:statusFilter===s?"#0a0d14":"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textTransform:"capitalize"}}>{s}</button>
+        ))}
+      </div>
+
+      {filtered.map(p=>(
+        <div key={p.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:12,borderRadius:10,background:"#1a1f2e",border:"1px solid #2a3050",marginBottom:8}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.title} {p.status==="draft"&&<span style={{color:"#6b7db3",fontWeight:400}}>(draft)</span>}</div>
+            <div style={{fontSize:10.5,color:"#6b7db3"}}>/{p.slug} {p.schema_type==="service"&&`· ${(p.service_areas||[]).length} areas`}</div>
+          </div>
+          <div style={{display:"flex",gap:6,flexShrink:0}}>
+            {p.status==="published"&&<a href={`${SITE_URL}/${p.slug}`} target="_blank" rel="noreferrer" style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,textDecoration:"none"}}>View</a>}
+            <button onClick={()=>edit(p)} style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:AC,border:"none",cursor:"pointer",fontSize:11}}>Edit</button>
+            <button onClick={()=>del(p)} style={{padding:"6px 10px",borderRadius:8,background:"#ff475722",color:"#ff4757",border:"none",cursor:"pointer",fontSize:11}}>Delete</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 // ── ADMIN: REMOTE IMAGE LIBRARY ──────────────────────────────────────────────
 function AdminRemoteImages() {
   const [list,setList]=useState([]);const [msg,setMsg]=useState("");
@@ -5844,6 +6209,7 @@ function AdminPanel({onLogout}) {
     {id:"images",label:"Image Library",icon:"🖼️"},
     {id:"parts",label:"Parts",icon:"🔩"},
     {id:"blog",label:"Blog",icon:"📝"},
+    {id:"pages",label:"Pages",icon:"📄"},
     {id:"reviews",label:"Reviews",icon:"⭐"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
@@ -5876,6 +6242,7 @@ function AdminPanel({onLogout}) {
         {tab==="images"&&<AdminRemoteImages/>}
         {tab==="parts"&&<AdminParts/>}
         {tab==="blog"&&<AdminBlog/>}
+        {tab==="pages"&&<AdminPages/>}
         {tab==="reviews"&&<AdminReviews/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="users"&&<AdminUsers/>}
@@ -5936,7 +6303,17 @@ export default function PCBCare() {
   // /blog/:slug link (shared, bookmarked, or from a search result) needs to
   // open straight to the post, not get intercepted by the login gate.
   const blogInitialPath=useRef(window.location.pathname.startsWith("/blog")?window.location.pathname:null);
-  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":"home");
+  // Static Pages (Admin → Pages) live at clean root-level URLs, e.g.
+  // /service-areas — so anything that isn't "/" and isn't one of the other
+  // reserved prefixes above is treated as a candidate page slug. StaticPage
+  // itself handles the "no page with that slug" case gracefully.
+  const RESERVED_PATH_PREFIXES=["/shop","/wiring","/blog"];
+  const pageInitialPath=useRef((()=>{
+    const p=window.location.pathname;
+    if(p==="/"||RESERVED_PATH_PREFIXES.some(pre=>p.startsWith(pre))) return null;
+    return p;
+  })());
+  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":pageInitialPath.current?"page":"home");
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
   // that link to a Shop product — Shop is already public, so this can just
   // switch tabs normally.
@@ -6074,7 +6451,7 @@ export default function PCBCare() {
   const [requireLogin,setRequireLogin]=useState(true);
   useEffect(()=>{ getRequireLogin().then(setRequireLogin); },[]);
   const goToTab=(id)=>{
-    if(id!=="home"&&id!=="shop"&&id!=="blog"&&requireLogin&&!user){
+    if(id!=="home"&&id!=="shop"&&id!=="blog"&&id!=="page"&&requireLogin&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
@@ -6085,6 +6462,10 @@ export default function PCBCare() {
       try{ window.history.pushState({},"","/"); }catch{}
     }
     if(id!=="blog"&&window.location.pathname.startsWith("/blog")){
+      try{ window.history.pushState({},"","/"); }catch{}
+    }
+    // Same idea for a Static Page's arbitrary-slug URL.
+    if(id!=="page"&&window.location.pathname!=="/"&&!["/shop","/wiring","/blog"].some(pre=>window.location.pathname.startsWith(pre))){
       try{ window.history.pushState({},"","/"); }catch{}
     }
     setTab(id);
@@ -6126,6 +6507,7 @@ export default function PCBCare() {
         {tab==="wiring"&&<Wiring initialPath={wiringInitialPath.current} onViewProduct={navigateToShopProduct}/>}
         {tab==="remote"&&<FindRemote onViewProduct={navigateToShopProduct}/>}
         {tab==="blog"&&<Blog initialPath={blogInitialPath.current} user={user}/>}
+        {tab==="page"&&<StaticPage initialPath={pageInitialPath.current}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder user={user}/>}
         {tab==="requests"&&<Requests user={user}/>}
