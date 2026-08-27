@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 
+<<<<<<< HEAD
 // PCB Care — v1.5.5
+=======
+// PCB Care — v1.5.4
+>>>>>>> 7388e27056bf2325b57a08e46c0f1dc261a7957f
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -125,6 +129,7 @@ const SHOP_WHATSAPP_NUMBER = "919111839918";
 // file storage instead of embedding base64, this filter becomes a no-op.
 const realImageUrls=(images)=>(images||[]).filter(img=>img&&!img.startsWith("data:"));
 
+<<<<<<< HEAD
 // ── Supabase Storage upload ─────────────────────────────────────────────────
 // Converts a base64 data: URL into an actual uploaded file in the "site-images"
 // bucket and returns its public URL. Used everywhere an image previously went
@@ -154,6 +159,8 @@ const uploadImageToStorage = async (dataUrl, folder="uploads") => {
   }
 };
 
+=======
+>>>>>>> 7388e27056bf2325b57a08e46c0f1dc261a7957f
 const slugify = (s) => (s||"").toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
 
