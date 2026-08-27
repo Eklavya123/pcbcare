@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 
-// PCB Care — v1.5.0
+// PCB Care — v1.5.5
 // ════════════════════════════════════════════════════════════════════════════
 // FIREBASE (Auth + Phone OTP)
 // ════════════════════════════════════════════════════════════════════════════
@@ -117,6 +117,43 @@ const SHOP_WHATSAPP_NUMBER = "919111839918";
 
 // ── SHOP: slugify — turns "AC Outdoor PCB" into "ac-outdoor-pcb" for clean,
 // SEO-friendly, shareable URLs. Used for both category and product URLs.
+// ── SHOP: filters real, hosted image URLs out of a product's images array —
+// excludes base64 data: URIs, which are invalid for schema.org's "image"
+// property (must be a URL) and would otherwise balloon the JSON-LD payload
+// with tens of thousands of characters, risking truncation of every field
+// that follows (like aggregateRating). TODO: once products upload to real
+// file storage instead of embedding base64, this filter becomes a no-op.
+const realImageUrls=(images)=>(images||[]).filter(img=>img&&!img.startsWith("data:"));
+
+// ── Supabase Storage upload ─────────────────────────────────────────────────
+// Converts a base64 data: URL into an actual uploaded file in the "site-images"
+// bucket and returns its public URL. Used everywhere an image previously went
+// straight into the database as base64 — products, categories, blog posts,
+// PCB/remote reference images. Falls back to returning the original dataUrl
+// unchanged if the upload fails, so a network hiccup never blocks someone
+// from saving their work (the image just stays base64 for that one save,
+// and can be picked up by a later migration pass).
+const STORAGE_BUCKET = "site-images";
+const uploadImageToStorage = async (dataUrl, folder="uploads") => {
+  try{
+    if(!dataUrl||!dataUrl.startsWith("data:")) return dataUrl; // already a real URL — nothing to do
+    const res=await fetch(dataUrl);
+    const blob=await res.blob();
+    const ext=(blob.type.split("/")[1]||"jpg").replace("jpeg","jpg");
+    const path=`${folder}/${Date.now()}-${Math.random().toString(36).slice(2,9)}.${ext}`;
+    const up=await fetch(`${SB_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`,{
+      method:"POST",
+      headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":blob.type||"image/jpeg"},
+      body:blob,
+    });
+    if(!up.ok) throw new Error(`storage upload failed (${up.status})`);
+    return `${SB_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+  }catch(e){
+    console.warn("Image upload to storage failed, keeping base64 for now:",e.message);
+    return dataUrl;
+  }
+};
+
 const slugify = (s) => (s||"").toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
 
@@ -1519,6 +1556,22 @@ function ShopTrustBadges() {
 }
 
 // ── RATINGS & REVIEWS (shared by Shop products and Blog posts) ─────────────────
+// Reviews are sitewide (not filtered per product/post — same list shows
+// everywhere), so the aggregateRating fed into Product structured data is
+// this one sitewide average/count. Cached briefly so opening several
+// products back-to-back doesn't refetch every time.
+let _ratingSummaryCache=null, _ratingSummaryAt=0;
+const getSitewideRatingSummary=async()=>{
+  if(_ratingSummaryCache&&Date.now()-_ratingSummaryAt<60000) return _ratingSummaryCache;
+  try{
+    const d=await api("reviews",{filter:"?select=rating&status=eq.approved"});
+    const list=d||[];
+    const summary=list.length?{ratingValue:+(list.reduce((s,r)=>s+r.rating,0)/list.length).toFixed(1),reviewCount:list.length}:null;
+    _ratingSummaryCache=summary; _ratingSummaryAt=Date.now();
+    return summary;
+  }catch{ return null; }
+};
+
 function StarRating({value,onChange,size=16,readOnly}) {
   return (
     <div style={{display:"flex",gap:2}}>
@@ -1688,21 +1741,30 @@ function Shop({initialPath,user}) {
     setActiveProduct(prod);setActiveCategory(cat||null);setView("product");
     if(push) pushShopPath(`/shop/product/${prod.slug}`);
     const desc=(prod.description&&prod.description.trim())||`${prod.name} available at PCB Care${cat?` — ${cat.name}`:""}. Contact us on WhatsApp for price and availability.`;
+    const ratingSummary=await getSitewideRatingSummary();
+    const validImages=realImageUrls(prod.images);
     setSEO({
       title:`${prod.name} — PCB Care Shop`,
       description:desc.slice(0,160),
       path:`/shop/product/${prod.slug}`,
-      image:prod.images&&prod.images[0],
+      image:validImages[0],
       jsonLdId:"shop-jsonld",
       jsonLd:{
         "@context":"https://schema.org",
         "@type":"Product",
         name:prod.name,
         description:desc,
-        image:(prod.images&&prod.images.length)?prod.images:undefined,
+        image:validImages.length?validImages:undefined,
         category:cat?cat.name:undefined,
         url:`${SITE_URL}/shop/product/${prod.slug}`,
-        brand:{"@type":"Organization",name:"PCB Care"},
+        brand:{"@type":"Brand",name:"PCB Care"},
+        aggregateRating:ratingSummary?{
+          "@type":"AggregateRating",
+          ratingValue:ratingSummary.ratingValue,
+          reviewCount:ratingSummary.reviewCount,
+          bestRating:5,
+          worstRating:1,
+        }:undefined,
       },
     });
     if(cat){
@@ -1752,7 +1814,13 @@ function Shop({initialPath,user}) {
   useEffect(()=>{
     (async()=>{
       setLoading(true);
-      const cats=await loadCategories();
+      // Fetch categories AND warm the sitewide rating-summary cache together.
+      // Doing this here (not lazily inside openProduct) means the very first
+      // product page render — the one crawlers actually see — never has to
+      // wait on a network round-trip before the aggregateRating JSON-LD gets
+      // written. Without this, Google's renderer sometimes snapshots the page
+      // before that fetch resolves, and aggregateRating shows up as missing.
+      const [cats]=await Promise.all([loadCategories(), getSitewideRatingSummary()]);
       await resolvePath(initialPath||window.location.pathname,cats);
       setLoading(false);
     })();
@@ -2436,7 +2504,7 @@ function ChatThread({requestId,role,closed}) {
   const handleImg=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=async()=>{ setImg(await compressImage(reader.result)); };
+    reader.onload=async()=>{ const c=await compressImage(reader.result); setImg(c); setImg(await uploadImageToStorage(c,"messages")); };
     reader.readAsDataURL(file);
   };
 
@@ -2504,7 +2572,7 @@ function Requests({user}) {
   const handleAttach=(e)=>{
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=async()=>{ setAttach(await compressImage(reader.result)); };
+    reader.onload=async()=>{ const c=await compressImage(reader.result); setAttach(c); setAttach(await uploadImageToStorage(c,"requests")); };
     reader.readAsDataURL(file);
   };
 
@@ -2728,7 +2796,7 @@ function WashingErrorRow({entry,index,onChange,onRemove,canRemove}){
     const file=e.target.files[0];if(!file)return;
     setLoading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);syncToLibrary(compressed);setLoading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);const url=await uploadImageToStorage(compressed,"repair-tool");onChange(index,field,url);syncToLibrary(url);setLoading(false);e.target.value="";};
     reader.onerror=()=>setLoading(false);
     reader.readAsDataURL(file);
   };
@@ -2832,7 +2900,7 @@ function FridgeErrorRow({entry,index,onChange,onRemove,canRemove}){
     const file=e.target.files[0];if(!file)return;
     setLoading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);syncToLibrary(compressed);setLoading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);onChange(index,field,compressed);const url=await uploadImageToStorage(compressed,"repair-tool");onChange(index,field,url);syncToLibrary(url);setLoading(false);e.target.value="";};
     reader.onerror=()=>setLoading(false);
     reader.readAsDataURL(file);
   };
@@ -3270,7 +3338,7 @@ function AdminErrors(){
                 <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
                   const file=e.target.files[0];if(!file)return;
                   const reader=new FileReader();
-                  reader.onload=async()=>{const c=await compressImage(reader.result);setFridgeModelImage(c);syncToLibrary(c);};
+                  reader.onload=async()=>{const c=await compressImage(reader.result);setFridgeModelImage(c);const url=await uploadImageToStorage(c,"repair-tool");setFridgeModelImage(url);syncToLibrary(url);};
                   reader.readAsDataURL(file);e.target.value="";
                 }}/>
               </label>
@@ -3394,7 +3462,7 @@ function AdminErrors(){
                 <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
                   const file=e.target.files[0];if(!file)return;
                   const reader=new FileReader();
-                  reader.onload=async()=>{const c=await compressImage(reader.result);setWashModelImage(c);syncToLibrary(c);};
+                  reader.onload=async()=>{const c=await compressImage(reader.result);setWashModelImage(c);const url=await uploadImageToStorage(c,"repair-tool");setWashModelImage(url);syncToLibrary(url);};
                   reader.readAsDataURL(file);e.target.value="";
                 }}/>
               </label>
@@ -3555,7 +3623,7 @@ function AdminWiring() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));syncToLibrary(compressed);setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));const url=await uploadImageToStorage(compressed,"repair-tool");setForm(f=>({...f,image_url:url}));syncToLibrary(url);setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -3649,7 +3717,7 @@ function AdminSensorValues() {
     const file=e.target.files[0];if(!file)return;
     setUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));syncToLibrary(compressed);setUploading(false);};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,image_url:compressed}));const url=await uploadImageToStorage(compressed,"repair-tool");setForm(f=>({...f,image_url:url}));syncToLibrary(url);setUploading(false);};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -4004,7 +4072,7 @@ function AdminBlogPosts({categories,setMsg}) {
 
   return (
     <div>
-      {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={(dataUrl)=>{setForm(f=>({...f,featured_image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
+      {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={async(dataUrl)=>{setCropSrc(null);setForm(f=>({...f,featured_image:dataUrl}));const url=await uploadImageToStorage(dataUrl,"blog");setForm(f=>({...f,featured_image:url}));}} onCancel={()=>setCropSrc(null)} outputSize={1000}/>}
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:18}}>
         <div style={{fontSize:12,fontWeight:700,color:"#b0b8d0",marginBottom:10}}>{editId?"Edit":"New"} Post</div>
@@ -4163,7 +4231,8 @@ function AdminRemoteImages() {
     reader.onload=async()=>{
       const compressed=await compressImage(reader.result);
       try{
-        await api("remote_images",{method:"POST",body:{image_data:compressed},prefer:"return=minimal"});
+        const url=await uploadImageToStorage(compressed,"repair-tool");
+        await api("remote_images",{method:"POST",body:{image_data:url},prefer:"return=minimal"});
         setMsg("✅ Image uploaded.");load();
       }catch(err){setMsg("⚠ Upload failed: "+err.message);}
       setUploading(false);e.target.value="";
@@ -4235,7 +4304,7 @@ function AdminRemotes() {
     const file=e.target.files[0];if(!file)return;
     setPcbUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,pcb_images:[...f.pcb_images,compressed]}));syncToLibrary(compressed);setPcbUploading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,pcb_images:[...f.pcb_images,compressed]}));const url=await uploadImageToStorage(compressed,"repair-tool");setForm(f=>({...f,pcb_images:f.pcb_images.map(img=>img===compressed?url:img)}));syncToLibrary(url);setPcbUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setPcbUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -4250,7 +4319,7 @@ function AdminRemotes() {
     const file=e.target.files[0];if(!file)return;
     setRemoteUploading(true);
     const reader=new FileReader();
-    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,remote_images:[...f.remote_images,compressed]}));syncToLibrary(compressed);setRemoteUploading(false);e.target.value="";};
+    reader.onload=async()=>{const compressed=await compressImage(reader.result);setForm(f=>({...f,remote_images:[...f.remote_images,compressed]}));const url=await uploadImageToStorage(compressed,"repair-tool");setForm(f=>({...f,remote_images:f.remote_images.map(img=>img===compressed?url:img)}));syncToLibrary(url);setRemoteUploading(false);e.target.value="";};
     reader.onerror=()=>{setMsg("⚠ Could not read file.");setRemoteUploading(false);};
     reader.readAsDataURL(file);
   };
@@ -4462,7 +4531,9 @@ function AdminParts(){
     reader.onload=async()=>{
       const compressed=await compressImage(reader.result);
       updatePart(i,"image",compressed);
-      syncToLibrary(compressed);
+      const url=await uploadImageToStorage(compressed,"repair-tool");
+      updatePart(i,"image",url);
+      syncToLibrary(url);
     };
     reader.readAsDataURL(file);
     e.target.value="";
@@ -4813,6 +4884,157 @@ function AdminGenerateWiringUrls() {
   );
 }
 
+// ── ADMIN: one-time migration — base64 images already saved in the database
+// → real uploaded files in Storage. Every table/column known to ever have
+// received a base64 data: URL is listed below. "simple" = a single string
+// column. "array" = a Postgres array-of-strings column. "json" = a text
+// column holding a JSON-stringified array of objects, each with an image
+// sub-field (this is parts_data.parts specifically).
+const MIGRATE_SIMPLE_TARGETS=[
+  {table:"shop_categories",idCol:"id",fields:["image"]},
+  {table:"blog_posts",idCol:"id",fields:["featured_image"]},
+  {table:"error_codes",idCol:"id",fields:["pcb_image","error_image","led_image","model_image"]},
+  {table:"wiring_diagrams",idCol:"id",fields:["image_url"]},
+  {table:"user_requests",idCol:"id",fields:["image_url"]},
+  {table:"request_messages",idCol:"id",fields:["image_url"]},
+  {table:"remote_images",idCol:"image_id",fields:["image_data"]},
+];
+const MIGRATE_ARRAY_TARGETS=[
+  {table:"shop_products",idCol:"id",fields:["images"]},
+  {table:"remotes",idCol:"id",fields:["pcb_images","remote_images"]},
+];
+const MIGRATE_JSON_TARGETS=[
+  {table:"parts_data",idCol:"id",jsonField:"parts",subField:"image"},
+];
+const isB64=(v)=>typeof v==="string"&&v.startsWith("data:");
+
+function AdminMigrateImages() {
+  const [scanning,setScanning]=useState(true);
+  const [pendingRows,setPendingRows]=useState(null); // [{table,idCol,idVal,kind,fields,jsonField,subField,raw,imageCount}]
+  const [totalImages,setTotalImages]=useState(0);
+  const [running,setRunning]=useState(false);
+  const [progress,setProgress]=useState({done:0,total:0,current:""});
+  const [done,setDone]=useState(false);
+  const [errors,setErrors]=useState([]);
+
+  const scan=async()=>{
+    setScanning(true);setDone(false);
+    const rows=[];
+    for(const t of MIGRATE_SIMPLE_TARGETS){
+      const data=await api(t.table,{filter:`?select=${t.idCol},${t.fields.join(",")}`}).catch(()=>null);
+      (data||[]).forEach(r=>{
+        const hitFields=t.fields.filter(f=>isB64(r[f]));
+        if(hitFields.length) rows.push({table:t.table,idCol:t.idCol,idVal:r[t.idCol],kind:"simple",fields:hitFields,raw:r,imageCount:hitFields.length});
+      });
+    }
+    for(const t of MIGRATE_ARRAY_TARGETS){
+      const data=await api(t.table,{filter:`?select=${t.idCol},${t.fields.join(",")}`}).catch(()=>null);
+      (data||[]).forEach(r=>{
+        const hitFields=t.fields.filter(f=>Array.isArray(r[f])&&r[f].some(isB64));
+        if(hitFields.length){
+          const count=hitFields.reduce((s,f)=>s+r[f].filter(isB64).length,0);
+          rows.push({table:t.table,idCol:t.idCol,idVal:r[t.idCol],kind:"array",fields:hitFields,raw:r,imageCount:count});
+        }
+      });
+    }
+    for(const t of MIGRATE_JSON_TARGETS){
+      const data=await api(t.table,{filter:`?select=${t.idCol},${t.jsonField}`}).catch(()=>null);
+      (data||[]).forEach(r=>{
+        let parsed=[];
+        try{parsed=typeof r[t.jsonField]==="string"?JSON.parse(r[t.jsonField]):(r[t.jsonField]||[]);}catch{parsed=[];}
+        const count=parsed.filter(p=>p&&isB64(p[t.subField])).length;
+        if(count) rows.push({table:t.table,idCol:t.idCol,idVal:r[t.idCol],kind:"json",jsonField:t.jsonField,subField:t.subField,raw:{...r,[t.jsonField]:parsed},imageCount:count});
+      });
+    }
+    setPendingRows(rows);
+    setTotalImages(rows.reduce((s,r)=>s+r.imageCount,0));
+    setScanning(false);
+  };
+  useEffect(()=>{scan();},[]);
+
+  const run=async()=>{
+    if(!pendingRows||pendingRows.length===0)return;
+    setRunning(true);setErrors([]);
+    let imagesDone=0;
+    const failed=[];
+    for(const row of pendingRows){
+      try{
+        const updates={};
+        if(row.kind==="simple"){
+          for(const f of row.fields){
+            setProgress({done:imagesDone,total:totalImages,current:`${row.table}.${f}`});
+            updates[f]=await uploadImageToStorage(row.raw[f],`migrated/${row.table}`);
+            imagesDone++;setProgress({done:imagesDone,total:totalImages,current:`${row.table}.${f}`});
+          }
+        }else if(row.kind==="array"){
+          for(const f of row.fields){
+            const newArr=[];
+            for(const v of row.raw[f]){
+              if(isB64(v)){
+                setProgress({done:imagesDone,total:totalImages,current:`${row.table}.${f}`});
+                newArr.push(await uploadImageToStorage(v,`migrated/${row.table}`));
+                imagesDone++;setProgress({done:imagesDone,total:totalImages,current:`${row.table}.${f}`});
+              }else newArr.push(v);
+            }
+            updates[f]=newArr;
+          }
+        }else if(row.kind==="json"){
+          const parts=row.raw[row.jsonField];
+          for(const p of parts){
+            if(p&&isB64(p[row.subField])){
+              setProgress({done:imagesDone,total:totalImages,current:`${row.table} part`});
+              p[row.subField]=await uploadImageToStorage(p[row.subField],`migrated/${row.table}`);
+              imagesDone++;setProgress({done:imagesDone,total:totalImages,current:`${row.table} part`});
+            }
+          }
+          updates[row.jsonField]=JSON.stringify(parts);
+        }
+        const res=await fetch(`${SB_URL}/rest/v1/${row.table}?${row.idCol}=eq.${row.idVal}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify(updates)});
+        if(!res.ok) throw new Error(`PATCH failed (${res.status})`);
+      }catch(e){
+        failed.push(`${row.table} #${row.idVal}: ${e.message}`);
+      }
+    }
+    setErrors(failed);
+    setRunning(false);setDone(true);
+    scan();
+  };
+
+  if(scanning){
+    return (
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>Scanning for base64 images to migrate…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:3}}>Migrate Images to Storage</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:12}}>
+        {totalImages===0
+          ? "No base64 images left in the database — everything is already using real hosted URLs."
+          : `Found ${totalImages} base64 image${totalImages===1?"":"s"} across ${pendingRows.length} row${pendingRows.length===1?"":"s"} still stored as embedded data instead of uploaded files.`}
+      </div>
+
+      {running&&<div style={{marginBottom:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#b0b8d0",marginBottom:6}}>
+          <span>Uploading: {progress.current}</span>
+          <span>{progress.done} / {progress.total}</span>
+        </div>
+        <div style={{width:"100%",height:8,borderRadius:4,background:"#0f1117",overflow:"hidden"}}>
+          <div style={{width:`${progress.total?Math.round((progress.done/progress.total)*100):0}%`,height:"100%",background:`linear-gradient(90deg,${PC},${AC})`,transition:"width 0.3s ease"}}/>
+        </div>
+      </div>}
+
+      {done&&!running&&errors.length===0&&<div style={{fontSize:12,color:PC,marginBottom:12}}>✅ Done — all migrated images are now real uploaded files.</div>}
+      {done&&!running&&errors.length>0&&<div style={{fontSize:11,color:"#ff4757",marginBottom:12,lineHeight:1.6}}>⚠ {errors.length} row{errors.length===1?"":"s"} failed — safe to run again, already-migrated rows won't be re-uploaded:<br/>{errors.slice(0,5).join(" · ")}</div>}
+
+      {totalImages>0&&<button onClick={run} disabled={running} style={{width:"100%",padding:"12px",borderRadius:10,background:running?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:running?"#6b7db3":"#0a0d14",border:"none",cursor:running?"default":"pointer",fontWeight:700,fontSize:13}}>{running?"Migrating…":`Migrate ${totalImages} image${totalImages===1?"":"s"}`}</button>}
+    </div>
+  );
+}
+
 function AdminSettings() {
   const blankSettings={id:null,auto_approve:false,parts_enabled:true,ai_daily_limit:5,require_login:true};
   const [saved,setSaved]=useState(blankSettings);   // last-persisted values (baseline for dirty-check)
@@ -4936,6 +5158,7 @@ function AdminSettings() {
       </div>
 
       <AdminGenerateWiringUrls/>
+      <AdminMigrateImages/>
 
       <div style={{background:`${PC}11`,borderRadius:12,padding:14,border:`1px solid ${PC}33`,fontSize:11,color:"#b0b8d0",lineHeight:1.6}}>
         💡 These settings are stored in the <code>app_settings</code> table in Supabase (the live backend), not just in this browser — so they stay correct after a refresh, after closing the app, and for every admin device.
@@ -5069,7 +5292,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
           </div>
         </div>
 
-        {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={(dataUrl)=>{setForm(f=>({...f,image:dataUrl}));setCropSrc(null);}} onCancel={()=>setCropSrc(null)}/>}
+        {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={async(dataUrl)=>{setCropSrc(null);setForm(f=>({...f,image:dataUrl}));const url=await uploadImageToStorage(dataUrl,"categories");setForm(f=>({...f,image:url}));}} onCancel={()=>setCropSrc(null)}/>}
 
         <div style={{display:"flex",gap:8}}>
           {editId&&<button onClick={cancelEdit} style={{flex:1,padding:"11px",borderRadius:10,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:13}}>Cancel</button>}
@@ -5376,13 +5599,20 @@ function AdminShopProducts({categories,setMsg}) {
     e.target.value="";
   };
   const reAdjustImage=(idx)=>{setCropEditIdx(idx);setCropSrc(form.images[idx]);};
-  const cropConfirmed=(dataUrl)=>{
-    if(cropEditIdx!==null){
-      setForm(f=>({...f,images:f.images.map((img,i)=>i===cropEditIdx?dataUrl:img)}));
+  const cropConfirmed=async(dataUrl)=>{
+    const editIdx=cropEditIdx;
+    if(editIdx!==null){
+      setForm(f=>({...f,images:f.images.map((img,i)=>i===editIdx?dataUrl:img)}));
     }else{
       setForm(f=>({...f,images:[...f.images,dataUrl]}));
     }
     setCropSrc(null);setCropEditIdx(null);
+    const url=await uploadImageToStorage(dataUrl,"products");
+    if(editIdx!==null){
+      setForm(f=>({...f,images:f.images.map((img,i)=>i===editIdx&&img===dataUrl?url:img)}));
+    }else{
+      setForm(f=>({...f,images:f.images.map(img=>img===dataUrl?url:img)}));
+    }
   };
   const removeImage=(idx)=>setForm(f=>({...f,images:f.images.filter((_,i)=>i!==idx)}));
 
