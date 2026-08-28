@@ -5548,7 +5548,7 @@ function AdminSettings() {
 
 // ── ADMIN: SHOP (categories + products) ─────────────────────────────────────────
 function AdminShop() {
-  const [section,setSection]=useState("categories"); // categories | products
+  const [section,setSection]=useState("categories"); // categories | products | merchant
   const [categories,setCategories]=useState([]);
   const [msg,setMsg]=useState("");
 
@@ -5564,13 +5564,13 @@ function AdminShop() {
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🛍️ Shop</div>
       <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Manage the categories and products customers see on the public Shop tab.</div>
       <div style={{display:"flex",gap:8,marginBottom:18}}>
-        {[["categories","🗂️ Categories"],["products","📦 Products"]].map(([id,label])=>(
-          <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"10px",borderRadius:10,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:700,fontSize:13}}>{label}</button>
+        {[["categories","🗂️ Categories"],["products","📦 Products"],["merchant","📤 Merchant Feed"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"10px",borderRadius:10,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:700,fontSize:12}}>{label}</button>
         ))}
       </div>
-      {section==="categories"
-        ? <AdminShopCategories categories={categories} refresh={loadCategories} setMsg={setMsg}/>
-        : <AdminShopProducts categories={categories} setMsg={setMsg}/>}
+      {section==="categories"&&<AdminShopCategories categories={categories} refresh={loadCategories} setMsg={setMsg}/>}
+      {section==="products"&&<AdminShopProducts categories={categories} setMsg={setMsg}/>}
+      {section==="merchant"&&<AdminMerchantFeed/>}
       {msg&&<div style={{fontSize:12,marginTop:14,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
     </div>
   );
@@ -6133,6 +6133,116 @@ function AdminShopProducts({categories,setMsg}) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── ADMIN: Google Merchant Center feed generator ────────────────────────────
+// Builds a Google Shopping-compatible XML feed (RSS 2.0 + g: namespace) from
+// every shop_products row, using its live /shop/product/<slug> URL and real
+// (non-base64) image URLs. Two caveats surfaced directly in the UI, since
+// they come from real gaps in the current schema rather than the feed logic:
+//   1. Products with no starting_price are EXCLUDED — Merchant Center rejects
+//      any item missing a price, and this app's normal flow is "GET PRICE on
+//      WhatsApp", so many products won't have one set yet.
+//   2. There's no per-product stock field yet, so every included item is
+//      marked g:availability = in_stock. If something is actually out of
+//      stock, that has to be corrected by hand in Merchant Center (or a
+//      stock field needs to be added to the product form later) — this tool
+//      cannot know true stock status.
+const xmlEscape=(s)=>(s||"").toString()
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+  .replace(/"/g,"&quot;").replace(/'/g,"&apos;");
+
+function AdminMerchantFeed(){
+  const [rows,setRows]=useState(null); // null = loading
+  const [categories,setCategories]=useState([]);
+  const [generating,setGenerating]=useState(false);
+  const [feedUrl,setFeedUrl]=useState(null);
+  const [feedCount,setFeedCount]=useState(0);
+
+  const load=async()=>{
+    const [prods,cats]=await Promise.all([
+      api("shop_products",{filter:"?select=*&order=created_at.desc"}),
+      api("shop_categories",{filter:"?select=id,name"}),
+    ]);
+    setRows(prods||[]);
+    setCategories(cats||[]);
+  };
+  useEffect(()=>{load();},[]);
+
+  const catName=(id)=>categories.find(c=>c.id===id)?.name||"";
+
+  const eligible=(rows||[]).filter(p=>p.starting_price!==null&&p.starting_price!==undefined&&p.starting_price!==""&&Number(p.starting_price)>0);
+  const skipped=(rows||[]).filter(p=>!eligible.includes(p));
+
+  const buildFeed=()=>{
+    setGenerating(true);
+    try{
+      const items=eligible.map(p=>{
+        const validImages=realImageUrls(p.images);
+        const [primary,...rest]=validImages;
+        const desc=(p.description&&p.description.trim())||`${p.name} available at PCB Care${catName(p.category_id)?` — ${catName(p.category_id)}`:""}. Contact us on WhatsApp for price and availability.`;
+        const condition=p.condition==="refurbished"?"refurbished":"new";
+        const brand=(p.brands&&p.brands[0])||"PCB Care";
+        return `  <item>
+    <g:id>${xmlEscape(p.slug)}</g:id>
+    <title>${xmlEscape(p.name)}</title>
+    <description>${xmlEscape(desc)}</description>
+    <link>${xmlEscape(`${SITE_URL}/shop/product/${p.slug}`)}</link>
+    ${primary?`<g:image_link>${xmlEscape(primary)}</g:image_link>`:""}
+    ${rest.map(img=>`<g:additional_image_link>${xmlEscape(img)}</g:additional_image_link>`).join("\n    ")}
+    <g:availability>in_stock</g:availability>
+    <g:price>${Number(p.starting_price).toFixed(2)} INR</g:price>
+    <g:condition>${condition}</g:condition>
+    <g:brand>${xmlEscape(brand)}</g:brand>
+    <g:identifier_exists>no</g:identifier_exists>
+    ${catName(p.category_id)?`<g:product_type>${xmlEscape(catName(p.category_id))}</g:product_type>`:""}
+  </item>`;
+      }).join("\n");
+
+      const xml=`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+<channel>
+  <title>PCB Care Product Feed</title>
+  <link>${xmlEscape(SITE_URL)}</link>
+  <description>Product feed for PCB Care — appliance PCB, sensor and remote parts.</description>
+${items}
+</channel>
+</rss>`;
+
+      const blob=new Blob([xml],{type:"application/xml"});
+      if(feedUrl) URL.revokeObjectURL(feedUrl);
+      setFeedUrl(URL.createObjectURL(blob));
+      setFeedCount(eligible.length);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if(rows===null){
+    return <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+      <div style={{fontSize:13,fontWeight:600,color:"#fff"}}>Loading products…</div>
+    </div>;
+  }
+
+  return (
+    <div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Google Merchant Center Feed</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12,lineHeight:1.6}}>
+          Generates an XML product feed with each product's live URL, image URLs, price and condition — upload the file in Merchant Center under Products → Feeds, or host it and use a scheduled fetch.
+        </div>
+        <div style={{fontSize:11,color:"#b0b8d0",marginBottom:4}}>{eligible.length} product{eligible.length===1?"":"s"} ready · {skipped.length} skipped</div>
+        {skipped.length>0&&<div style={{fontSize:10.5,color:"#ffb020",marginBottom:12,lineHeight:1.6}}>
+          Skipped (no price set — add a Starting Price on each to include it): {skipped.map(p=>p.name).join(", ")}
+        </div>}
+        <div style={{fontSize:10.5,color:"#ff9d4d",marginBottom:12,lineHeight:1.6}}>
+          ⚠ Every included product is marked "in stock" — there's no stock field in this app yet, so this tool can't know which items are actually unavailable. Correct those manually in Merchant Center for now.
+        </div>
+        <button onClick={buildFeed} disabled={generating||eligible.length===0} style={{width:"100%",padding:"12px",borderRadius:10,background:generating||eligible.length===0?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:generating||eligible.length===0?"#6b7db3":"#0a0d14",border:"none",cursor:generating||eligible.length===0?"default":"pointer",fontWeight:700,fontSize:13}}>{generating?"Generating…":"Generate Feed"}</button>
+        {feedUrl&&<a href={feedUrl} download="pcbcare-merchant-feed.xml" style={{display:"block",textAlign:"center",marginTop:10,padding:"12px",borderRadius:10,background:"#2a3050",color:PC,fontWeight:700,fontSize:13,textDecoration:"none"}}>⬇️ Download Feed ({feedCount} products)</a>}
+      </div>
     </div>
   );
 }
