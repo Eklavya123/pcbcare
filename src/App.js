@@ -2080,7 +2080,7 @@ function FindRemote({onViewProduct}) {
 
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>PCB</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
-            {(item.pcb_images||[]).map((img,i)=><img key={i} src={img} alt={`${item.model_number} PCB image`} onClick={()=>setModal(img)} style={{width:84,height:84,objectFit:"cover",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/>)}
+            {(item.pcb_images||[]).map((img,i)=><img key={i} src={img} alt={`${item.model_number} PCB`} onClick={()=>setModal(img)} style={{width:84,height:84,objectFit:"cover",borderRadius:10,cursor:"pointer",border:`1px solid ${PC}44`}}/>)}
           </div>
 
           <div style={{fontSize:10,fontWeight:600,color:AC,textTransform:"uppercase",marginBottom:8}}>Matching Remote{(item.remote_images||[]).length>1?"s":""}</div>
