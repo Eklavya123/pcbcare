@@ -6634,6 +6634,18 @@ export default function PCBCare() {
 
       <Watermark user={user}/>
       {showProfilePopup&&<CompleteProfilePopup user={user} onSaved={(u)=>{setUser(u);setShowProfilePopup(false);}} onDismiss={()=>setShowProfilePopup(false)}/>}
+
+      {/* ── Floating "Visit Shop" button — shown on every page except Shop itself,
+          so someone who lands on a specific page (a blog post, a Wiring Diagram,
+          an SEO landing Page like "AC PCB in Sihora") always has an obvious,
+          persistent way to reach the Shop. position:fixed keeps it in the same
+          spot on screen through scrolling/swiping, sitting just above the
+          bottom nav bar. ── */}
+      {tab!=="shop"&&(
+        <button onClick={()=>goToTab("shop")} aria-label="Visit shop" style={{position:"fixed",right:14,bottom:"calc(74px + env(safe-area-inset-bottom) + 14px)",zIndex:6,display:"flex",alignItems:"center",gap:8,padding:"12px 16px",borderRadius:999,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontSize:13,fontWeight:700,boxShadow:"0 4px 14px rgba(0,0,0,0.4)"}}>
+          🛒 Visit Shop
+        </button>
+      )}
     </div>
     </ThemeCtx.Provider>
   );
