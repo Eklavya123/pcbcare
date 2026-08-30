@@ -2,6 +2,9 @@
   "name": "pcbcare",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "jose": "^4.15.5"
+  },
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0",
     "@simplewebauthn/server": "^13.3.2",
