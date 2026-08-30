@@ -288,9 +288,23 @@ const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
 // entirely on those tables). Attaches the current Firebase ID token so
 // the server can verify who's actually asking, rather than trusting
 // whatever technician_id the client claims.
+// Waits for Firebase to actually finish resolving whether there's a
+// persisted session, instead of reading auth.currentUser immediately —
+// which can still be null for a moment right after a page load/refresh
+// even when the person really is logged in, because Firebase restores
+// that session asynchronously. onAuthStateChanged's first callback is
+// the real signal that resolution has finished either way.
+const waitForFirebaseUser = (auth) => new Promise((resolve) => {
+  if(auth.currentUser){ resolve(auth.currentUser); return; }
+  let settled=false;
+  const finish=(u)=>{ if(settled) return; settled=true; resolve(u); };
+  const unsubscribe = auth.onAuthStateChanged((u)=>{ unsubscribe(); finish(u); });
+  setTimeout(()=>finish(auth.currentUser||null), 5000); // safety net — never hang forever waiting on this
+});
+
 const invoicesApi = async (action, payload = {}) => {
   const auth = await initFirebase();
-  const currentUser = auth?.currentUser;
+  const currentUser = await waitForFirebaseUser(auth);
   if(!currentUser) throw new Error("Not logged in");
   const idToken = await currentUser.getIdToken();
   const r = await fetch("/api/invoices", {

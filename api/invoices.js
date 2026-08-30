@@ -49,10 +49,26 @@ const crypto = require("crypto");
 const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+// This used to run JSON.parse(...) directly at module scope. If
+// FIREBASE_SERVICE_ACCOUNT_JSON is malformed — extremely easy to get wrong
+// when pasting it into Vercel's env var UI, since the private_key field's
+// \n sequences are easy to mangle in transit — that throw happened before
+// the request handler below even started, crashing the whole function with
+// a bare, undebuggable 500 and no JSON body at all. Capturing the error
+// here instead means every request can return a real, readable message
+// pointing at the actual problem.
+let initError = null;
 if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
-  });
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+    });
+  } catch (e) {
+    initError = `FIREBASE_SERVICE_ACCOUNT_JSON is not valid: ${e.message}. Re-copy the full service account JSON from Firebase Console → Project Settings → Service Accounts, paste it as a single-line value in Vercel, and redeploy.`;
+  }
+}
+if (!SERVICE_KEY) {
+  initError = initError || "SUPABASE_SERVICE_ROLE_KEY is not set in Vercel's environment variables.";
 }
 
 // Thin Supabase REST helper using the service role key — this bypasses
@@ -121,6 +137,9 @@ const authenticateAdmin = (req) => {
 };
 
 module.exports = async (req, res) => {
+  if (initError) {
+    return res.status(500).json({ error: initError });
+  }
   try {
     const { action } = req.body || req.query || {};
 
