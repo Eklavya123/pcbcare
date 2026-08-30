@@ -289,7 +289,7 @@ const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
 // the server can verify who's actually asking, rather than trusting
 // whatever technician_id the client claims.
 const invoicesApi = async (action, payload = {}) => {
-  const auth = await getFirebaseAuth();
+  const auth = await initFirebase();
   const currentUser = auth?.currentUser;
   if(!currentUser) throw new Error("Not logged in");
   const idToken = await currentUser.getIdToken();
