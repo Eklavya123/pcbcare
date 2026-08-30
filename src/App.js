@@ -3132,8 +3132,9 @@ function Invoices({user}){
   },[]);
 
   useEffect(()=>{
-    invoicesApi("get_profile").then(r=>setProfile(r.profile)).catch(e=>setErr(e.message));
-  },[]);
+    if(!user) return; // no point calling the API if we already know there's no session — see the guard below
+    invoicesApi("get_profile").then(r=>setProfile(r.profile)).catch(e=>setErr(e.message||"Could not load your invoice profile."));
+  },[user]);
 
   const loadList=async()=>{
     try{ const {invoices}=await invoicesApi("list_my_invoices"); setList(invoices||[]); }
@@ -3182,7 +3183,26 @@ function Invoices({user}){
     window.open(`https://wa.me/${phoneDigits}?text=${encodeURIComponent(msg)}`,"_blank");
   };
 
-  if(profile===undefined) return <div style={{padding:16,color:T.subtext,fontSize:13}}>Loading…</div>;
+  // Reachable via a direct /invoices link without being logged in (same
+  // bypass Wiring/Shop use for their own public pages) — but unlike those,
+  // Invoices has no meaningful anonymous state, so show a real prompt
+  // instead of silently failing the API call and sitting on "Loading…"
+  // forever, which is exactly what happened before this fix.
+  if(!user) return (
+    <div style={{padding:16}}>
+      <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8,marginTop:0}}>🧾 Invoices</h1>
+      <div style={{fontSize:13,color:T.subtext,marginBottom:16}}>Log in to create and manage your invoices.</div>
+    </div>
+  );
+
+  if(profile===undefined){
+    return (
+      <div style={{padding:16}}>
+        <div style={{color:T.subtext,fontSize:13,marginBottom:8}}>Loading…</div>
+        {err&&<div style={{fontSize:12,color:"#ff4757"}}>{err}</div>}
+      </div>
+    );
+  }
   if(profile===null) return <InvoiceProfileSetup onSaved={setProfile}/>;
 
   if(created){
