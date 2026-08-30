@@ -43,7 +43,17 @@
 // relying on it, the same as you would for any new backend code.
 // ═══════════════════════════════════════════════════════════════════════
 
-const admin = require("firebase-admin");
+// Using firebase-admin's modular API (initializeApp/getApps/cert from
+// "firebase-admin/app", getAuth from "firebase-admin/auth") rather than the
+// old `const admin = require("firebase-admin")` namespace object — that
+// classic shape isn't reliable on every bundler/runtime with firebase-admin
+// v12+ and was the actual cause of a crash here (admin.apps came back
+// undefined, throwing "Cannot read properties of undefined (reading
+// 'length')" before the request handler ever ran). The modular imports
+// below are Firebase's own current recommendation and avoid that class of
+// interop problem entirely.
+const { initializeApp, getApps, cert } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
 const crypto = require("crypto");
 
 const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
@@ -58,10 +68,10 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // here instead means every request can return a real, readable message
 // pointing at the actual problem.
 let initError = null;
-if (!admin.apps.length) {
+if (!getApps().length) {
   try {
-    admin.initializeApp({
-      credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+    initializeApp({
+      credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
     });
   } catch (e) {
     initError = `FIREBASE_SERVICE_ACCOUNT_JSON is not valid: ${e.message}. Re-copy the full service account JSON from Firebase Console → Project Settings → Service Accounts, paste it as a single-line value in Vercel, and redeploy.`;
@@ -102,7 +112,7 @@ const authenticate = async (req) => {
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!idToken) throw new Error("Missing Authorization bearer token");
 
-  const decoded = await admin.auth().verifyIdToken(idToken);
+  const decoded = await getAuth().verifyIdToken(idToken);
   const rows = await sb("users", { filter: `?firebase_uid=eq.${decoded.uid}&select=id,status` });
   const user = Array.isArray(rows) ? rows[0] : null;
   if (!user) throw new Error("No matching user for this token");
