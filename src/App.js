@@ -3057,23 +3057,30 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   }
 
   // Line items — labeled columns (Qty / Price were easy to misread before;
-  // headers plus right-aligned numeric columns fix that).
-  doc.setFillColor(theme.accent); doc.rect(margin,y,contentW,20,"F");
+  // headers plus right-aligned numeric columns fix that). Row text is now
+  // vertically centered within each row instead of sitting on the baseline
+  // that the divider line was ALSO drawn at — that exact coincidence is
+  // what made text look like it was touching the lines.
+  const headerRowH = 22;
+  doc.setFillColor(theme.accent); doc.rect(margin,y,contentW,headerRowH,"F");
   doc.setTextColor("#ffffff"); doc.setFontSize(8); doc.setFont(undefined,"bold");
-  doc.text("Item", margin+6, y+14);
-  doc.text("Qty", margin+contentW-108, y+14, {align:"right"});
-  doc.text("Price", margin+contentW-58, y+14, {align:"right"});
-  doc.text("Total", margin+contentW-6, y+14, {align:"right"});
-  y += 20;
+  const headerBaseline = y + headerRowH/2 + 3;
+  doc.text("Item", margin+6, headerBaseline);
+  doc.text("Qty", margin+contentW-108, headerBaseline, {align:"right"});
+  doc.text("Price", margin+contentW-58, headerBaseline, {align:"right"});
+  doc.text("Total", margin+contentW-6, headerBaseline, {align:"right"});
+  y += headerRowH;
   doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
   (lineItems||[]).forEach((li)=>{
-    const rowH = 20;
-    doc.text(String(li.description), margin+6, y+14, {maxWidth:contentW-120});
-    doc.text(String(li.quantity), margin+contentW-108, y+14, {align:"right"});
-    doc.text(Number(li.unit_price).toFixed(0), margin+contentW-58, y+14, {align:"right"});
-    doc.text(Number(li.line_total).toFixed(0), margin+contentW-6, y+14, {align:"right"});
-    y += rowH;
-    doc.setDrawColor("#e0e0e0"); doc.line(margin,y-6,margin+contentW,y-6);
+    const rowH = 24;
+    const rowTop = y;
+    const textBaseline = rowTop + rowH/2 + 3; // centers an 8.5pt line within the row's height
+    doc.text(String(li.description), margin+6, textBaseline, {maxWidth:contentW-120});
+    doc.text(String(li.quantity), margin+contentW-108, textBaseline, {align:"right"});
+    doc.text(Number(li.unit_price).toFixed(0), margin+contentW-58, textBaseline, {align:"right"});
+    doc.text(Number(li.line_total).toFixed(0), margin+contentW-6, textBaseline, {align:"right"});
+    y = rowTop + rowH;
+    doc.setDrawColor("#e0e0e0"); doc.line(margin,y,margin+contentW,y); // drawn at the row's actual bottom edge now, not on the text baseline
   });
 
   y += 10;
@@ -3083,9 +3090,15 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   y += 32;
 
   if(Number(invoice.warranty_months)>0){
+    // "Warranty Expires on <date>" is more directly useful than "N months
+    // from <purchase date>" — the reader doesn't have to do the math
+    // themselves to know when coverage actually ends.
+    const expiry = new Date(invoice.service_date);
+    expiry.setMonth(expiry.getMonth() + Number(invoice.warranty_months));
+    const expiryStr = expiry.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"});
     doc.setFont(undefined,"bold"); doc.setFontSize(9); doc.text("Warranty", margin, y+13);
     doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
-    doc.text(`${invoice.warranty_months} month${invoice.warranty_months===1?"":"s"} from ${invoice.service_date}.`, margin, y+26, {maxWidth:contentW});
+    doc.text(`Warranty Expires on ${expiryStr}`, margin, y+26, {maxWidth:contentW});
     y += 40;
   }
 
@@ -3142,8 +3155,29 @@ function InvoiceProfileSetup({onSaved}){
   const [phone,setPhone]=useState("");
   const [address,setAddress]=useState("");
   const [logoUrl,setLogoUrl]=useState("");
+  const [logoUploading,setLogoUploading]=useState(false);
   const [saving,setSaving]=useState(false);
   const [err,setErr]=useState("");
+
+  // Reads the picked file, uploads it to Supabase Storage (same helper the
+  // rest of the app already uses for product images), and stores the
+  // resulting public URL — replaces the old "paste a hosted link" field
+  // with an actual gallery picker.
+  const pickLogo=(e)=>{
+    const file=e.target.files?.[0];
+    if(!file) return;
+    setLogoUploading(true); setErr("");
+    const reader=new FileReader();
+    reader.onload=async()=>{
+      try{
+        const url=await uploadImageToStorage(reader.result,"invoice-logos");
+        setLogoUrl(url);
+      }catch(ex){ setErr("Logo upload failed — try again."); }
+      setLogoUploading(false);
+    };
+    reader.onerror=()=>{ setErr("Could not read that image."); setLogoUploading(false); };
+    reader.readAsDataURL(file);
+  };
 
   const save=async()=>{
     if(!businessName.trim()||!phone.trim()){ setErr("Business name and phone are required."); return; }
@@ -3163,13 +3197,15 @@ function InvoiceProfileSetup({onSaved}){
         <input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Your business name *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
         <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Business phone *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
         <input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Business address" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
-        {/* Logo is a pasted URL rather than a file upload — building a full
-            image upload/storage pipeline is a separate piece of work I
-            haven't scoped here; if you want direct upload instead of
-            pasting a hosted link, say so and I'll add it. */}
-        <input value={logoUrl} onChange={e=>setLogoUrl(e.target.value)} placeholder="Logo image URL (optional)" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
+        {/* Gallery picker — reads the chosen photo, uploads it to storage,
+            and stores the resulting public URL. No more pasting a link. */}
+        <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:"1px dashed #2a3050",background:T.card,cursor:"pointer",boxSizing:"border-box"}}>
+          {logoUrl?<img src={logoUrl} alt="Your logo" style={{width:36,height:36,objectFit:"contain",borderRadius:6,background:"#fff"}}/>:<span style={{fontSize:18}}>🖼️</span>}
+          <span style={{fontSize:12,color:T.text,flex:1}}>{logoUploading?"Uploading…":logoUrl?"Logo selected — tap to change":"Choose logo from gallery (optional)"}</span>
+          <input type="file" accept="image/*" onChange={pickLogo} disabled={logoUploading} style={{display:"none"}}/>
+        </label>
         {err&&<div style={{fontSize:12,color:"#ff4757"}}>{err}</div>}
-        <button onClick={save} disabled={saving} style={{padding:"12px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:saving?"default":"pointer"}}>{saving?"Saving…":"Save & Continue"}</button>
+        <button onClick={save} disabled={saving||logoUploading} style={{padding:"12px",borderRadius:10,background:(saving||logoUploading)?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(saving||logoUploading)?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:(saving||logoUploading)?"default":"pointer"}}>{saving?"Saving…":"Save & Continue"}</button>
       </div>
     </div>
   );
