@@ -2991,18 +2991,6 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   const margin = 24;
   const contentW = pageW - margin*2;
 
-  // Diagonal text watermark — distinct from the PCB Care logo image below;
-  // this is the "Invoice Generated Using PCBCare Invoice Generator" text
-  // specifically, tiled/rotated across the page like a real document
-  // watermark rather than a single centered line.
-  doc.saveGraphicsState();
-  doc.setGState(new doc.GState({opacity:0.05}));
-  doc.setTextColor("#000000"); doc.setFontSize(11); doc.setFont(undefined,"bold");
-  for(let ty=80; ty<pageH-40; ty+=110){
-    doc.text("Invoice Generated Using PCBCare Invoice Generator", pageW/2, ty, {align:"center", angle:30});
-  }
-  doc.restoreGraphicsState();
-
   // PCB Care logo watermark — faint, centered, aspect-ratio preserved (this
   // used to force a square box regardless of the logo's real shape, which
   // squeezed it; fitWithinBox fixes that).
@@ -3010,7 +2998,7 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
     const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`);
     const box = fitWithinBox(wm.width, wm.height, 200, 200);
     doc.saveGraphicsState();
-    doc.setGState(new doc.GState({opacity:0.06}));
+    doc.setGState(new doc.GState({opacity:0.15}));
     doc.addImage(wm.dataUrl, "PNG", (pageW-box.w)/2, 240, box.w, box.h);
     doc.restoreGraphicsState();
   }catch{ /* watermark is decorative — skip silently if it fails to load, never block the invoice itself */ }
@@ -3041,6 +3029,13 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
 
   doc.setTextColor("#1a1a1a");
   let y = headerH + 24;
+
+  // Plain, fully-readable line (not a faded watermark) sitting right above
+  // "Billed To" — replaces the old diagonal tiled text watermark.
+  doc.setFontSize(7.5); doc.setFont(undefined,"normal"); doc.setTextColor("#999999");
+  doc.text("Invoice Generated Using PCBCare Invoice Generator", margin, y);
+  doc.setTextColor("#1a1a1a");
+  y += 18;
 
   // Customer + appliance — stacked single-column now (the old two-column
   // layout assumed A4 width and doesn't fit a narrow page).
@@ -7279,7 +7274,7 @@ export default function PCBCare() {
   const [requireLogin,setRequireLogin]=useState(true);
   useEffect(()=>{ getRequireLogin().then(setRequireLogin); },[]);
   const goToTab=(id)=>{
-    if(id!=="home"&&id!=="shop"&&id!=="blog"&&id!=="page"&&requireLogin&&!user){
+    if(id!=="home"&&id!=="shop"&&id!=="blog"&&id!=="page"&&id!=="invoices"&&requireLogin&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
