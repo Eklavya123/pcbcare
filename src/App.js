@@ -302,14 +302,34 @@ const waitForFirebaseUser = (auth) => new Promise((resolve) => {
   setTimeout(()=>finish(auth.currentUser||null), 5000); // safety net — never hang forever waiting on this
 });
 
+// Returns a persistent device ID for someone using the Invoice Generator
+// without logging in — generated once, stored locally, reused from then
+// on. This is NOT a secure identity (see authenticate() in api/invoices.js
+// for the full explanation): it only works because there's no login to
+// check against by design. Clearing browser storage or switching devices
+// loses this permanently, with no recovery — there is nothing to recover
+// from, since nothing was ever verified in the first place.
+const getInvoiceDeviceId = () => {
+  let id = DB.get("pcb_invoice_device_id", null);
+  if(!id){
+    id = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}-anon-device`);
+    DB.set("pcb_invoice_device_id", id);
+  }
+  return id;
+};
+
 const invoicesApi = async (action, payload = {}) => {
   const auth = await initFirebase();
   const currentUser = await waitForFirebaseUser(auth);
-  if(!currentUser) throw new Error("Not logged in");
-  const idToken = await currentUser.getIdToken();
+  const headers = { "Content-Type": "application/json" };
+  if(currentUser){
+    headers.Authorization = `Bearer ${await currentUser.getIdToken()}`;
+  } else {
+    headers["X-Device-Id"] = getInvoiceDeviceId();
+  }
   const r = await fetch("/api/invoices", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+    headers,
     body: JSON.stringify({ action, ...payload }),
   });
   const data = await r.json().catch(() => ({}));
@@ -2928,9 +2948,11 @@ const INVOICE_THEMES = {
   amber:    { label:"Amber Gold",  bar:"#3d2b0a", accent:"#ffb020" },
 };
 
-// Fetches an image URL and converts it to a data URL — jsPDF's addImage
-// needs actual image data, not a bare URL, and this is used both for the
-// technician's own logo and for the PCB Care watermark.
+// Fetches an image URL and converts it to a data URL PLUS its real pixel
+// dimensions — jsPDF's addImage needs actual image data, and the
+// dimensions are what let every caller preserve aspect ratio instead of
+// forcing the image into a fixed box (which is what was squashing the
+// watermark logo before this fix).
 const imageUrlToDataURL = (url) => new Promise((resolve, reject) => {
   const img = new Image();
   img.crossOrigin = "anonymous";
@@ -2939,129 +2961,149 @@ const imageUrlToDataURL = (url) => new Promise((resolve, reject) => {
       const canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
       canvas.getContext("2d").drawImage(img,0,0);
-      resolve(canvas.toDataURL("image/png"));
+      resolve({dataUrl:canvas.toDataURL("image/png"), width:img.naturalWidth, height:img.naturalHeight});
     }catch(e){ reject(e); }
   };
   img.onerror = reject;
   img.src = url;
 });
 
+// Fits `natural` width/height inside a `max` width/height box without
+// distorting the aspect ratio — used everywhere an image goes onto the
+// PDF, so nothing ever gets stretched into a shape it wasn't.
+const fitWithinBox = (naturalW, naturalH, maxW, maxH) => {
+  const scale = Math.min(maxW/naturalW, maxH/naturalH, 1); // never upscale past the source's real size
+  return { w: naturalW*scale, h: naturalH*scale };
+};
+
 // Builds and returns a jsPDF document from an invoice + its line items +
 // the technician's profile. Called fresh every time someone views, saves,
 // or shares an invoice — nothing is stored as a file (per your call not to
 // store the actual PDF), so this function IS the "regenerate on demand".
+// Page is a narrow "slip" width (320pt ≈ 113mm) rather than full A4 — a
+// receipt-style invoice reads better narrow, and everything below is laid
+// out as single-column to fit it, not squeezed A4 content.
 const buildInvoicePDF = async (invoice, lineItems, profile) => {
   const theme = INVOICE_THEMES[invoice.theme] || INVOICE_THEMES.classic;
-  const doc = new jsPDF({unit:"pt", format:"a4"});
-  const pageW = doc.internal.pageSize.getWidth();
-  const margin = 40;
+  const pageW = 320;
+  const pageH = 700; // generous — jsPDF pages don't reflow, so this is a fixed canvas; long invoices may need manual review if they exceed it
+  const doc = new jsPDF({unit:"pt", format:[pageW,pageH]});
+  const margin = 24;
+  const contentW = pageW - margin*2;
 
-  // PCB Care watermark — faint, centered, behind everything else. This is
-  // your platform's branding, distinct from the technician's own logo
-  // below, and appears on every invoice regardless of theme.
+  // Diagonal text watermark — distinct from the PCB Care logo image below;
+  // this is the "Invoice Generated Using PCBCare Invoice Generator" text
+  // specifically, tiled/rotated across the page like a real document
+  // watermark rather than a single centered line.
+  doc.saveGraphicsState();
+  doc.setGState(new doc.GState({opacity:0.05}));
+  doc.setTextColor("#000000"); doc.setFontSize(11); doc.setFont(undefined,"bold");
+  for(let ty=80; ty<pageH-40; ty+=110){
+    doc.text("Invoice Generated Using PCBCare Invoice Generator", pageW/2, ty, {align:"center", angle:30});
+  }
+  doc.restoreGraphicsState();
+
+  // PCB Care logo watermark — faint, centered, aspect-ratio preserved (this
+  // used to force a square box regardless of the logo's real shape, which
+  // squeezed it; fitWithinBox fixes that).
   try{
     const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`);
-    const wmSize = 260;
+    const box = fitWithinBox(wm.width, wm.height, 200, 200);
     doc.saveGraphicsState();
     doc.setGState(new doc.GState({opacity:0.06}));
-    doc.addImage(wm, "PNG", (pageW-wmSize)/2, 260, wmSize, wmSize);
+    doc.addImage(wm.dataUrl, "PNG", (pageW-box.w)/2, 240, box.w, box.h);
     doc.restoreGraphicsState();
   }catch{ /* watermark is decorative — skip silently if it fails to load, never block the invoice itself */ }
 
   // Header bar
+  const headerH = 78;
   doc.setFillColor(theme.bar);
-  doc.rect(0,0,pageW,90,"F");
-  let logoW=0;
+  doc.rect(0,0,pageW,headerH,"F");
+  let logoBoxW=0;
   if(profile?.logo_url){
     try{
-      const logoData = await imageUrlToDataURL(profile.logo_url);
-      doc.addImage(logoData,"PNG",margin,20,50,50);
-      logoW=62;
+      const logo = await imageUrlToDataURL(profile.logo_url);
+      const box = fitWithinBox(logo.width, logo.height, 42, 42); // preserves the technician's real logo shape instead of forcing a square
+      doc.addImage(logo.dataUrl,"PNG",margin,16,box.w,box.h);
+      logoBoxW = box.w+8;
     }catch{ /* fall through without a logo rather than failing the whole invoice */ }
   }
   doc.setTextColor("#ffffff");
-  doc.setFontSize(16); doc.setFont(undefined,"bold");
-  doc.text(profile?.business_name || "Invoice", margin+logoW, 38);
-  doc.setFontSize(9); doc.setFont(undefined,"normal");
-  doc.text([profile?.phone||"", profile?.address||""].filter(Boolean).join("  •  "), margin+logoW, 54);
+  doc.setFontSize(13); doc.setFont(undefined,"bold");
+  doc.text(profile?.business_name || "Invoice", margin+logoBoxW, 30, {maxWidth:contentW-logoBoxW});
+  doc.setFontSize(8); doc.setFont(undefined,"normal");
+  doc.text([profile?.phone||"", profile?.address||""].filter(Boolean).join("  •  "), margin+logoBoxW, 44, {maxWidth:contentW-logoBoxW});
 
-  doc.setFontSize(11); doc.setFont(undefined,"bold");
-  doc.text(`Invoice #${invoice.invoice_number}`, pageW-margin, 38, {align:"right"});
-  doc.setFontSize(9); doc.setFont(undefined,"normal");
-  doc.text(new Date(invoice.service_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}), pageW-margin, 54, {align:"right"});
+  doc.setFontSize(9); doc.setFont(undefined,"bold");
+  doc.text(`Invoice #${invoice.invoice_number}`, margin, 64);
+  doc.setFont(undefined,"normal");
+  doc.text(new Date(invoice.service_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}), pageW-margin, 64, {align:"right"});
 
   doc.setTextColor("#1a1a1a");
-  let y = 120;
+  let y = headerH + 24;
 
-  // Customer + appliance
-  doc.setFontSize(10); doc.setFont(undefined,"bold"); doc.text("Billed To", margin, y);
+  // Customer + appliance — stacked single-column now (the old two-column
+  // layout assumed A4 width and doesn't fit a narrow page).
+  doc.setFontSize(9); doc.setFont(undefined,"bold"); doc.text("Billed To", margin, y);
   doc.setFont(undefined,"normal");
-  doc.text(invoice.customer_name, margin, y+14);
-  if(invoice.customer_phone) doc.text(invoice.customer_phone, margin, y+28);
-  if(invoice.customer_address) doc.text(invoice.customer_address, margin, y+42, {maxWidth:230});
+  doc.text(invoice.customer_name, margin, y+13, {maxWidth:contentW});
+  y += 13;
+  if(invoice.customer_phone){ doc.text(invoice.customer_phone, margin, y+13); y+=13; }
+  if(invoice.customer_address){ doc.text(invoice.customer_address, margin, y+13, {maxWidth:contentW}); y+=13; }
+  y += 16;
 
-  const rightColX = pageW/2+20;
-  doc.setFont(undefined,"bold"); doc.text("Appliance", rightColX, y);
-  doc.setFont(undefined,"normal");
-  doc.text([invoice.appliance_brand,invoice.appliance_type].filter(Boolean).join(" "), rightColX, y+14);
-  if(invoice.model_number) doc.text(`Model: ${invoice.model_number}`, rightColX, y+28);
+  if(invoice.appliance_brand||invoice.appliance_type||invoice.model_number){
+    doc.setFont(undefined,"bold"); doc.text("Appliance", margin, y);
+    doc.setFont(undefined,"normal");
+    const applianceLine=[invoice.appliance_brand,invoice.appliance_type].filter(Boolean).join(" ");
+    if(applianceLine){ doc.text(applianceLine, margin, y+13); y+=13; }
+    if(invoice.model_number){ doc.text(`Model: ${invoice.model_number}`, margin, y+13); y+=13; }
+    y += 16;
+  }
 
-  y += 74;
-
-  // Line items table
-  doc.setFillColor(theme.accent); doc.rect(margin,y,pageW-margin*2,22,"F");
-  doc.setTextColor("#ffffff"); doc.setFontSize(9); doc.setFont(undefined,"bold");
-  doc.text("Description", margin+8, y+15);
-  doc.text("Qty", pageW-margin-160, y+15);
-  doc.text("Unit Price", pageW-margin-110, y+15);
-  doc.text("Amount", pageW-margin-8, y+15, {align:"right"});
-  y += 22;
-  doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal");
+  // Line items — labeled columns (Qty / Price were easy to misread before;
+  // headers plus right-aligned numeric columns fix that).
+  doc.setFillColor(theme.accent); doc.rect(margin,y,contentW,20,"F");
+  doc.setTextColor("#ffffff"); doc.setFontSize(8); doc.setFont(undefined,"bold");
+  doc.text("Item", margin+6, y+14);
+  doc.text("Qty", margin+contentW-108, y+14, {align:"right"});
+  doc.text("Price", margin+contentW-58, y+14, {align:"right"});
+  doc.text("Total", margin+contentW-6, y+14, {align:"right"});
+  y += 20;
+  doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
   (lineItems||[]).forEach((li)=>{
-    doc.text(String(li.description), margin+8, y+15, {maxWidth:pageW-margin*2-180});
-    doc.text(String(li.quantity), pageW-margin-160, y+15);
-    doc.text(`Rs. ${Number(li.unit_price).toFixed(2)}`, pageW-margin-110, y+15);
-    doc.text(`Rs. ${Number(li.line_total).toFixed(2)}`, pageW-margin-8, y+15, {align:"right"});
-    y += 22;
-    doc.setDrawColor("#e0e0e0"); doc.line(margin,y-6,pageW-margin,y-6);
+    const rowH = 20;
+    doc.text(String(li.description), margin+6, y+14, {maxWidth:contentW-120});
+    doc.text(String(li.quantity), margin+contentW-108, y+14, {align:"right"});
+    doc.text(Number(li.unit_price).toFixed(0), margin+contentW-58, y+14, {align:"right"});
+    doc.text(Number(li.line_total).toFixed(0), margin+contentW-6, y+14, {align:"right"});
+    y += rowH;
+    doc.setDrawColor("#e0e0e0"); doc.line(margin,y-6,margin+contentW,y-6);
   });
 
   y += 10;
-  const summaryX = pageW-margin-160;
-  const summaryLine = (label,val,bold)=>{
-    doc.setFont(undefined,bold?"bold":"normal");
-    doc.text(label, summaryX, y+15);
-    doc.text(`Rs. ${Number(val).toFixed(2)}`, pageW-margin-8, y+15, {align:"right"});
-    y += 18;
-  };
-  summaryLine("Subtotal", invoice.subtotal);
-  if(Number(invoice.discount)>0) summaryLine("Discount", -invoice.discount);
-  if(Number(invoice.tax)>0) summaryLine("Tax", invoice.tax);
-  summaryLine("Total", invoice.total, true);
+  doc.setFont(undefined,"bold"); doc.setFontSize(11);
+  doc.text("Total", margin, y+14);
+  doc.text(`Rs. ${Number(invoice.total).toFixed(2)}`, margin+contentW, y+14, {align:"right"});
+  y += 32;
 
-  y += 10;
-  doc.setFillColor(invoice.payment_status==="paid"?"#4caf50":"#ffb020");
-  doc.roundedRect(margin,y,80,20,4,4,"F");
-  doc.setTextColor("#ffffff"); doc.setFontSize(9); doc.setFont(undefined,"bold");
-  doc.text(invoice.payment_status==="paid"?"PAID":"PENDING", margin+40, y+14, {align:"center"});
-  if(invoice.payment_method){
-    doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal");
-    doc.text(`via ${invoice.payment_method}`, margin+90, y+14);
-  }
-  y += 40;
-
-  if(Number(invoice.warranty_days)>0){
-    doc.setFont(undefined,"bold"); doc.setFontSize(10); doc.text("Warranty", margin, y+14);
-    doc.setFont(undefined,"normal"); doc.setFontSize(9);
-    doc.text(`${invoice.warranty_days} days from ${invoice.warranty_start||invoice.service_date}, covering ${invoice.warranty_covers||"parts & labor"}.`, margin, y+28);
-    y += 44;
+  if(Number(invoice.warranty_months)>0){
+    doc.setFont(undefined,"bold"); doc.setFontSize(9); doc.text("Warranty", margin, y+13);
+    doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
+    doc.text(`${invoice.warranty_months} month${invoice.warranty_months===1?"":"s"} from ${invoice.service_date}.`, margin, y+26, {maxWidth:contentW});
+    y += 40;
   }
 
-  if(invoice.notes){
-    doc.setFont(undefined,"bold"); doc.setFontSize(10); doc.text("Notes", margin, y+14);
-    doc.setFont(undefined,"normal"); doc.setFontSize(9);
-    doc.text(invoice.notes, margin, y+28, {maxWidth:pageW-margin*2});
-  }
+  // Footer disclaimer — every invoice, regardless of theme. This exists so
+  // it's clear the invoice was produced by an independent technician using
+  // this tool, not issued by PCB Care itself as a party to the repair.
+  const footerY = pageH - 46;
+  doc.setDrawColor("#cccccc"); doc.line(margin, footerY-8, margin+contentW, footerY-8);
+  doc.setTextColor("#888888"); doc.setFontSize(6.5); doc.setFont(undefined,"normal");
+  doc.text(
+    "This invoice was generated using the PCBCare Invoice Generator by an independent technician. PCBCare is a tool provider only, is not a party to this transaction, and is not responsible for the accuracy of this invoice or any dispute arising from the service it describes.",
+    margin, footerY, {maxWidth:contentW, lineHeightFactor:1.3}
+  );
 
   return doc;
 };
@@ -3069,12 +3111,29 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
 // One row of the New Invoice line-item editor.
 function InvoiceLineItemRow({item,onChange,onRemove,canRemove}){
   const T=useTheme();
+  // A number input's displayed value is a string, and initializing it at
+  // numeric 0 meant typing produced "05" instead of replacing the 0 — this
+  // strips a leading zero as soon as another digit follows it, and
+  // selecting all text on focus makes typing overwrite instead of append.
+  const cleanNumber=(raw)=>raw.replace(/^0+(?=\d)/,"");
   return (
-    <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
-      <input value={item.description} onChange={e=>onChange({...item,description:e.target.value})} placeholder="Part / service description" style={{flex:2,padding:"8px 10px",borderRadius:8,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:12}}/>
-      <input type="number" min="0" step="1" value={item.quantity} onChange={e=>onChange({...item,quantity:+e.target.value||0})} placeholder="Qty" style={{width:54,padding:"8px 6px",borderRadius:8,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:12}}/>
-      <input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e=>onChange({...item,unitPrice:+e.target.value||0})} placeholder="Price" style={{width:74,padding:"8px 6px",borderRadius:8,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:12}}/>
-      {canRemove&&<button onClick={onRemove} style={{background:"none",border:"none",color:"#ff4757",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>}
+    <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10,padding:10,borderRadius:10,background:T.card,border:"1px solid #2a3050",boxSizing:"border-box"}}>
+      <input value={item.description} onChange={e=>onChange({...item,description:e.target.value})} placeholder="Item / service name" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:12,boxSizing:"border-box"}}/>
+      <div style={{display:"flex",gap:6}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:9,color:T.subtext,marginBottom:3}}>Quantity</div>
+          <input type="text" inputMode="numeric" value={String(item.quantity)} onFocus={e=>e.target.select()}
+            onChange={e=>onChange({...item,quantity:+cleanNumber(e.target.value.replace(/[^\d]/g,""))||0})}
+            style={{width:"100%",padding:"8px 6px",borderRadius:8,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:12,boxSizing:"border-box"}}/>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:9,color:T.subtext,marginBottom:3}}>Price (₹)</div>
+          <input type="text" inputMode="decimal" value={String(item.unitPrice)} onFocus={e=>e.target.select()}
+            onChange={e=>onChange({...item,unitPrice:+cleanNumber(e.target.value.replace(/[^\d.]/g,""))||0})}
+            style={{width:"100%",padding:"8px 6px",borderRadius:8,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:12,boxSizing:"border-box"}}/>
+        </div>
+        {canRemove&&<button onClick={onRemove} style={{alignSelf:"flex-end",background:"none",border:"none",color:"#ff4757",fontSize:16,cursor:"pointer",padding:"8px 4px"}}>✕</button>}
+      </div>
     </div>
   );
 }
@@ -3106,14 +3165,14 @@ function InvoiceProfileSetup({onSaved}){
       <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>🧾 Set Up Your Invoice Profile</h1>
       <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>This appears at the top of every invoice you generate — set it up once.</div>
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        <input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Your business name *" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-        <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Business phone *" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-        <input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Business address" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
+        <input value={businessName} onChange={e=>setBusinessName(e.target.value)} placeholder="Your business name *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
+        <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="Business phone *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
+        <input value={address} onChange={e=>setAddress(e.target.value)} placeholder="Business address" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
         {/* Logo is a pasted URL rather than a file upload — building a full
             image upload/storage pipeline is a separate piece of work I
             haven't scoped here; if you want direct upload instead of
             pasting a hosted link, say so and I'll add it. */}
-        <input value={logoUrl} onChange={e=>setLogoUrl(e.target.value)} placeholder="Logo image URL (optional)" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
+        <input value={logoUrl} onChange={e=>setLogoUrl(e.target.value)} placeholder="Logo image URL (optional)" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
         {err&&<div style={{fontSize:12,color:"#ff4757"}}>{err}</div>}
         <button onClick={save} disabled={saving} style={{padding:"12px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:saving?"default":"pointer"}}>{saving?"Saving…":"Save & Continue"}</button>
       </div>
@@ -3129,14 +3188,15 @@ function Invoices({user}){
   const [list,setList]=useState(null);
   const [err,setErr]=useState("");
   const [saving,setSaving]=useState(false);
+  const [advanced,setAdvanced]=useState(false);
+  const [universalBrands]=useUniversalBrands(); // the same brand list used everywhere else products are created
 
   const blankForm=()=>({
     customerName:"",customerPhone:"",customerAddress:"",
     applianceType:"",applianceBrand:"",modelNumber:"",
     lineItems:[{description:"",quantity:1,unitPrice:0}],
-    discount:0,tax:0,paymentStatus:"pending",paymentMethod:"",
-    warrantyDays:0,warrantyCovers:"parts & labor",
-    theme:"classic",notes:"",
+    warrantyOn:false, warrantyMonths:3,
+    theme:"classic",
   });
   const [form,setForm]=useState(blankForm());
 
@@ -3145,10 +3205,11 @@ function Invoices({user}){
     return ()=>clearSEO();
   },[]);
 
+  // No login required — see getInvoiceDeviceId()/invoicesApi above for how
+  // an anonymous, device-only identity is used when `user` is absent.
   useEffect(()=>{
-    if(!user) return; // no point calling the API if we already know there's no session — see the guard below
     invoicesApi("get_profile").then(r=>setProfile(r.profile)).catch(e=>setErr(e.message||"Could not load your invoice profile."));
-  },[user]);
+  },[]);
 
   const loadList=async()=>{
     try{ const {invoices}=await invoicesApi("list_my_invoices"); setList(invoices||[]); }
@@ -3156,22 +3217,19 @@ function Invoices({user}){
   };
   useEffect(()=>{ if(view==="list") loadList(); },[view]);
 
-  const subtotal=form.lineItems.reduce((s,li)=>s+(li.quantity||0)*(li.unitPrice||0),0);
-  const total=Math.max(0,subtotal-(+form.discount||0)+(+form.tax||0));
+  const total=form.lineItems.reduce((s,li)=>s+(li.quantity||0)*(li.unitPrice||0),0);
 
   const submit=async()=>{
     if(!form.customerName.trim()||!form.customerPhone.trim()){ setErr("Customer name and WhatsApp number are required."); return; }
-    if(!form.lineItems.some(li=>li.description.trim())){ setErr("Add at least one line item."); return; }
+    if(!form.lineItems.some(li=>li.description.trim())){ setErr("Add at least one item."); return; }
     setSaving(true); setErr("");
     try{
       const {invoice}=await invoicesApi("create_invoice",{
         customer:{name:form.customerName.trim(),phone:form.customerPhone.trim(),address:form.customerAddress.trim()},
         appliance:{type:form.applianceType,brand:form.applianceBrand,model:form.modelNumber},
         lineItems:form.lineItems.filter(li=>li.description.trim()),
-        money:{subtotal,discount:+form.discount||0,tax:+form.tax||0,total,paymentStatus:form.paymentStatus,paymentMethod:form.paymentMethod},
-        warranty:{days:+form.warrantyDays||0,covers:form.warrantyCovers},
+        warranty:{months:form.warrantyOn?+form.warrantyMonths:0},
         theme:form.theme,
-        notes:form.notes,
       });
       const lineItems=form.lineItems.filter(li=>li.description.trim()).map(li=>({description:li.description,quantity:li.quantity,unit_price:li.unitPrice,line_total:li.quantity*li.unitPrice}));
       setCreated({invoice,lineItems});
@@ -3186,28 +3244,33 @@ function Invoices({user}){
   };
 
   const shareOnWhatsApp=async(invoice,lineItems)=>{
-    // Can't attach the PDF to the chat automatically — no wa.me link or
-    // WhatsApp Web API supports that. This downloads the PDF, then opens
-    // the customer's chat with a pre-filled message; the technician taps
-    // the attachment icon and picks the file that just downloaded.
     const doc=await buildInvoicePDF(invoice,lineItems,profile);
-    doc.save(`invoice-${invoice.invoice_number}.pdf`);
     const msg=`Hi ${invoice.customer_name}, here's your invoice (#${invoice.invoice_number}) from ${profile?.business_name||"PCB Care"}.`;
     const phoneDigits=invoice.customer_phone.replace(/\D/g,"");
+    const fileName=`invoice-${invoice.invoice_number}.pdf`;
+
+    // Best available option: the Web Share API can hand the PDF itself to
+    // WhatsApp's native share target, pre-attached, on Android Chrome and
+    // most mobile browsers — no manual attach step. Its real limitation:
+    // it opens WhatsApp's own contact picker, not a specific customer's
+    // chat — no web technology can pre-select the recipient AND pre-attach
+    // a file in the same action, on any platform, so this trades the
+    // auto-selected chat for an auto-attached file instead.
+    try{
+      const blob=doc.output("blob");
+      const file=new File([blob], fileName, {type:"application/pdf"});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], text:msg, title:fileName});
+        return;
+      }
+    }catch{ /* user cancelling the share sheet also lands here — fall through to the older flow rather than showing an error for that */ }
+
+    // Fallback (desktop, or a browser without file-sharing support): opens
+    // the customer's chat directly with the message pre-filled, same as
+    // before — but the PDF still needs a manual attach from Downloads.
+    doc.save(fileName);
     window.open(`https://wa.me/${phoneDigits}?text=${encodeURIComponent(msg)}`,"_blank");
   };
-
-  // Reachable via a direct /invoices link without being logged in (same
-  // bypass Wiring/Shop use for their own public pages) — but unlike those,
-  // Invoices has no meaningful anonymous state, so show a real prompt
-  // instead of silently failing the API call and sitting on "Loading…"
-  // forever, which is exactly what happened before this fix.
-  if(!user) return (
-    <div style={{padding:16}}>
-      <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:8,marginTop:0}}>🧾 Invoices</h1>
-      <div style={{fontSize:13,color:T.subtext,marginBottom:16}}>Log in to create and manage your invoices.</div>
-    </div>
-  );
 
   if(profile===undefined){
     return (
@@ -3221,9 +3284,9 @@ function Invoices({user}){
 
   if(created){
     return (
-      <div style={{padding:16}}>
+      <div style={{padding:16,boxSizing:"border-box"}}>
         <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>✅ Invoice #{created.invoice.invoice_number} Created</h1>
-        <div style={{fontSize:12,color:T.subtext,marginBottom:20}}>For {created.invoice.customer_name} — Rs. {Number(created.invoice.total).toFixed(2)}</div>
+        <div style={{fontSize:12,color:T.subtext,marginBottom:20}}>For {created.invoice.customer_name} — ₹{Number(created.invoice.total).toFixed(2)}</div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <button onClick={()=>savePDF(created.invoice,created.lineItems)} style={{padding:"14px",borderRadius:10,background:"#2a3050",color:T.text,border:"none",fontWeight:700,fontSize:13,cursor:"pointer"}}>💾 Save</button>
           <button onClick={()=>shareOnWhatsApp(created.invoice,created.lineItems)} style={{padding:"14px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:"pointer"}}>Share on WhatsApp</button>
@@ -3234,7 +3297,7 @@ function Invoices({user}){
   }
 
   return (
-    <div style={{padding:16}}>
+    <div style={{padding:16,boxSizing:"border-box",maxWidth:"100%",overflowX:"hidden"}}>
       <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>🧾 Invoices</h1>
       <div style={{display:"flex",gap:8,marginBottom:18}}>
         {[["new","New Invoice"],["list","My Invoices"]].map(([id,label])=>(
@@ -3244,71 +3307,68 @@ function Invoices({user}){
       {err&&<div style={{fontSize:12,color:"#ff4757",marginBottom:12}}>{err}</div>}
 
       {view==="new"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{display:"flex",flexDirection:"column",gap:14,maxWidth:"100%"}}>
           <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Customer</div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <input value={form.customerName} onChange={e=>setForm({...form,customerName:e.target.value})} placeholder="Customer name *" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-              <input value={form.customerPhone} onChange={e=>setForm({...form,customerPhone:e.target.value})} placeholder="Customer WhatsApp number * (for sharing)" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-              <input value={form.customerAddress} onChange={e=>setForm({...form,customerAddress:e.target.value})} placeholder="Customer address" style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-            </div>
+            <input value={form.customerName} onChange={e=>setForm({...form,customerName:e.target.value})} placeholder="Customer name *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box",marginBottom:8}}/>
+            <input value={form.customerPhone} onChange={e=>setForm({...form,customerPhone:e.target.value})} placeholder="Customer WhatsApp number *" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
           </div>
 
           <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Appliance</div>
-            <div style={{display:"flex",gap:8}}>
-              <input value={form.applianceType} onChange={e=>setForm({...form,applianceType:e.target.value})} placeholder="Type (AC, Fridge…)" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-              <input value={form.applianceBrand} onChange={e=>setForm({...form,applianceBrand:e.target.value})} placeholder="Brand" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-            </div>
-            <input value={form.modelNumber} onChange={e=>setForm({...form,modelNumber:e.target.value})} placeholder="Model number" style={{width:"100%",marginTop:8,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"}}/>
-          </div>
-
-          <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Line Items</div>
+            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Items</div>
             {form.lineItems.map((li,i)=>(
               <InvoiceLineItemRow key={i} item={li} canRemove={form.lineItems.length>1}
                 onChange={updated=>setForm({...form,lineItems:form.lineItems.map((x,j)=>j===i?updated:x)})}
                 onRemove={()=>setForm({...form,lineItems:form.lineItems.filter((_,j)=>j!==i)})}/>
             ))}
-            <button onClick={()=>setForm({...form,lineItems:[...form.lineItems,{description:"",quantity:1,unitPrice:0}]})} style={{background:"none",border:`1px dashed ${AC}66`,color:AC,borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>+ Add Line</button>
-          </div>
-
-          <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Payment</div>
-            <div style={{display:"flex",gap:8,marginBottom:8}}>
-              <input type="number" value={form.discount} onChange={e=>setForm({...form,discount:e.target.value})} placeholder="Discount ₹" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-              <input type="number" value={form.tax} onChange={e=>setForm({...form,tax:e.target.value})} placeholder="Tax ₹" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <select value={form.paymentStatus} onChange={e=>setForm({...form,paymentStatus:e.target.value})} style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}>
-                <option value="pending">Pending</option>
-                <option value="paid">Paid</option>
-              </select>
-              <input value={form.paymentMethod} onChange={e=>setForm({...form,paymentMethod:e.target.value})} placeholder="Method (cash, UPI…)" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-            </div>
+            <button onClick={()=>setForm({...form,lineItems:[...form.lineItems,{description:"",quantity:1,unitPrice:0}]})} style={{background:"none",border:`1px dashed ${AC}66`,color:AC,borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>+ Add Item</button>
             <div style={{textAlign:"right",marginTop:10,fontSize:14,fontWeight:700,color:T.text}}>Total: ₹{total.toFixed(2)}</div>
           </div>
 
-          <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Warranty</div>
-            <div style={{display:"flex",gap:8}}>
-              <input type="number" value={form.warrantyDays} onChange={e=>setForm({...form,warrantyDays:e.target.value})} placeholder="Days (0 = none)" style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}/>
-              <select value={form.warrantyCovers} onChange={e=>setForm({...form,warrantyCovers:e.target.value})} style={{flex:1,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13}}>
-                <option>parts & labor</option><option>parts only</option><option>labor only</option>
-              </select>
-            </div>
-          </div>
+          <button onClick={()=>setAdvanced(a=>!a)} style={{background:"none",border:"none",color:AC,fontSize:12,fontWeight:700,cursor:"pointer",padding:0,textAlign:"left"}}>{advanced?"▲ Hide Advanced Options":"▼ Advanced Options"}</button>
 
-          <div>
-            <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>PDF Theme</div>
-            <div style={{display:"flex",gap:8}}>
-              {Object.entries(INVOICE_THEMES).map(([id,t])=>(
-                <button key={id} onClick={()=>setForm({...form,theme:id})} style={{flex:1,padding:"10px",borderRadius:10,background:form.theme===id?t.bar:"#1a1f2e",color:"#fff",border:form.theme===id?`2px solid ${t.accent}`:"1px solid #2a3050",cursor:"pointer",fontSize:12,fontWeight:600}}>{t.label}</button>
-              ))}
-            </div>
-          </div>
+          {advanced&&(
+            <div style={{display:"flex",flexDirection:"column",gap:14,padding:12,borderRadius:10,background:T.card,border:"1px solid #2a3050",boxSizing:"border-box"}}>
+              <input value={form.customerAddress} onChange={e=>setForm({...form,customerAddress:e.target.value})} placeholder="Customer address" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:13,boxSizing:"border-box"}}/>
 
-          <textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Notes (optional)" rows={2} style={{padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,resize:"vertical"}}/>
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>Appliance</div>
+                <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+                  <input value={form.applianceType} onChange={e=>setForm({...form,applianceType:e.target.value})} placeholder="Type (AC, Fridge…)" style={{flex:"1 1 120px",minWidth:0,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:13,boxSizing:"border-box"}}/>
+                  {/* Same universal brand list used across the rest of the site's product forms, instead of free-text */}
+                  <select value={form.applianceBrand} onChange={e=>setForm({...form,applianceBrand:e.target.value})} style={{flex:"1 1 120px",minWidth:0,padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:13,boxSizing:"border-box"}}>
+                    <option value="">Brand</option>
+                    {universalBrands.map(b=><option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <input value={form.modelNumber} onChange={e=>setForm({...form,modelNumber:e.target.value})} placeholder="Model number" style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:13,boxSizing:"border-box"}}/>
+              </div>
+
+              <div>
+                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:T.text,cursor:"pointer",marginBottom:form.warrantyOn?8:0}}>
+                  <input type="checkbox" checked={form.warrantyOn} onChange={e=>setForm({...form,warrantyOn:e.target.checked})}/>
+                  Include Warranty
+                </label>
+                {form.warrantyOn&&(
+                  <select value={form.warrantyMonths} onChange={e=>setForm({...form,warrantyMonths:+e.target.value})} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:T.bg||"#0a0d14",color:T.text,fontSize:13,boxSizing:"border-box"}}>
+                    {Array.from({length:12},(_,i)=>i+1).map(m=><option key={m} value={m}>{m} month{m===1?"":"s"}</option>)}
+                  </select>
+                )}
+              </div>
+
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:AC,textTransform:"uppercase",marginBottom:8}}>PDF Theme</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {Object.entries(INVOICE_THEMES).map(([id,t])=>(
+                    <button key={id} onClick={()=>setForm({...form,theme:id})} style={{flex:"1 1 90px",minWidth:0,borderRadius:10,background:"#1a1f2e",border:form.theme===id?`2px solid ${t.accent}`:"1px solid #2a3050",cursor:"pointer",overflow:"hidden",padding:0}}>
+                      {/* Small live-color preview strip instead of a plain text button, so the theme's actual look is visible before picking it */}
+                      <div style={{height:26,background:t.bar,borderBottom:`3px solid ${t.accent}`}}/>
+                      <div style={{padding:"6px 4px",fontSize:11,fontWeight:600,color:"#fff"}}>{t.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <button onClick={submit} disabled={saving} style={{padding:"14px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:saving?"default":"pointer"}}>{saving?"Creating…":"Create Invoice"}</button>
         </div>
@@ -3319,11 +3379,8 @@ function Invoices({user}){
           {list===null?<div style={{color:T.subtext,fontSize:13}}>Loading…</div>
           :list.length===0?<div style={{color:T.subtext,fontSize:13}}>No invoices yet.</div>
           :list.map(inv=>(
-            <div key={inv.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                <div style={{fontWeight:700,color:T.text,fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
-                <div style={{fontSize:12,fontWeight:700,color:inv.payment_status==="paid"?PC:"#ffb020"}}>{inv.payment_status}</div>
-              </div>
+            <div key={inv.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",boxSizing:"border-box"}}>
+              <div style={{fontWeight:700,color:T.text,fontSize:13,marginBottom:4}}>#{inv.invoice_number} — {inv.customer_name}</div>
               <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
               <button onClick={async()=>{
                 const {invoice,lineItems}=await invoicesApi("get_invoice",{invoiceId:inv.id});
@@ -6810,14 +6867,22 @@ ${items}
 
 // ── ADMIN: TECHNICIANS (Invoice Generator) ──────────────────────────────────
 function AdminTechnicians(){
+  const [section,setSection]=useState("technicians"); // "technicians" | "all"
   const [technicians,setTechnicians]=useState(null);
   const [selected,setSelected]=useState(null);
   const [invoices,setInvoices]=useState(null);
+  const [allInvoices,setAllInvoices]=useState(null);
   const [err,setErr]=useState("");
 
   useEffect(()=>{
     invoicesAdminApi("admin_list_technicians").then(r=>setTechnicians(r.technicians||[])).catch(e=>setErr(e.message));
   },[]);
+
+  useEffect(()=>{
+    if(section==="all"&&allInvoices===null){
+      invoicesAdminApi("admin_list_all_invoices").then(r=>setAllInvoices(r.invoices||[])).catch(e=>setErr(e.message));
+    }
+  },[section,allInvoices]);
 
   const openTechnician=async(t)=>{
     setSelected(t); setInvoices(null);
@@ -6830,16 +6895,13 @@ function AdminTechnicians(){
       <div style={{padding:16}}>
         <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",color:AC,fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12,padding:0}}>← All Technicians</button>
         <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:2}}>{selected.business_name}</div>
-        <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>{selected.phone} · {invoices?.length ?? "…"} invoice{invoices?.length===1?"":"s"}</div>
+        <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>{selected.phone} · {invoices?.length ?? "…"} invoice{invoices?.length===1?"":"s"}{selected.is_anonymous_device?" · no account (device only)":selected.account?` · ${selected.account.full_name||selected.account.email}`:""}</div>
         {err&&<div style={{fontSize:12,color:"#ff4757",marginBottom:12}}>{err}</div>}
         {invoices===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
         :invoices.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No invoices yet.</div>
         :invoices.map(inv=>(
           <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
-            <div style={{display:"flex",justifyContent:"space-between"}}>
-              <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
-              <div style={{fontSize:12,fontWeight:700,color:inv.payment_status==="paid"?PC:"#ffb020"}}>{inv.payment_status}</div>
-            </div>
+            <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
             <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
           </div>
         ))}
@@ -6850,19 +6912,37 @@ function AdminTechnicians(){
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>👷 Technicians</div>
-      <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Every technician's invoice profile and how many invoices they've generated.</div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        {[["technicians","By Technician"],["all","All Invoices"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"9px",borderRadius:9,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:"1px solid #2a3050",cursor:"pointer",fontWeight:700,fontSize:12}}>{label}</button>
+        ))}
+      </div>
       {err&&<div style={{fontSize:12,color:"#ff4757",marginBottom:12}}>{err}</div>}
-      {technicians===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
-      :technicians.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No technician has set up an invoice profile yet.</div>
-      :technicians.map(t=>(
-        <div key={t.id} onClick={()=>openTechnician(t)} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontWeight:700,color:"#fff",fontSize:13}}>{t.business_name}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{t.phone}</div>
+
+      {section==="technicians"&&(
+        technicians===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
+        :technicians.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No technician has set up an invoice profile yet.</div>
+        :technicians.map(t=>(
+          <div key={t.id} onClick={()=>openTechnician(t)} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div style={{fontWeight:700,color:"#fff",fontSize:13}}>{t.business_name}{t.is_anonymous_device&&<span style={{color:"#ffb020",fontWeight:600,fontSize:10}}> · no account</span>}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>{t.phone}</div>
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:AC}}>{t.invoice_count} invoice{t.invoice_count===1?"":"s"}</div>
           </div>
-          <div style={{fontSize:13,fontWeight:700,color:AC}}>{t.invoice_count} invoice{t.invoice_count===1?"":"s"}</div>
-        </div>
-      ))}
+        ))
+      )}
+
+      {section==="all"&&(
+        allInvoices===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
+        :allInvoices.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No invoices generated yet.</div>
+        :allInvoices.map(inv=>(
+          <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
+            <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+            <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
