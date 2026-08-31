@@ -104,20 +104,33 @@ const sb = async (table, { method = "GET", filter = "", body = null, prefer = ""
   return text ? JSON.parse(text) : null;
 };
 
-// Verifies the request's Firebase ID token and resolves it to this app's
-// own users.id. Throws if the token is missing/invalid or the user has
-// no matching row — callers must catch this and respond 401.
+// Resolves who's calling, in one of two ways:
+//   1. A verified Firebase ID token → returns { id: users.id, anonymous:false }.
+//      This is the real, trustworthy path — the identity is cryptographically
+//      proven by Firebase.
+//   2. A client-supplied X-Device-Id header (a random UUID the browser
+//      generated and stored locally, used when there's no login at all) →
+//      returns { id: deviceId, anonymous:true }. This path has NO real
+//      verification behind it by definition — anyone could send any UUID.
+//      It exists purely to support the "use it without logging in" request;
+//      it is not, and cannot be, a secure identity the way option 1 is.
 const authenticate = async (req) => {
   const authHeader = req.headers.authorization || "";
   const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!idToken) throw new Error("Missing Authorization bearer token");
 
-  const decoded = await getAuth().verifyIdToken(idToken);
-  const rows = await sb("users", { filter: `?firebase_uid=eq.${decoded.uid}&select=id,status` });
-  const user = Array.isArray(rows) ? rows[0] : null;
-  if (!user) throw new Error("No matching user for this token");
-  if (user.status && user.status !== "approved") throw new Error("Account not approved");
-  return user.id; // this is the ONLY technician_id every handler below is allowed to trust
+  if (idToken) {
+    const decoded = await getAuth().verifyIdToken(idToken);
+    const rows = await sb("users", { filter: `?firebase_uid=eq.${decoded.uid}&select=id,status` });
+    const user = Array.isArray(rows) ? rows[0] : null;
+    if (!user) throw new Error("No matching user for this token");
+    if (user.status && user.status !== "approved") throw new Error("Account not approved");
+    return { id: user.id, anonymous: false };
+  }
+
+  const deviceId = req.headers["x-device-id"];
+  const isValidUuid = typeof deviceId === "string" && /^[0-9a-f-]{36}$/i.test(deviceId);
+  if (!isValidUuid) throw new Error("Missing Authorization bearer token or a valid X-Device-Id");
+  return { id: deviceId, anonymous: true };
 };
 
 // Real admin-session check, matching admin-login.js exactly: that route
@@ -153,10 +166,11 @@ module.exports = async (req, res) => {
   try {
     const { action } = req.body || req.query || {};
 
-    // ── Technician actions (require a verified Firebase user) ──
+    // ── Technician actions (require a verified Firebase user OR an
+    //    anonymous device ID — see authenticate() above) ──
     if (action === "create_invoice") {
-      const technicianId = await authenticate(req);
-      const { customer, appliance, lineItems, money, warranty, theme, notes, serviceDate } = req.body;
+      const { id: technicianId } = await authenticate(req);
+      const { customer, appliance, lineItems } = req.body;
 
       if (!customer?.name || !customer?.phone) {
         return res.status(400).json({ error: "Customer name and phone are required" });
@@ -164,6 +178,8 @@ module.exports = async (req, res) => {
       if (!Array.isArray(lineItems) || lineItems.length === 0) {
         return res.status(400).json({ error: "At least one line item is required" });
       }
+
+      const subtotal = lineItems.reduce((s, li) => s + (li.quantity || 0) * (li.unitPrice || 0), 0);
 
       const created = await sb("invoices", {
         method: "POST",
@@ -173,21 +189,14 @@ module.exports = async (req, res) => {
           customer_name: customer.name,
           customer_phone: customer.phone,
           customer_address: customer.address || null,
-          appliance_type: appliance?.type || null,
+          appliance_type: req.body.appliance?.type || null,
           appliance_brand: appliance?.brand || null,
           model_number: appliance?.model || null,
-          subtotal: money?.subtotal || 0,
-          discount: money?.discount || 0,
-          tax: money?.tax || 0,
-          total: money?.total || 0,
-          payment_status: money?.paymentStatus || "pending",
-          payment_method: money?.paymentMethod || null,
-          warranty_days: warranty?.days || 0,
-          warranty_covers: warranty?.covers || null,
-          warranty_start: warranty?.start || null,
-          theme: theme || "classic",
-          notes: notes || null,
-          service_date: serviceDate || new Date().toISOString().slice(0, 10),
+          subtotal,
+          total: subtotal, // no discount/tax in the simplified form — total is just the line-item sum
+          warranty_months: req.body.warranty?.months || 0,
+          theme: req.body.theme || "classic",
+          service_date: req.body.serviceDate || new Date().toISOString().slice(0, 10),
         },
       });
       const invoice = Array.isArray(created) ? created[0] : created;
@@ -207,7 +216,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === "list_my_invoices") {
-      const technicianId = await authenticate(req);
+      const { id: technicianId } = await authenticate(req);
       const invoices = await sb("invoices", {
         filter: `?technician_id=eq.${technicianId}&select=*&order=created_at.desc`,
       });
@@ -215,7 +224,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === "get_invoice") {
-      const technicianId = await authenticate(req);
+      const { id: technicianId } = await authenticate(req);
       const { invoiceId } = req.body;
       const rows = await sb("invoices", {
         filter: `?id=eq.${invoiceId}&technician_id=eq.${technicianId}&select=*`,
@@ -229,13 +238,13 @@ module.exports = async (req, res) => {
     }
 
     if (action === "save_profile") {
-      const technicianId = await authenticate(req);
+      const { id: technicianId, anonymous } = await authenticate(req);
       const { businessName, phone, address, logoUrl } = req.body;
       if (!businessName || !phone) {
         return res.status(400).json({ error: "Business name and phone are required" });
       }
       const existing = await sb("invoice_profiles", { filter: `?user_id=eq.${technicianId}&select=id` });
-      const body = { business_name: businessName, phone, address: address || null, logo_url: logoUrl || null, updated_at: new Date().toISOString() };
+      const body = { business_name: businessName, phone, address: address || null, logo_url: logoUrl || null, is_anonymous_device: anonymous, updated_at: new Date().toISOString() };
       let result;
       if (Array.isArray(existing) && existing.length) {
         result = await sb("invoice_profiles", { method: "PATCH", filter: `?user_id=eq.${technicianId}`, body, prefer: "return=representation" });
@@ -246,7 +255,7 @@ module.exports = async (req, res) => {
     }
 
     if (action === "get_profile") {
-      const technicianId = await authenticate(req);
+      const { id: technicianId } = await authenticate(req);
       const rows = await sb("invoice_profiles", { filter: `?user_id=eq.${technicianId}&select=*` });
       return res.status(200).json({ profile: Array.isArray(rows) ? rows[0] || null : null });
     }
@@ -254,13 +263,28 @@ module.exports = async (req, res) => {
     // ── Admin-only actions ──
     if (action === "admin_list_technicians") {
       authenticateAdmin(req);
-      const profiles = await sb("invoice_profiles", { filter: "?select=*,users(full_name,email,phone)" });
+      const profiles = await sb("invoice_profiles", { filter: "?select=*" });
       // Invoice counts per technician, computed here rather than trusting
       // any client-supplied number.
       const counts = await sb("invoices", { filter: "?select=technician_id" });
       const countMap = {};
       (counts || []).forEach((r) => { countMap[r.technician_id] = (countMap[r.technician_id] || 0) + 1; });
-      const withCounts = (profiles || []).map((p) => ({ ...p, invoice_count: countMap[p.user_id] || 0 }));
+      // No more embedded `users(...)` join here — dropping the FK on
+      // user_id (needed to accept anonymous device UUIDs) means PostgREST
+      // can no longer infer that relationship automatically. Fetch real
+      // account names separately, only for the profiles that are actually
+      // real accounts, and merge them in by hand instead.
+      const realIds = (profiles || []).filter(p => !p.is_anonymous_device).map(p => p.user_id);
+      let usersById = {};
+      if (realIds.length) {
+        const users = await sb("users", { filter: `?id=in.(${realIds.join(",")})&select=id,full_name,email,phone` });
+        usersById = Object.fromEntries((users || []).map(u => [u.id, u]));
+      }
+      const withCounts = (profiles || []).map((p) => ({
+        ...p,
+        invoice_count: countMap[p.user_id] || 0,
+        account: usersById[p.user_id] || null, // null for an anonymous device profile — there is no real account behind it
+      }));
       return res.status(200).json({ technicians: withCounts });
     }
 
@@ -273,11 +297,21 @@ module.exports = async (req, res) => {
       return res.status(200).json({ invoices });
     }
 
+    // Every invoice ever generated, across every technician (real accounts
+    // and anonymous devices alike) — a flat view for "admin can see every
+    // invoice generated" rather than requiring a drill-down per technician.
+    if (action === "admin_list_all_invoices") {
+      authenticateAdmin(req);
+      const invoices = await sb("invoices", { filter: "?select=*&order=created_at.desc&limit=500" });
+      return res.status(200).json({ invoices });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
   } catch (err) {
-    const status = /Missing Authorization|invalid|No matching user|not approved/i.test(err.message) ? 401
+    const status = /Missing Authorization|invalid|No matching user|not approved|valid X-Device-Id/i.test(err.message) ? 401
       : /Not authorized as admin/i.test(err.message) ? 403
       : 500;
     return res.status(status).json({ error: err.message });
   }
 };
+        

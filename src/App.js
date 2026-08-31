@@ -3019,13 +3019,21 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   const headerH = 78;
   doc.setFillColor(theme.bar);
   doc.rect(0,0,pageW,headerH,"F");
+<<<<<<< HEAD
   let logoBoxW=0;
+=======
+  let logoBoxW=0, logoBoxH=0;
+>>>>>>> 03c9ece2973040c931d0536770aded0d79d57553
   if(profile?.logo_url){
     try{
       const logo = await imageUrlToDataURL(profile.logo_url);
       const box = fitWithinBox(logo.width, logo.height, 42, 42); // preserves the technician's real logo shape instead of forcing a square
       doc.addImage(logo.dataUrl,"PNG",margin,16,box.w,box.h);
+<<<<<<< HEAD
       logoBoxW = box.w+8;
+=======
+      logoBoxW = box.w+8; logoBoxH = box.h;
+>>>>>>> 03c9ece2973040c931d0536770aded0d79d57553
     }catch{ /* fall through without a logo rather than failing the whole invoice */ }
   }
   doc.setTextColor("#ffffff");
