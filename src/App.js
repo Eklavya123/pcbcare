@@ -7136,18 +7136,7 @@ export default function PCBCare() {
   // are deterrents only, not real protection. See the watermark below for the
   // one thing that actually helps if a screenshot does get taken — tracing it
   // back to whoever took it.
-  useEffect(()=>{
-    const blockContextMenu=(e)=>e.preventDefault();
-    document.addEventListener("contextmenu",blockContextMenu);
-    const prevUserSelect=document.body.style.userSelect;
-    document.body.style.userSelect="none";
-    document.body.style.WebkitUserSelect="none";
-    return ()=>{
-      document.removeEventListener("contextmenu",blockContextMenu);
-      document.body.style.userSelect=prevUserSelect;
-      document.body.style.WebkitUserSelect=prevUserSelect;
-    };
-  },[]);
+  // UI deterrent for right‑click and text selection removed for accessibility and SEO compliance
 
 
   const [stage,setStage]=useState("intro");          // intro -> app (auth now shown on-demand, layered over "app")
@@ -7196,7 +7185,22 @@ export default function PCBCare() {
   if (p === '/' || RESERVED_PATH_PREFIXES.some(pre => p.startsWith(pre))) return null;
   return p;
 });
-const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":tabRouteInitialPath.current?PATH_TO_TAB[tabRouteInitialPath.current]:pageInitialPath.current?"page":"home");
+useEffect(() => {
+  const titleMap = {
+    home: "PCB Care – Home",
+    shop: "PCB Care – Shop",
+    wiring: "PCB Care – Wiring Diagrams",
+    blog: "PCB Care – Blog",
+    errors: "PCB Care – Error Code Lookup",
+    remote: "PCB Care – Find Remote",
+    sensors: "PCB Care – Sensor Values",
+    parts: "PCB Care – Part Finder",
+    requests: "PCB Care – Requests",
+    invoices: "PCB Care – Invoices",
+    page: "PCB Care – Page"
+  };
+  document.title = titleMap[tab] || "PCB Care";
+}, [tab]);
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
   // that link to a Shop product — Shop is already public, so this can just
   // switch tabs normally.
