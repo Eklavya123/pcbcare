@@ -1,5 +1,6 @@
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
+import React, { createContext, useEffect, useState } from 'react';
 
 // Firebase configuration – values are read from environment variables.
 const firebaseConfig = {
@@ -32,7 +33,6 @@ export const getFirebaseAuth = async () => {
 };
 
 // ----- React Auth Context -----
-import React, { createContext, useEffect, useState } from 'react';
 const AuthContext = createContext({ user: null, setUser: () => {} });
 export const useAuth = () => React.useContext(AuthContext);
 
