@@ -1,0 +1,5 @@
+*{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;}
+input,textarea,select{font-size:16px!important;}
+body{-webkit-text-size-adjust:100%;overscroll-behavior-y:none;}
+.ios-scroll{-webkit-overflow-scrolling:touch;overflow-y:auto;}
+.ios-scroll-x{-webkit-overflow-scrolling:touch;overflow-x:auto;}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import jsPDF from "jspdf"; // npm install jspdf — new dependency for the Invoice Generator's PDF output
+import { TAB_ROUTES, PATH_TO_TAB, RESERVED_PATH_PREFIXES } from './routes';
 
 // PCB Care — v1.6.0
 // ════════════════════════════════════════════════════════════════════════════
@@ -7170,7 +7171,7 @@ export default function PCBCare() {
   // never index them as separate pages no matter what title/meta code ran —
   // there was only ever one indexable URL for all five. TAB_ROUTES is the
   // single source of truth for tab <-> URL, used here and in goToTab below.
-  const TAB_ROUTES={
+  // const TAB_ROUTES={
     errors:"/error-codes",
     remote:"/find-remote",
     sensors:"/sensor-values",
@@ -7178,19 +7179,24 @@ export default function PCBCare() {
     requests:"/requests",
     invoices:"/invoices",
   };
-  const PATH_TO_TAB=Object.fromEntries(Object.entries(TAB_ROUTES).map(([k,v])=>[v,k]));
-  const tabRouteInitialPath=useRef(PATH_TO_TAB[window.location.pathname]?window.location.pathname:null);
+  // const PATH_TO_TAB=Object.fromEntries(Object.entries(TAB_ROUTES).map(([k,v])=>[v,k]));
+  const tabRouteInitialPath = useRef(PATH_TO_TAB[window.location.pathname] ? window.location.pathname : null);
   // Static Pages (Admin → Pages) live at clean root-level URLs, e.g.
   // /service-areas — so anything that isn't "/" and isn't one of the other
   // reserved prefixes above is treated as a candidate page slug. StaticPage
   // itself handles the "no page with that slug" case gracefully.
-  const RESERVED_PATH_PREFIXES=["/shop","/wiring","/blog",...Object.values(TAB_ROUTES)];
-  const pageInitialPath=useRef((()=>{
-    const p=window.location.pathname;
-    if(p==="/"||RESERVED_PATH_PREFIXES.some(pre=>p.startsWith(pre))) return null;
-    return p;
-  })());
-  const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":tabRouteInitialPath.current?PATH_TO_TAB[tabRouteInitialPath.current]:pageInitialPath.current?"page":"home");
+  // const RESERVED_PATH_PREFIXES=["/shop","/wiring","/blog",...Object.values(TAB_ROUTES)];
+  // const pageInitialPath=useRef((()=>{
+    //   const p=window.location.pathname;
+    //   if(p==="/"||RESERVED_PATH_PREFIXES.some(pre=>p.startsWith(pre))) return null;
+    //   return p;
+  // })());
+  const pageInitialPath = useRef(() => {
+  const p = window.location.pathname;
+  if (p === '/' || RESERVED_PATH_PREFIXES.some(pre => p.startsWith(pre))) return null;
+  return p;
+});
+const [tab,setTab]=useState(()=>shopInitialPath.current?"shop":wiringInitialPath.current?"wiring":blogInitialPath.current?"blog":tabRouteInitialPath.current?PATH_TO_TAB[tabRouteInitialPath.current]:pageInitialPath.current?"page":"home");
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
   // that link to a Shop product — Shop is already public, so this can just
   // switch tabs normally.
