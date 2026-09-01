@@ -7161,7 +7161,6 @@ export default function PCBCare() {
   // there was only ever one indexable URL for all five. TAB_ROUTES is the
   // single source of truth for tab <-> URL, used here and in goToTab below.
   // const TAB_ROUTES={
-  };
   // const PATH_TO_TAB=Object.fromEntries(Object.entries(TAB_ROUTES).map(([k,v])=>[v,k]));
   const tabRouteInitialPath = useRef(PATH_TO_TAB[window.location.pathname] ? window.location.pathname : null);
   // Static Pages (Admin → Pages) live at clean root-level URLs, e.g.
