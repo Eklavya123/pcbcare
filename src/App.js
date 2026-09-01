@@ -7161,9 +7161,12 @@ export default function PCBCare() {
   // there was only ever one indexable URL for all five. TAB_ROUTES is the
   // single source of truth for tab <-> URL, used here and in goToTab below.
   // const TAB_ROUTES={
-  };
   // const PATH_TO_TAB=Object.fromEntries(Object.entries(TAB_ROUTES).map(([k,v])=>[v,k]));
   const tabRouteInitialPath = useRef(PATH_TO_TAB[window.location.pathname] ? window.location.pathname : null);
+  // FIX (was missing — caused 'tab'/'setTab' is not defined build errors):
+  // seeded from the URL via PATH_TO_TAB, same pattern as shopInitialPath/
+  // wiringInitialPath/blogInitialPath above, falling back to "home".
+  const [tab,setTab]=useState(()=>PATH_TO_TAB[window.location.pathname] || "home");
   // Static Pages (Admin → Pages) live at clean root-level URLs, e.g.
   // /service-areas — so anything that isn't "/" and isn't one of the other
   // reserved prefixes above is treated as a candidate page slug. StaticPage

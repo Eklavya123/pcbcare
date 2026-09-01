@@ -1,6 +1,5 @@
-import React, { createContext, useEffect, useState } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
 
 // Firebase configuration – values are read from environment variables.
 const firebaseConfig = {
@@ -16,18 +15,24 @@ const firebaseConfig = {
 let firebaseApp = null;
 export const initFirebase = () => {
   if (!firebaseApp) {
-    firebaseApp = initializeApp(firebaseConfig);
+    firebaseApp = firebase.initializeApp(firebaseConfig);
+    // expose globally for legacy compatibility (e.g., older code using window.firebase)
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      window.firebase = firebase;
+    }
   }
-  return firebaseApp;
+  return firebase.auth();
 };
 
-// Convenience wrapper to obtain a Firebase Auth instance.
+// Convenience wrapper to obtain a Firebase Auth instance (same as initFirebase).
 export const getFirebaseAuth = async () => {
-  const app = initFirebase();
-  return getAuth(app);
+  // initFirebase now returns the auth instance directly.
+  return initFirebase();
 };
 
 // ----- React Auth Context -----
+import React, { createContext, useEffect, useState } from 'react';
 const AuthContext = createContext({ user: null, setUser: () => {} });
 export const useAuth = () => React.useContext(AuthContext);
 
@@ -35,9 +40,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    // Initialise Firebase and subscribe to auth state changes.
-    const app = initFirebase();
-    const auth = getAuth(app);
+    const auth = initFirebase();
     const unsubscribe = auth.onAuthStateChanged(setUser);
     return () => unsubscribe();
   }, []);
