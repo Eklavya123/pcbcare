@@ -2953,15 +2953,26 @@ const INVOICE_THEMES = {
 // dimensions are what let every caller preserve aspect ratio instead of
 // forcing the image into a fixed box (which is what was squashing the
 // watermark logo before this fix).
-const imageUrlToDataURL = (url) => new Promise((resolve, reject) => {
+// Fetches an image and returns a data URL PLUS its final pixel dimensions —
+// resized down to fit within maxDim on its longest side BEFORE encoding.
+// This is the actual fix for oversized PDFs: jsPDF embeds an image at
+// whatever pixel resolution the data URL contains, regardless of how small
+// it's later displayed on the page — fitWithinBox below only ever scaled
+// the DISPLAY box, never the real pixel data, so a 5.9MB gallery photo
+// stayed a multi-MB blob inside the PDF even shown as a 40pt logo. Drawing
+// onto a canvas at the reduced size is what actually shrinks it.
+const imageUrlToDataURL = (url, maxDim=500) => new Promise((resolve, reject) => {
   const img = new Image();
   img.crossOrigin = "anonymous";
   img.onload = () => {
     try{
+      const scale = Math.min(maxDim/img.naturalWidth, maxDim/img.naturalHeight, 1); // never upscale — only shrink when the source is actually bigger than needed
+      const w = Math.max(1, Math.round(img.naturalWidth*scale));
+      const h = Math.max(1, Math.round(img.naturalHeight*scale));
       const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-      canvas.getContext("2d").drawImage(img,0,0);
-      resolve({dataUrl:canvas.toDataURL("image/png"), width:img.naturalWidth, height:img.naturalHeight});
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img,0,0,w,h);
+      resolve({dataUrl:canvas.toDataURL("image/png"), width:w, height:h});
     }catch(e){ reject(e); }
   };
   img.onerror = reject;
@@ -2995,7 +3006,7 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   // used to force a square box regardless of the logo's real shape, which
   // squeezed it; fitWithinBox fixes that).
   try{
-    const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`);
+    const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`, 400);
     const box = fitWithinBox(wm.width, wm.height, 200, 200);
     doc.saveGraphicsState();
     doc.setGState(new doc.GState({opacity:0.15}));
@@ -3010,7 +3021,7 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   let logoBoxW=0;
   if(profile?.logo_url){
     try{
-      const logo = await imageUrlToDataURL(profile.logo_url);
+      const logo = await imageUrlToDataURL(profile.logo_url, 150); // displayed at ~42pt in the header — 150px is already generous for that
       const box = fitWithinBox(logo.width, logo.height, 42, 42); // preserves the technician's real logo shape instead of forcing a square
       doc.addImage(logo.dataUrl,"PNG",margin,16,box.w,box.h);
       logoBoxW = box.w+8;
@@ -3170,7 +3181,14 @@ function InvoiceProfileSetup({onSaved}){
     const reader=new FileReader();
     reader.onload=async()=>{
       try{
-        const url=await uploadImageToStorage(reader.result,"invoice-logos");
+        // Resize BEFORE uploading — a 5.9MB gallery photo has no reason to
+        // be stored at full resolution when it's only ever shown as a small
+        // header logo. This is what fixed a 45MB generated PDF down to
+        // well under 1MB: the PDF embed was already capped at 150px, but
+        // the stored file itself was still the original multi-MB photo
+        // until this step existed.
+        const resized=await imageUrlToDataURL(reader.result, 500);
+        const url=await uploadImageToStorage(resized.dataUrl,"invoice-logos");
         setLogoUrl(url);
       }catch(ex){ setErr("Logo upload failed — try again."); }
       setLogoUploading(false);
