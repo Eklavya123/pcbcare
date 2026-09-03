@@ -306,6 +306,33 @@ module.exports = async (req, res) => {
       return res.status(200).json({ invoices });
     }
 
+    // Fetches everything buildInvoicePDF() needs for one invoice — the
+    // invoice row, its line items, and that invoice's own technician's
+    // branding profile (business name / logo / phone) — so the admin panel
+    // can regenerate and download the exact same PDF a technician would
+    // get, on demand, client-side. Deliberately mirrors "get_invoice"
+    // above but without the technician_id match, since an admin is
+    // allowed to pull any technician's invoice; authenticateAdmin() is
+    // what makes that safe. Nothing is stored server-side either way —
+    // every PDF, technician or admin, is built fresh from these three
+    // pieces each time, never saved as a file, so there's no extra
+    // storage cost per invoice regardless of how many times it's viewed.
+    if (action === "admin_get_invoice") {
+      authenticateAdmin(req);
+      const { invoiceId } = req.body;
+      const rows = await sb("invoices", { filter: `?id=eq.${invoiceId}&select=*` });
+      const invoice = Array.isArray(rows) ? rows[0] : null;
+      if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+      const lineItems = await sb("invoice_line_items", {
+        filter: `?invoice_id=eq.${invoiceId}&select=*&order=sort_order`,
+      });
+      const profileRows = await sb("invoice_profiles", {
+        filter: `?user_id=eq.${invoice.technician_id}&select=*`,
+      });
+      const profile = Array.isArray(profileRows) ? profileRows[0] || null : null;
+      return res.status(200).json({ invoice, lineItems, profile });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
   } catch (err) {
     const status = /Missing Authorization|invalid|No matching user|not approved|valid X-Device-Id/i.test(err.message) ? 401

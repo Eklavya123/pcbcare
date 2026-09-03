@@ -6970,7 +6970,11 @@ function AdminTechnicians(){
           <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+<<<<<<< HEAD
               <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
+=======
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+>>>>>>> 880c225d5a9d4578d7656e88d19c5be9014696cf
             </div>
             <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
           </div>
@@ -7010,7 +7014,11 @@ function AdminTechnicians(){
           <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+<<<<<<< HEAD
               <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
+=======
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+>>>>>>> 880c225d5a9d4578d7656e88d19c5be9014696cf
             </div>
             <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
           </div>
