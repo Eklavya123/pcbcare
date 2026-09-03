@@ -3431,7 +3431,7 @@ function Invoices({user}){
           :list.map(inv=>(
             <div key={inv.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",boxSizing:"border-box"}}>
               <div style={{fontWeight:700,color:T.text,fontSize:13,marginBottom:4}}>#{inv.invoice_number} — {inv.customer_name}</div>
-              <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+              <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
               <button onClick={async()=>{
                 const {invoice,lineItems}=await invoicesApi("get_invoice",{invoiceId:inv.id});
                 const doc=await buildInvoicePDF(invoice,lineItems,profile);
@@ -6940,6 +6940,23 @@ function AdminTechnicians(){
     catch(e){ setErr(e.message); }
   };
 
+  const [downloadingId,setDownloadingId]=useState(null);
+  // Regenerates the exact same PDF a technician would get, entirely on
+  // demand — fetches invoice + line items + that technician's branding
+  // profile, builds it client-side with the same buildInvoicePDF() used
+  // everywhere else, and never stores the file anywhere. Same reasoning as
+  // admin_get_invoice's comment: one regeneration per click, zero ongoing
+  // storage no matter how many invoices exist or how often they're pulled.
+  const downloadInvoicePDF=async(inv)=>{
+    setDownloadingId(inv.id);
+    try{
+      const {invoice,lineItems,profile}=await invoicesAdminApi("admin_get_invoice",{invoiceId:inv.id});
+      const doc=await buildInvoicePDF(invoice,lineItems,profile);
+      doc.save(`invoice-${invoice.invoice_number}.pdf`);
+    }catch(e){ setErr(e.message); }
+    setDownloadingId(null);
+  };
+
   if(selected){
     return (
       <div style={{padding:16}}>
@@ -6950,9 +6967,12 @@ function AdminTechnicians(){
         {invoices===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
         :invoices.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No invoices yet.</div>
         :invoices.map(inv=>(
-          <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
-            <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+          <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <div>
+              <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
+            </div>
+            <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
           </div>
         ))}
       </div>
@@ -6987,9 +7007,12 @@ function AdminTechnicians(){
         allInvoices===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
         :allInvoices.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No invoices generated yet.</div>
         :allInvoices.map(inv=>(
-          <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
-            <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
-            <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+          <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <div>
+              <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
+            </div>
+            <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
           </div>
         ))
       )}
@@ -7166,7 +7189,22 @@ export default function PCBCare() {
   // seeded from the URL via PATH_TO_TAB, falling back to "home". (Replaces
   // an earlier unused tabRouteInitialPath ref that computed the same thing
   // and was never read anywhere — removed rather than kept alongside this.)
-  const [tab,setTab]=useState(()=>PATH_TO_TAB[window.location.pathname] || "home");
+  // FIX: this previously only checked PATH_TO_TAB (the 6 simple tab routes —
+  // errors/remote/sensors/parts/requests/invoices) and fell back to "home"
+  // for everything else — including /shop, /wiring, /blog and static page
+  // URLs. That meant every Google-indexed product, wiring diagram, blog
+  // post or static page loaded the site fine but rendered the Home tab
+  // instead of the actual content. Now checks all route types, matching
+  // the same RESERVED_PATH_PREFIXES logic used for pageInitialPath below.
+  const [tab,setTab]=useState(()=>{
+    const p=window.location.pathname;
+    if(PATH_TO_TAB[p]) return PATH_TO_TAB[p];
+    if(p.startsWith("/shop")) return "shop";
+    if(p.startsWith("/wiring")) return "wiring";
+    if(p.startsWith("/blog")) return "blog";
+    if(p!=="/" && !RESERVED_PATH_PREFIXES.some(pre=>p.startsWith(pre))) return "page";
+    return "home";
+  });
   // Static Pages (Admin → Pages) live at clean root-level URLs, e.g.
   // /service-areas — so anything that isn't "/" and isn't one of the other
   // reserved prefixes above is treated as a candidate page slug. StaticPage
@@ -7177,11 +7215,17 @@ export default function PCBCare() {
     //   if(p==="/"||RESERVED_PATH_PREFIXES.some(pre=>p.startsWith(pre))) return null;
     //   return p;
   // })());
-  const pageInitialPath = useRef(() => {
+  // FIX: this was `useRef(() => {...})` — storing the function itself as
+  // .current instead of calling it. useRef doesn't invoke a lazy
+  // initializer the way useState does; the trailing () that actually runs
+  // the IIFE (visible in the commented-out original above) had been
+  // dropped. StaticPage was receiving a function instead of a path string,
+  // so every custom page (e.g. /service-areas) failed to load correctly.
+  const pageInitialPath = useRef((() => {
   const p = window.location.pathname;
   if (p === '/' || RESERVED_PATH_PREFIXES.some(pre => p.startsWith(pre))) return null;
   return p;
-});
+})());
 useEffect(() => {
   const titleMap = {
     home: "PCB Care – Home",
