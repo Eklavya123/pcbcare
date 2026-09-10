@@ -5,6 +5,7 @@ export const TAB_ROUTES = {
   parts: "/part-finder",
   requests: "/requests",
   invoices: "/invoices",
+  myorder: "/my-order",
 };
 
 export const PATH_TO_TAB = Object.fromEntries(
