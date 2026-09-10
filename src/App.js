@@ -357,6 +357,37 @@ const invoicesAdminApi = async (action, payload = {}) => {
   return data;
 };
 
+// Orders — "My Order" tracking + Admin → Orders. ordersApi is genuinely
+// public (no auth header at all): the whole point of "My Order" is a
+// customer looking up their own order with nothing but the order number,
+// no login required. See api/orders.js's top-of-file note for what that
+// trade-off means before assuming this is a closed, safe-by-default setup.
+const ordersApi = async (action, payload = {}) => {
+  const r = await fetch("/api/orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+};
+const ordersAdminApi = async (action, payload = {}) => {
+  const session = DB.get("pcb_admin_session", null);
+  const r = await fetch("/api/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Session": session?.token || "",
+      "X-Admin-Session-Expires": String(session?.expiresAt || ""),
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+};
+
 const getAutoApprove = async () => {
   try {
     const res = await api("app_settings",{filter:"?select=auto_approve&limit=1"});
@@ -1171,6 +1202,7 @@ function Home({setTab,user}) {
     {id:"blog",icon:"📝",title:"Blog",desc:"Guides, tips & how-tos",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     ...(partsEnabled&&user?.role==="viewer"?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
+    {id:"myorder",icon:"📦",title:"My Order",desc:"Track your order status",color:"#00e5ff"},
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
     {id:"invoices",icon:"🧾",title:"Invoices",desc:"Generate customer invoices",color:"#00c8a0"},
   ];
@@ -1205,6 +1237,100 @@ function Home({setTab,user}) {
           </a>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── MY ORDER ─────────────────────────────────────────────────────────────────
+// Public order lookup by order number (SN111765, SN111766, ...). No login
+// required — matches ordersApi in api/orders.js, which is deliberately
+// unauthenticated. See that file's top-of-file note on what that trades
+// away before changing anything here expecting it to be locked down.
+function MyOrder() {
+  const T=useTheme();
+  const [orderNumber,setOrderNumber]=useState("");
+  const [order,setOrder]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [err,setErr]=useState("");
+  const [downloading,setDownloading]=useState(false);
+
+  useEffect(()=>{
+    setSEO({
+      title:"Track My Order — PCB Care",
+      description:"Track your PCB Care order and download your order invoice using your order number.",
+      path:"/my-order",
+    });
+  },[]);
+
+  const find=async()=>{
+    if(!orderNumber.trim()) return;
+    setLoading(true); setErr(""); setOrder(null);
+    try{
+      const {order}=await ordersApi("get_order",{orderNumber:orderNumber.trim()});
+      setOrder(order);
+    }catch(e){ setErr(e.message); }
+    setLoading(false);
+  };
+
+  const downloadInvoice=async()=>{
+    setDownloading(true);
+    try{
+      const doc=await buildOrderPDF(order);
+      doc.save(`order-${order.order_number}.pdf`);
+    }catch(e){ setErr(e.message); }
+    setDownloading(false);
+  };
+
+  return (
+    <div style={{padding:16}}>
+      <h1 style={{position:"absolute",width:1,height:1,padding:0,margin:-1,overflow:"hidden",clip:"rect(0,0,0,0)",whiteSpace:"nowrap",border:0}}>Track My Order — PCB Care</h1>
+      <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:4}}>My Order</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:18}}>Enter your order number to track your order or download your invoice.</div>
+
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <input
+          value={orderNumber}
+          onChange={e=>setOrderNumber(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter") find();}}
+          placeholder="e.g. SN111765"
+          style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:14,boxSizing:"border-box"}}
+        />
+        <button onClick={find} disabled={loading||!orderNumber.trim()} style={{padding:"12px 18px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:loading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:loading?"default":"pointer",flexShrink:0}}>
+          {loading?"…":"Find"}
+        </button>
+      </div>
+
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:12,borderRadius:10,fontSize:12,marginBottom:14}}>{err}</div>}
+
+      {order&&(
+        <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:14,padding:16}}>
+          <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:2}}>Order #{order.order_number}</div>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>
+            {new Date(order.purchase_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})} · ₹{Number(order.amount).toFixed(2)}
+          </div>
+
+          {(order.items||[]).length>0&&(
+            <div style={{marginBottom:14}}>
+              {order.items.map((it,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:T.text,padding:"6px 0",borderBottom:i<order.items.length-1?"1px solid #2a3050":"none"}}>
+                  <span>{it.name}{it.qty>1?` × ${it.qty}`:""}</span>
+                  <span>₹{(Number(it.price)*Number(it.qty||1)).toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <button onClick={downloadInvoice} disabled={downloading} style={{padding:"12px",borderRadius:10,background:downloading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:downloading?"default":"pointer"}}>
+              {downloading?"Generating…":"⬇ Get Invoice"}
+            </button>
+            <button onClick={()=>window.open(order.tracking_url,"_blank","noopener")} style={{padding:"12px",borderRadius:10,background:"transparent",color:AC,border:`1px solid ${AC}`,fontWeight:700,fontSize:13,cursor:"pointer"}}>
+              📍 Track My Order
+            </button>
+          </div>
+          {order.courier_name&&<div style={{fontSize:10,color:T.subtext,marginTop:10,textAlign:"center"}}>Shipped via {order.courier_name}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -3128,7 +3254,117 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
   return doc;
 };
 
-// One row of the New Invoice line-item editor.
+// Builds the customer-facing order PDF — deliberately separate from
+// buildInvoicePDF above rather than a shared function with branches, since
+// the two are meant to look editorially different: buildInvoicePDF is
+// explicit that an independent technician generated it (that disclaimer
+// is the whole point there); this one is issued as PCB Care itself, with
+// no such disclaimer, because the underlying transaction actually is a
+// PCB Care shop order, not a third-party technician's service. Reusing
+// one function with an "if isOrder" branch would make it too easy for a
+// future edit to blur that distinction back together.
+const buildOrderPDF = async (order) => {
+  const pageW = 320;
+  const pageH = 620;
+  const doc = new jsPDF({unit:"pt", format:[pageW,pageH]});
+  const margin = 24;
+  const contentW = pageW - margin*2;
+
+  try{
+    const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`, 400);
+    const box = fitWithinBox(wm.width, wm.height, 200, 200);
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({opacity:0.12}));
+    doc.addImage(wm.dataUrl, "PNG", (pageW-box.w)/2, 220, box.w, box.h);
+    doc.restoreGraphicsState();
+  }catch{ /* decorative only — skip silently if the logo fails to load */ }
+
+  const headerH = 78;
+  doc.setFillColor(PC);
+  doc.rect(0,0,pageW,headerH,"F");
+  let logoBoxW=0;
+  try{
+    const logo = await imageUrlToDataURL(`${window.location.origin}/logo.webp`, 150);
+    const box = fitWithinBox(logo.width, logo.height, 42, 42);
+    doc.addImage(logo.dataUrl,"PNG",margin,16,box.w,box.h);
+    logoBoxW = box.w+8;
+  }catch{}
+  doc.setTextColor("#ffffff");
+  doc.setFontSize(13); doc.setFont(undefined,"bold");
+  doc.text("PCB Care", margin+logoBoxW, 30, {maxWidth:contentW-logoBoxW});
+  doc.setFontSize(8); doc.setFont(undefined,"normal");
+  doc.text("pcbcare.in", margin+logoBoxW, 44, {maxWidth:contentW-logoBoxW});
+
+  doc.setFontSize(9); doc.setFont(undefined,"bold");
+  doc.text(`Order #${order.order_number}`, margin, 64);
+  doc.setFont(undefined,"normal");
+  doc.text(new Date(order.purchase_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}), pageW-margin, 64, {align:"right"});
+
+  doc.setTextColor("#1a1a1a");
+  let y = headerH + 24;
+
+  doc.setFontSize(9); doc.setFont(undefined,"bold"); doc.text("Billed To", margin, y);
+  doc.setFont(undefined,"normal");
+  doc.text(order.customer_name, margin, y+13, {maxWidth:contentW});
+  y += 13;
+  if(order.customer_address){ doc.text(order.customer_address, margin, y+13, {maxWidth:contentW}); y+=13; }
+  y += 20;
+
+  const headerRowH = 22;
+  doc.setFillColor(AC); doc.rect(margin,y,contentW,headerRowH,"F");
+  doc.setTextColor("#ffffff"); doc.setFontSize(8); doc.setFont(undefined,"bold");
+  const headerBaseline = y + headerRowH/2 + 3;
+  doc.text("Item", margin+6, headerBaseline);
+  doc.text("Qty", margin+contentW-108, headerBaseline, {align:"right"});
+  doc.text("Price", margin+contentW-58, headerBaseline, {align:"right"});
+  doc.text("Total", margin+contentW-6, headerBaseline, {align:"right"});
+  y += headerRowH;
+  doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
+  (order.items||[]).forEach((it)=>{
+    const rowH = 24;
+    const rowTop = y;
+    const textBaseline = rowTop + rowH/2 + 3;
+    const qty = Number(it.qty)||1;
+    const price = Number(it.price)||0;
+    doc.text(String(it.name), margin+6, textBaseline, {maxWidth:contentW-120});
+    doc.text(String(qty), margin+contentW-108, textBaseline, {align:"right"});
+    doc.text(price.toFixed(0), margin+contentW-58, textBaseline, {align:"right"});
+    doc.text((qty*price).toFixed(0), margin+contentW-6, textBaseline, {align:"right"});
+    y = rowTop + rowH;
+    doc.setDrawColor("#e0e0e0"); doc.line(margin,y,margin+contentW,y);
+  });
+
+  y += 10;
+  doc.setFont(undefined,"bold"); doc.setFontSize(11);
+  doc.text("Amount Paid", margin, y+14);
+  doc.text(`Rs. ${Number(order.amount).toFixed(2)}`, margin+contentW, y+14, {align:"right"});
+  y += 36;
+
+  // Terms & Conditions — replaces buildInvoicePDF's disclaimer footer.
+  // This is genuine policy text, not a legal disclaimer about who issued
+  // the document, so it's set apart with its own heading rather than
+  // faded out the way the old disclaimer was.
+  doc.setFont(undefined,"bold"); doc.setFontSize(8); doc.setTextColor("#1a1a1a");
+  doc.text("Terms & Conditions", margin, y);
+  y += 11;
+  doc.setFont(undefined,"normal"); doc.setFontSize(6.8); doc.setTextColor("#555555");
+  const terms = [
+    "1. This PCB/board is sold on a replacement basis only. Once delivered, it cannot be returned or refunded in cash.",
+    "2. If found genuinely defective, it will be replaced with a working unit of the same specification within the replacement period stated at the time of sale.",
+    "3. Replacement does not apply if the board is physically broken or cracked, shows signs of a short circuit or burn damage, or has water/moisture damage.",
+    "4. The customer is responsible for correct installation. Damage caused by incorrect fitting, incorrect voltage, or an external electrical fault is not covered.",
+    "5. Please inspect and test the board before final installation wherever possible.",
+  ];
+  terms.forEach(line=>{
+    const lines = doc.splitTextToSize(line, contentW);
+    doc.text(lines, margin, y);
+    y += lines.length*8.5;
+  });
+
+  return doc;
+};
+
+
 function InvoiceLineItemRow({item,onChange,onRemove,canRemove}){
   const T=useTheme();
   // A number input's displayed value is a string, and initializing it at
@@ -3431,7 +3667,7 @@ function Invoices({user}){
           :list.map(inv=>(
             <div key={inv.id} style={{background:T.card,borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",boxSizing:"border-box"}}>
               <div style={{fontWeight:700,color:T.text,fontSize:13,marginBottom:4}}>#{inv.invoice_number} — {inv.customer_name}</div>
-              <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
+              <div style={{fontSize:11,color:T.subtext,marginBottom:8}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
               <button onClick={async()=>{
                 const {invoice,lineItems}=await invoicesApi("get_invoice",{invoiceId:inv.id});
                 const doc=await buildInvoicePDF(invoice,lineItems,profile);
@@ -6916,6 +7152,159 @@ ${items}
 }
 
 // ── ADMIN: TECHNICIANS (Invoice Generator) ──────────────────────────────────
+// ── ADMIN: ORDERS ────────────────────────────────────────────────────────────
+// courierName and trackingUrl are enforced as required both here AND
+// server-side in api/orders.js's admin_create_order — the server check is
+// the one that actually matters (this client check is just for a fast,
+// friendly error instead of waiting on a round trip), since either field
+// missing would leave a customer with a "Track My Order" button that goes
+// nowhere.
+const emptyOrderItem=()=>({name:"",qty:1,price:0});
+function AdminOrders(){
+  const T=useTheme();
+  const [view,setView]=useState("list"); // "list" | "new"
+  const [orders,setOrders]=useState(null);
+  const [err,setErr]=useState("");
+  const [msg,setMsg]=useState("");
+  const [saving,setSaving]=useState(false);
+
+  const [customerName,setCustomerName]=useState("");
+  const [customerAddress,setCustomerAddress]=useState("");
+  const [customerPhone,setCustomerPhone]=useState("");
+  const [purchaseDate,setPurchaseDate]=useState(new Date().toISOString().slice(0,10));
+  const [items,setItems]=useState([emptyOrderItem()]);
+  const [courierName,setCourierName]=useState("");
+  const [trackingUrl,setTrackingUrl]=useState("");
+
+  const amount = items.reduce((sum,it)=>sum + (Number(it.qty)||0)*(Number(it.price)||0), 0);
+
+  const loadOrders=()=>{
+    setOrders(null);
+    ordersAdminApi("admin_list_orders").then(r=>setOrders(r.orders||[])).catch(e=>setErr(e.message));
+  };
+  useEffect(()=>{ if(view==="list") loadOrders(); },[view]);
+
+  const resetForm=()=>{
+    setCustomerName(""); setCustomerAddress(""); setCustomerPhone("");
+    setPurchaseDate(new Date().toISOString().slice(0,10));
+    setItems([emptyOrderItem()]); setCourierName(""); setTrackingUrl("");
+  };
+
+  const submit=async()=>{
+    setErr(""); setMsg("");
+    if(!customerName.trim()) return setErr("Customer name is required.");
+    if(!customerAddress.trim()) return setErr("Customer address is required.");
+    if(!customerPhone.trim()) return setErr("Customer phone number is required.");
+    if(!courierName.trim()) return setErr("Couriered By is required.");
+    if(!trackingUrl.trim()) return setErr("Tracking URL is required.");
+    const cleanItems=items.filter(it=>it.name.trim());
+    if(cleanItems.length===0) return setErr("At least one ordered product is required.");
+    setSaving(true);
+    try{
+      const {order}=await ordersAdminApi("admin_create_order",{
+        customerName, customerAddress, customerPhone, purchaseDate,
+        items:cleanItems, amount, courierName, trackingUrl,
+      });
+      setMsg(`Order ${order.order_number} created.`);
+      resetForm();
+      setView("list");
+    }catch(e){ setErr(e.message); }
+    setSaving(false);
+  };
+
+  const inputStyle={width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"};
+  const labelStyle={fontSize:11,fontWeight:600,color:T.subtext,marginBottom:5,display:"block"};
+
+  if(view==="new"){
+    return (
+      <div style={{padding:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Add New Order</div>
+          <button onClick={()=>{setErr("");setView("list");}} style={{fontSize:12,color:"#6b7db3",background:"none",border:"none",cursor:"pointer"}}>← Back to Orders</button>
+        </div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
+
+        <div style={{marginBottom:12}}>
+          <label style={labelStyle}>Customer Name</label>
+          <input style={inputStyle} value={customerName} onChange={e=>setCustomerName(e.target.value)} placeholder="Full name"/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={labelStyle}>Address</label>
+          <textarea style={{...inputStyle,minHeight:60,resize:"vertical"}} value={customerAddress} onChange={e=>setCustomerAddress(e.target.value)} placeholder="Delivery address"/>
+        </div>
+        <div style={{display:"flex",gap:10,marginBottom:12}}>
+          <div style={{flex:1}}>
+            <label style={labelStyle}>Phone Number</label>
+            <input style={inputStyle} value={customerPhone} onChange={e=>setCustomerPhone(e.target.value)} placeholder="10-digit number"/>
+          </div>
+          <div style={{flex:1}}>
+            <label style={labelStyle}>Date of Purchase</label>
+            <input type="date" style={inputStyle} value={purchaseDate} onChange={e=>setPurchaseDate(e.target.value)}/>
+          </div>
+        </div>
+
+        <label style={labelStyle}>Ordered Product(s)</label>
+        {items.map((it,i)=>(
+          <div key={i} style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+            <input style={{...inputStyle,flex:3}} value={it.name} onChange={e=>setItems(items.map((x,xi)=>xi===i?{...x,name:e.target.value}:x))} placeholder="Product name"/>
+            <input type="text" inputMode="numeric" style={{...inputStyle,flex:1,textAlign:"center"}} value={it.qty} onFocus={e=>e.target.select()} onChange={e=>setItems(items.map((x,xi)=>xi===i?{...x,qty:e.target.value.replace(/[^\d]/g,"")||""}:x))} placeholder="Qty"/>
+            <input type="text" inputMode="decimal" style={{...inputStyle,flex:1.4,textAlign:"right"}} value={it.price} onFocus={e=>e.target.select()} onChange={e=>setItems(items.map((x,xi)=>xi===i?{...x,price:e.target.value.replace(/[^\d.]/g,"")||""}:x))} placeholder="Price"/>
+            {items.length>1&&<button onClick={()=>setItems(items.filter((_,xi)=>xi!==i))} style={{flexShrink:0,width:30,height:38,borderRadius:8,background:"#ff475722",color:"#ff8a8a",border:"none",cursor:"pointer",fontSize:15}}>×</button>}
+          </div>
+        ))}
+        <button onClick={()=>setItems([...items,emptyOrderItem()])} style={{fontSize:12,color:AC,background:"none",border:"none",cursor:"pointer",padding:"4px 0",marginBottom:12}}>+ Add another product</button>
+
+        <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px",marginBottom:16,display:"flex",justifyContent:"space-between",fontSize:13}}>
+          <span style={{color:T.subtext}}>Total Amount</span>
+          <span style={{fontWeight:700,color:"#fff"}}>₹{amount.toFixed(2)}</span>
+        </div>
+
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}44`,borderRadius:10,padding:12,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:10}}>Shipping — both fields required</div>
+          <div style={{marginBottom:10}}>
+            <label style={labelStyle}>Couriered By</label>
+            <input style={inputStyle} value={courierName} onChange={e=>setCourierName(e.target.value)} placeholder="e.g. Delhivery, India Post, Blue Dart"/>
+          </div>
+          <div>
+            <label style={labelStyle}>Tracking URL</label>
+            <input style={inputStyle} value={trackingUrl} onChange={e=>setTrackingUrl(e.target.value)} placeholder="https://..."/>
+            <div style={{fontSize:10,color:T.subtext,marginTop:4}}>This is exactly where the customer's "Track My Order" button will send them.</div>
+          </div>
+        </div>
+
+        <button onClick={submit} disabled={saving} style={{width:"100%",padding:"13px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:saving?"default":"pointer"}}>
+          {saving?"Creating…":"Create Order"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+        <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Orders</div>
+        <button onClick={()=>{setErr("");setMsg("");setView("new");}} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>+ Add New Order</button>
+      </div>
+      {msg&&<div style={{background:"#00c8a022",border:"1px solid #00c8a055",color:"#00e5b8",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{msg}</div>}
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
+
+      {orders===null?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>
+      :orders.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No orders yet.</div>
+      :orders.map(o=>(
+        <div key={o.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{o.order_number} — {o.customer_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{new Date(o.purchase_date).toLocaleDateString("en-IN")} · ₹{Number(o.amount).toFixed(2)} · via {o.courier_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{o.customer_phone}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AdminTechnicians(){
   const [section,setSection]=useState("technicians"); // "technicians" | "all"
   const [technicians,setTechnicians]=useState(null);
@@ -6970,6 +7359,7 @@ function AdminTechnicians(){
           <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
               <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
             </div>
             <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
@@ -7010,6 +7400,7 @@ function AdminTechnicians(){
           <div key={inv.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050",display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{inv.invoice_number} — {inv.customer_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · {new Date(inv.created_at).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})} · ₹{Number(inv.total).toFixed(2)}</div>
               <div style={{fontSize:11,color:"#6b7db3"}}>{new Date(inv.service_date).toLocaleDateString("en-IN")} · ₹{Number(inv.total).toFixed(2)}</div>
             </div>
             <button onClick={()=>downloadInvoicePDF(inv)} disabled={downloadingId===inv.id} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:downloadingId===inv.id?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloadingId===inv.id?"#6b7db3":"#0a0d14",border:"none",cursor:downloadingId===inv.id?"default":"pointer",fontWeight:700}}>{downloadingId===inv.id?"…":"⬇ PDF"}</button>
@@ -7095,6 +7486,7 @@ function AdminPanel({onLogout}) {
     {id:"pages",label:"Pages",icon:"📄"},
     {id:"reviews",label:"Reviews",icon:"⭐"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
+    {id:"orders",label:"Orders",icon:"📦"},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"technicians",label:"Technicians",icon:"👷"},
     {id:"settings",label:"Settings",icon:"⚙️"},
@@ -7129,6 +7521,7 @@ function AdminPanel({onLogout}) {
         {tab==="pages"&&<AdminPages/>}
         {tab==="reviews"&&<AdminReviews/>}
         {tab==="requests"&&<AdminRequests/>}
+        {tab==="orders"&&<AdminOrders/>}
         {tab==="users"&&<AdminUsers/>}
         {tab==="technicians"&&<AdminTechnicians/>}
         {tab==="settings"&&<AdminSettings/>}
@@ -7238,6 +7631,7 @@ useEffect(() => {
     parts: "PCB Care – Part Finder",
     requests: "PCB Care – Requests",
     invoices: "PCB Care – Invoices",
+    myorder: "PCB Care – My Order",
     page: "PCB Care – Page"
   };
   document.title = titleMap[tab] || "PCB Care";
@@ -7456,6 +7850,7 @@ useEffect(() => {
         {tab==="page"&&<StaticPage initialPath={pageInitialPath.current}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder user={user}/>}
+        {tab==="myorder"&&<MyOrder/>}
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
       </div>
