@@ -14,6 +14,9 @@
 //     formatted "SN111765", "SN111766", ... — never pass order_number
 //     in from the client, the DB default handles it).
 //   admin_list_orders  — admin-only. Full order list for the Orders panel.
+//   admin_update_order — admin-only. Edits an existing order's details.
+//     order_number is never editable here — only ever set once, by the DB
+//     default, at creation.
 //   get_order           — PUBLIC, no auth. This is the "My Order" lookup.
 //     Deliberately does NOT return customer_phone — nothing in the
 //     customer-facing UI or the generated PDF needs it, so it stays
@@ -146,6 +149,53 @@ module.exports = async (req, res) => {
         prefer: "return=representation",
       });
       return res.status(200).json({ order: created });
+    }
+
+    // ── Admin: update an existing order ──
+    // Deliberately cannot change order_number — it's the customer's
+    // tracking key and the DB sequence that generates it is one-way by
+    // design, so an edit here only ever touches the order's details, not
+    // its identity. Same field validation as admin_create_order, for the
+    // same reason: this has to be safe to call directly, not just safe
+    // when the admin form happens to be well-behaved.
+    if (action === "admin_update_order") {
+      authenticateAdmin(req);
+      const {
+        orderId, customerName, customerAddress, customerPhone, purchaseDate,
+        items, amount, shippingAmount, courierName, trackingUrl,
+      } = req.body;
+
+      if (!orderId) throw new Error("orderId is required");
+      if (!customerName?.trim()) throw new Error("Customer name is required");
+      if (!customerAddress?.trim()) throw new Error("Customer address is required");
+      if (!customerPhone?.trim()) throw new Error("Customer phone is required");
+      if (!courierName?.trim()) throw new Error("Couriered By is required");
+      if (!trackingUrl?.trim()) throw new Error("Tracking URL is required");
+      try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://)"); }
+      if (!Array.isArray(items) || items.length === 0) throw new Error("At least one ordered product is required");
+      if (amount == null || isNaN(Number(amount)) || Number(amount) <= 0) throw new Error("A valid amount is required");
+      const shipping = shippingAmount == null || shippingAmount === "" ? 0 : Number(shippingAmount);
+      if (isNaN(shipping) || shipping < 0) throw new Error("Shipping amount must be a valid non-negative number, or left blank");
+
+      const [updated] = await sb("orders", {
+        method: "PATCH",
+        filter: `?id=eq.${encodeURIComponent(orderId)}`,
+        body: {
+          customer_name: customerName.trim(),
+          customer_address: customerAddress.trim(),
+          customer_phone: customerPhone.trim(),
+          purchase_date: purchaseDate || new Date().toISOString().slice(0, 10),
+          items,
+          amount: Number(amount),
+          shipping_amount: shipping,
+          courier_name: courierName.trim(),
+          tracking_url: trackingUrl.trim(),
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
+      });
+      if (!updated) return res.status(404).json({ error: "Order not found" });
+      return res.status(200).json({ order: updated });
     }
 
     // ── Admin: list all orders ──
