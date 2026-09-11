@@ -114,7 +114,7 @@ module.exports = async (req, res) => {
       authenticateAdmin(req);
       const {
         customerName, customerAddress, customerPhone, purchaseDate,
-        items, amount, courierName, trackingUrl,
+        items, amount, shippingAmount, courierName, trackingUrl,
       } = req.body;
 
       if (!customerName?.trim()) throw new Error("Customer name is required");
@@ -125,6 +125,10 @@ module.exports = async (req, res) => {
       try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://)"); }
       if (!Array.isArray(items) || items.length === 0) throw new Error("At least one ordered product is required");
       if (amount == null || isNaN(Number(amount)) || Number(amount) <= 0) throw new Error("A valid amount is required");
+      // Shipping is optional — omitted or 0 is fine, but if provided it must
+      // be a real non-negative number, not silently coerced from garbage.
+      const shipping = shippingAmount == null || shippingAmount === "" ? 0 : Number(shippingAmount);
+      if (isNaN(shipping) || shipping < 0) throw new Error("Shipping amount must be a valid non-negative number, or left blank");
 
       const [created] = await sb("orders", {
         method: "POST",
@@ -135,6 +139,7 @@ module.exports = async (req, res) => {
           purchase_date: purchaseDate || new Date().toISOString().slice(0, 10),
           items,
           amount: Number(amount),
+          shipping_amount: shipping,
           courier_name: courierName.trim(),
           tracking_url: trackingUrl.trim(),
         },
@@ -158,7 +163,7 @@ module.exports = async (req, res) => {
       const { orderNumber } = req.body;
       if (!orderNumber?.trim()) throw new Error("Order number is required");
       const rows = await sb("orders", {
-        filter: `?order_number=eq.${encodeURIComponent(orderNumber.trim().toUpperCase())}&select=order_number,customer_name,customer_address,purchase_date,items,amount,courier_name,tracking_url`,
+        filter: `?order_number=eq.${encodeURIComponent(orderNumber.trim().toUpperCase())}&select=order_number,customer_name,customer_address,purchase_date,items,amount,shipping_amount,courier_name,tracking_url`,
       });
       const order = Array.isArray(rows) ? rows[0] : null;
       if (!order) return res.status(404).json({ error: "No order found with that number. Double-check it and try again." });
