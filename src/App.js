@@ -1306,19 +1306,33 @@ function MyOrder() {
         <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:14,padding:16}}>
           <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:2}}>Order #{order.order_number}</div>
           <div style={{fontSize:11,color:T.subtext,marginBottom:14}}>
-            {new Date(order.purchase_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})} · ₹{Number(order.amount).toFixed(2)}
+            {new Date(order.purchase_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}
           </div>
 
           {(order.items||[]).length>0&&(
-            <div style={{marginBottom:14}}>
+            <div style={{marginBottom:10}}>
               {order.items.map((it,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:T.text,padding:"6px 0",borderBottom:i<order.items.length-1?"1px solid #2a3050":"none"}}>
+                <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:12,color:T.text,padding:"6px 0",borderBottom:"1px solid #2a3050"}}>
                   <span>{it.name}{it.qty>1?` × ${it.qty}`:""}</span>
                   <span>₹{(Number(it.price)*Number(it.qty||1)).toFixed(0)}</span>
                 </div>
               ))}
             </div>
           )}
+
+          <div style={{fontSize:12,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",color:T.subtext,padding:"3px 0"}}>
+              <span>Product Amount</span><span>₹{Number(order.amount).toFixed(2)}</span>
+            </div>
+            {Number(order.shipping_amount)>0&&(
+              <div style={{display:"flex",justifyContent:"space-between",color:T.subtext,padding:"3px 0"}}>
+                <span>Shipping</span><span>₹{Number(order.shipping_amount).toFixed(2)}</span>
+              </div>
+            )}
+            <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,color:T.text,padding:"6px 0 0",marginTop:4,borderTop:"1px solid #2a3050"}}>
+              <span>Total Amount Paid</span><span>₹{(Number(order.amount)+Number(order.shipping_amount||0)).toFixed(2)}</span>
+            </div>
+          </div>
 
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <button onClick={downloadInvoice} disabled={downloading} style={{padding:"12px",borderRadius:10,background:downloading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:downloading?"default":"pointer"}}>
@@ -3264,23 +3278,36 @@ const buildInvoicePDF = async (invoice, lineItems, profile) => {
 // one function with an "if isOrder" branch would make it too easy for a
 // future edit to blur that distinction back together.
 const buildOrderPDF = async (order) => {
+  // Matches the actual Invoice Generator's default look — this used to
+  // pull PC/AC (the app's general green/gold UI accent colors) by mistake,
+  // which is why the header rendered green and the items header rendered
+  // yellow instead of matching buildInvoicePDF's navy/forest-green theme.
+  const theme = INVOICE_THEMES.classic;
+
   const pageW = 320;
-  const pageH = 620;
-  const doc = new jsPDF({unit:"pt", format:[pageW,pageH]});
   const margin = 24;
   const contentW = pageW - margin*2;
 
-  try{
-    const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`, 400);
-    const box = fitWithinBox(wm.width, wm.height, 200, 200);
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({opacity:0.12}));
-    doc.addImage(wm.dataUrl, "PNG", (pageW-box.w)/2, 220, box.w, box.h);
-    doc.restoreGraphicsState();
-  }catch{ /* decorative only — skip silently if the logo fails to load */ }
+  const subtotal = Number(order.amount)||0;
+  const shipping = Number(order.shipping_amount)||0;
+  const total = subtotal + shipping;
+  const items = order.items||[];
 
+  // Page height is estimated from actual content up front — a fixed
+  // height was the root cause of the address/items overlap (a two-line
+  // address had nowhere to push the rest of the layout down into) and of
+  // the terms/watermark collision (short orders left the watermark's
+  // fixed position sitting under wherever the terms happened to land).
+  // Generous per-row estimates here; the real, exact layout is measured
+  // as it's drawn below, and the watermark is placed in whatever space is
+  // actually left over — never a guessed fixed spot.
+  const estimatedH = 78 + 70 + 22 + items.length*26 + 90 + 110 + margin*2;
+  const pageH = Math.max(560, estimatedH);
+  const doc = new jsPDF({unit:"pt", format:[pageW,pageH]});
+
+  // ── Header ──
   const headerH = 78;
-  doc.setFillColor(PC);
+  doc.setFillColor(theme.bar);
   doc.rect(0,0,pageW,headerH,"F");
   let logoBoxW=0;
   try{
@@ -3294,24 +3321,33 @@ const buildOrderPDF = async (order) => {
   doc.text("PCB Care", margin+logoBoxW, 30, {maxWidth:contentW-logoBoxW});
   doc.setFontSize(8); doc.setFont(undefined,"normal");
   doc.text("pcbcare.in", margin+logoBoxW, 44, {maxWidth:contentW-logoBoxW});
-
   doc.setFontSize(9); doc.setFont(undefined,"bold");
   doc.text(`Order #${order.order_number}`, margin, 64);
   doc.setFont(undefined,"normal");
   doc.text(new Date(order.purchase_date).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"}), pageW-margin, 64, {align:"right"});
 
   doc.setTextColor("#1a1a1a");
-  let y = headerH + 24;
+  let y = headerH + 22;
 
+  // ── Billed To — line height now comes from the actual wrapped line
+  // count (splitTextToSize), not a fixed guess, so a long address can no
+  // longer push into the items table below it. ──
   doc.setFontSize(9); doc.setFont(undefined,"bold"); doc.text("Billed To", margin, y);
-  doc.setFont(undefined,"normal");
-  doc.text(order.customer_name, margin, y+13, {maxWidth:contentW});
   y += 13;
-  if(order.customer_address){ doc.text(order.customer_address, margin, y+13, {maxWidth:contentW}); y+=13; }
-  y += 20;
+  doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
+  const nameLines = doc.splitTextToSize(order.customer_name, contentW);
+  doc.text(nameLines, margin, y);
+  y += nameLines.length*11;
+  if(order.customer_address){
+    const addrLines = doc.splitTextToSize(order.customer_address, contentW);
+    doc.text(addrLines, margin, y);
+    y += addrLines.length*11;
+  }
+  y += 16;
 
+  // ── Items table ──
   const headerRowH = 22;
-  doc.setFillColor(AC); doc.rect(margin,y,contentW,headerRowH,"F");
+  doc.setFillColor(theme.accent); doc.rect(margin,y,contentW,headerRowH,"F");
   doc.setTextColor("#ffffff"); doc.setFontSize(8); doc.setFont(undefined,"bold");
   const headerBaseline = y + headerRowH/2 + 3;
   doc.text("Item", margin+6, headerBaseline);
@@ -3320,7 +3356,7 @@ const buildOrderPDF = async (order) => {
   doc.text("Total", margin+contentW-6, headerBaseline, {align:"right"});
   y += headerRowH;
   doc.setTextColor("#1a1a1a"); doc.setFont(undefined,"normal"); doc.setFontSize(8.5);
-  (order.items||[]).forEach((it)=>{
+  items.forEach((it)=>{
     const rowH = 24;
     const rowTop = y;
     const textBaseline = rowTop + rowH/2 + 3;
@@ -3334,16 +3370,28 @@ const buildOrderPDF = async (order) => {
     doc.setDrawColor("#e0e0e0"); doc.line(margin,y,margin+contentW,y);
   });
 
-  y += 10;
-  doc.setFont(undefined,"bold"); doc.setFontSize(11);
-  doc.text("Amount Paid", margin, y+14);
-  doc.text(`Rs. ${Number(order.amount).toFixed(2)}`, margin+contentW, y+14, {align:"right"});
-  y += 36;
+  // ── Amount breakdown — product subtotal, then shipping only if it was
+  // actually charged, then the bold total. Shipping was previously folded
+  // silently into a single "amount" with no visibility of its own; now
+  // it's its own line whenever it's non-zero. ──
+  y += 12;
+  doc.setFont(undefined,"normal"); doc.setFontSize(9); doc.setTextColor("#333333");
+  doc.text("Product Amount", margin, y);
+  doc.text(`Rs. ${subtotal.toFixed(2)}`, margin+contentW, y, {align:"right"});
+  y += 15;
+  if(shipping>0){
+    doc.text("Shipping", margin, y);
+    doc.text(`Rs. ${shipping.toFixed(2)}`, margin+contentW, y, {align:"right"});
+    y += 15;
+  }
+  doc.setDrawColor("#cccccc"); doc.line(margin,y,margin+contentW,y);
+  y += 14;
+  doc.setFont(undefined,"bold"); doc.setFontSize(11); doc.setTextColor("#1a1a1a");
+  doc.text("Amount Paid", margin, y);
+  doc.text(`Rs. ${total.toFixed(2)}`, margin+contentW, y, {align:"right"});
+  y += 30;
 
-  // Terms & Conditions — replaces buildInvoicePDF's disclaimer footer.
-  // This is genuine policy text, not a legal disclaimer about who issued
-  // the document, so it's set apart with its own heading rather than
-  // faded out the way the old disclaimer was.
+  // ── Terms & Conditions ──
   doc.setFont(undefined,"bold"); doc.setFontSize(8); doc.setTextColor("#1a1a1a");
   doc.text("Terms & Conditions", margin, y);
   y += 11;
@@ -3360,6 +3408,24 @@ const buildOrderPDF = async (order) => {
     doc.text(lines, margin, y);
     y += lines.length*8.5;
   });
+
+  // ── Watermark — placed in whatever space is genuinely left over below
+  // the terms, never a fixed guessed position. If a long order leaves no
+  // real space, it's skipped outright rather than drawn on top of
+  // anything, since a missing watermark is a much smaller problem than an
+  // unreadable terms section. ──
+  const remaining = pageH - y - 20;
+  if(remaining > 60){
+    try{
+      const wm = await imageUrlToDataURL(`${window.location.origin}/logo.webp`, 400);
+      const maxBox = Math.min(remaining, 160);
+      const box = fitWithinBox(wm.width, wm.height, maxBox, maxBox);
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({opacity:0.10}));
+      doc.addImage(wm.dataUrl, "PNG", (pageW-box.w)/2, y + (remaining-box.h)/2, box.w, box.h);
+      doc.restoreGraphicsState();
+    }catch{ /* decorative only — skip silently if the logo fails to load */ }
+  }
 
   return doc;
 };
@@ -7173,10 +7239,15 @@ function AdminOrders(){
   const [customerPhone,setCustomerPhone]=useState("");
   const [purchaseDate,setPurchaseDate]=useState(new Date().toISOString().slice(0,10));
   const [items,setItems]=useState([emptyOrderItem()]);
+  const [shippingAmount,setShippingAmount]=useState("");
   const [courierName,setCourierName]=useState("");
   const [trackingUrl,setTrackingUrl]=useState("");
 
-  const amount = items.reduce((sum,it)=>sum + (Number(it.qty)||0)*(Number(it.price)||0), 0);
+  const subtotal = items.reduce((sum,it)=>sum + (Number(it.qty)||0)*(Number(it.price)||0), 0);
+  const shipping = Number(shippingAmount)||0;
+  const amount = subtotal; // product amount only — kept separate from shipping, matching the DB column split
+  const total = subtotal + shipping;
+
 
   const loadOrders=()=>{
     setOrders(null);
@@ -7187,7 +7258,8 @@ function AdminOrders(){
   const resetForm=()=>{
     setCustomerName(""); setCustomerAddress(""); setCustomerPhone("");
     setPurchaseDate(new Date().toISOString().slice(0,10));
-    setItems([emptyOrderItem()]); setCourierName(""); setTrackingUrl("");
+    setItems([emptyOrderItem()]); setShippingAmount("");
+    setCourierName(""); setTrackingUrl("");
   };
 
   const submit=async()=>{
@@ -7203,7 +7275,7 @@ function AdminOrders(){
     try{
       const {order}=await ordersAdminApi("admin_create_order",{
         customerName, customerAddress, customerPhone, purchaseDate,
-        items:cleanItems, amount, courierName, trackingUrl,
+        items:cleanItems, amount, shippingAmount:shippingAmount===""?0:shipping, courierName, trackingUrl,
       });
       setMsg(`Order ${order.order_number} created.`);
       resetForm();
@@ -7252,11 +7324,25 @@ function AdminOrders(){
             {items.length>1&&<button onClick={()=>setItems(items.filter((_,xi)=>xi!==i))} style={{flexShrink:0,width:30,height:38,borderRadius:8,background:"#ff475722",color:"#ff8a8a",border:"none",cursor:"pointer",fontSize:15}}>×</button>}
           </div>
         ))}
-        <button onClick={()=>setItems([...items,emptyOrderItem()])} style={{fontSize:12,color:AC,background:"none",border:"none",cursor:"pointer",padding:"4px 0",marginBottom:12}}>+ Add another product</button>
+        <button onClick={()=>setItems([...items,emptyOrderItem()])} style={{fontSize:12,color:AC,background:"none",border:"none",cursor:"pointer",padding:"4px 0",marginBottom:16}}>+ Add another product</button>
 
-        <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px",marginBottom:16,display:"flex",justifyContent:"space-between",fontSize:13}}>
-          <span style={{color:T.subtext}}>Total Amount</span>
-          <span style={{fontWeight:700,color:"#fff"}}>₹{amount.toFixed(2)}</span>
+        <div style={{marginBottom:12}}>
+          <label style={labelStyle}>Shipping (optional)</label>
+          <input type="text" inputMode="decimal" style={inputStyle} value={shippingAmount} onChange={e=>setShippingAmount(e.target.value.replace(/[^\d.]/g,""))} placeholder="Leave blank if not charging separately"/>
+        </div>
+
+        <div style={{background:T.card,border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px",marginBottom:16,fontSize:13}}>
+          <div style={{display:"flex",justifyContent:"space-between",color:T.subtext,marginBottom:shipping>0?4:0}}>
+            <span>Product Amount</span><span>₹{subtotal.toFixed(2)}</span>
+          </div>
+          {shipping>0&&(
+            <div style={{display:"flex",justifyContent:"space-between",color:T.subtext,marginBottom:4}}>
+              <span>Shipping</span><span>₹{shipping.toFixed(2)}</span>
+            </div>
+          )}
+          <div style={{display:"flex",justifyContent:"space-between",fontWeight:700,color:"#fff",paddingTop:6,borderTop:"1px solid #2a3050"}}>
+            <span>Total Amount Paid</span><span>₹{total.toFixed(2)}</span>
+          </div>
         </div>
 
         <div style={{background:"#1a1f2e",border:`1px solid ${AC}44`,borderRadius:10,padding:12,marginBottom:16}}>
@@ -7295,7 +7381,9 @@ function AdminOrders(){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{o.order_number} — {o.customer_name}</div>
-              <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{new Date(o.purchase_date).toLocaleDateString("en-IN")} · ₹{Number(o.amount).toFixed(2)} · via {o.courier_name}</div>
+              <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>
+                {new Date(o.purchase_date).toLocaleDateString("en-IN")} · ₹{Number(o.amount).toFixed(2)}{Number(o.shipping_amount)>0?` + ₹${Number(o.shipping_amount).toFixed(2)} shipping = ₹${(Number(o.amount)+Number(o.shipping_amount)).toFixed(2)}`:""} · via {o.courier_name}
+              </div>
               <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{o.customer_phone}</div>
             </div>
           </div>
