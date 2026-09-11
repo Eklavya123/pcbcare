@@ -1292,7 +1292,7 @@ function MyOrder() {
           value={orderNumber}
           onChange={e=>setOrderNumber(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter") find();}}
-          placeholder="e.g. SN111765"
+          placeholder="Tracking ID"
           style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:14,boxSizing:"border-box"}}
         />
         <button onClick={find} disabled={loading||!orderNumber.trim()} style={{padding:"12px 18px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:loading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:loading?"default":"pointer",flexShrink:0}}>
@@ -7228,7 +7228,8 @@ ${items}
 const emptyOrderItem=()=>({name:"",qty:1,price:0});
 function AdminOrders(){
   const T=useTheme();
-  const [view,setView]=useState("list"); // "list" | "new"
+  const [view,setView]=useState("list"); // "list" | "form"
+  const [editingId,setEditingId]=useState(null); // null = creating new, else editing this order's id
   const [orders,setOrders]=useState(null);
   const [err,setErr]=useState("");
   const [msg,setMsg]=useState("");
@@ -7242,12 +7243,12 @@ function AdminOrders(){
   const [shippingAmount,setShippingAmount]=useState("");
   const [courierName,setCourierName]=useState("");
   const [trackingUrl,setTrackingUrl]=useState("");
+  const [editingOrderNumber,setEditingOrderNumber]=useState("");
 
   const subtotal = items.reduce((sum,it)=>sum + (Number(it.qty)||0)*(Number(it.price)||0), 0);
   const shipping = Number(shippingAmount)||0;
   const amount = subtotal; // product amount only — kept separate from shipping, matching the DB column split
   const total = subtotal + shipping;
-
 
   const loadOrders=()=>{
     setOrders(null);
@@ -7259,7 +7260,32 @@ function AdminOrders(){
     setCustomerName(""); setCustomerAddress(""); setCustomerPhone("");
     setPurchaseDate(new Date().toISOString().slice(0,10));
     setItems([emptyOrderItem()]); setShippingAmount("");
-    setCourierName(""); setTrackingUrl("");
+    setCourierName(""); setTrackingUrl(""); setEditingOrderNumber("");
+  };
+
+  const startNew=()=>{
+    resetForm();
+    setEditingId(null);
+    setErr(""); setMsg("");
+    setView("form");
+  };
+
+  // Populates every field from an existing order — order_number itself is
+  // shown but never editable (see api/orders.js's admin_update_order
+  // comment on why: it's the customer's tracking key, not just a label).
+  const startEdit=(o)=>{
+    setCustomerName(o.customer_name||"");
+    setCustomerAddress(o.customer_address||"");
+    setCustomerPhone(o.customer_phone||"");
+    setPurchaseDate((o.purchase_date||"").slice(0,10) || new Date().toISOString().slice(0,10));
+    setItems(o.items&&o.items.length ? o.items.map(it=>({name:it.name||"",qty:it.qty||1,price:it.price||0})) : [emptyOrderItem()]);
+    setShippingAmount(Number(o.shipping_amount)>0 ? String(o.shipping_amount) : "");
+    setCourierName(o.courier_name||"");
+    setTrackingUrl(o.tracking_url||"");
+    setEditingOrderNumber(o.order_number||"");
+    setEditingId(o.id);
+    setErr(""); setMsg("");
+    setView("form");
   };
 
   const submit=async()=>{
@@ -7273,12 +7299,22 @@ function AdminOrders(){
     if(cleanItems.length===0) return setErr("At least one ordered product is required.");
     setSaving(true);
     try{
-      const {order}=await ordersAdminApi("admin_create_order",{
-        customerName, customerAddress, customerPhone, purchaseDate,
-        items:cleanItems, amount, shippingAmount:shippingAmount===""?0:shipping, courierName, trackingUrl,
-      });
-      setMsg(`Order ${order.order_number} created.`);
+      if(editingId){
+        const {order}=await ordersAdminApi("admin_update_order",{
+          orderId:editingId,
+          customerName, customerAddress, customerPhone, purchaseDate,
+          items:cleanItems, amount, shippingAmount:shippingAmount===""?0:shipping, courierName, trackingUrl,
+        });
+        setMsg(`Order ${order.order_number} updated.`);
+      }else{
+        const {order}=await ordersAdminApi("admin_create_order",{
+          customerName, customerAddress, customerPhone, purchaseDate,
+          items:cleanItems, amount, shippingAmount:shippingAmount===""?0:shipping, courierName, trackingUrl,
+        });
+        setMsg(`Order ${order.order_number} created.`);
+      }
       resetForm();
+      setEditingId(null);
       setView("list");
     }catch(e){ setErr(e.message); }
     setSaving(false);
@@ -7287,13 +7323,15 @@ function AdminOrders(){
   const inputStyle={width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:13,boxSizing:"border-box"};
   const labelStyle={fontSize:11,fontWeight:600,color:T.subtext,marginBottom:5,display:"block"};
 
-  if(view==="new"){
+  if(view==="form"){
+    const isEdit = !!editingId;
     return (
       <div style={{padding:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Add New Order</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:isEdit?4:16}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>{isEdit?"Edit Order":"Add New Order"}</div>
           <button onClick={()=>{setErr("");setView("list");}} style={{fontSize:12,color:"#6b7db3",background:"none",border:"none",cursor:"pointer"}}>← Back to Orders</button>
         </div>
+        {isEdit&&<div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Order #{editingOrderNumber} — order number can't be changed.</div>}
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
 
         <div style={{marginBottom:12}}>
@@ -7359,7 +7397,7 @@ function AdminOrders(){
         </div>
 
         <button onClick={submit} disabled={saving} style={{width:"100%",padding:"13px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:saving?"default":"pointer"}}>
-          {saving?"Creating…":"Create Order"}
+          {saving?(isEdit?"Saving…":"Creating…"):(isEdit?"Save Changes":"Create Order")}
         </button>
       </div>
     );
@@ -7369,7 +7407,7 @@ function AdminOrders(){
     <div style={{padding:16}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
         <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Orders</div>
-        <button onClick={()=>{setErr("");setMsg("");setView("new");}} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>+ Add New Order</button>
+        <button onClick={startNew} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>+ Add New Order</button>
       </div>
       {msg&&<div style={{background:"#00c8a022",border:"1px solid #00c8a055",color:"#00e5b8",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{msg}</div>}
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:12}}>{err}</div>}
@@ -7378,7 +7416,7 @@ function AdminOrders(){
       :orders.length===0?<div style={{color:"#6b7db3",fontSize:13}}>No orders yet.</div>
       :orders.map(o=>(
         <div key={o.id} style={{background:"#1a1f2e",borderRadius:12,padding:"12px 14px",marginBottom:8,border:"1px solid #2a3050"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
             <div>
               <div style={{fontWeight:700,color:"#fff",fontSize:13}}>#{o.order_number} — {o.customer_name}</div>
               <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>
@@ -7386,6 +7424,7 @@ function AdminOrders(){
               </div>
               <div style={{fontSize:11,color:"#6b7db3",marginTop:2}}>{o.customer_phone}</div>
             </div>
+            <button onClick={()=>startEdit(o)} style={{flexShrink:0,fontSize:11,padding:"7px 12px",borderRadius:8,background:"transparent",color:AC,border:`1px solid ${AC}`,fontWeight:700,cursor:"pointer"}}>Edit</button>
           </div>
         </div>
       ))}
