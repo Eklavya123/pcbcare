@@ -923,9 +923,6 @@ function DotsAndBoxesApp(){
   const isMyTurn = (role==="player1"&&game.turn===1) || (role==="player2"&&game.turn===2);
   const canPlay = role!=="spectator" && game.status==="active" && isMyTurn && !moving;
 
-  const myScore = role==="player2" ? game.score2 : game.score1;
-  const theirScore = role==="player2" ? game.score1 : game.score2;
-
   return (
     <div style={wrap}>
       <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Dots &amp; Boxes</div>
