@@ -387,6 +387,21 @@ const ordersAdminApi = async (action, payload = {}) => {
   if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
   return data;
 };
+const analyticsAdminApi = async (action, payload = {}) => {
+  const session = DB.get("pcb_admin_session", null);
+  const r = await fetch("/api/analytics", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Session": session?.token || "",
+      "X-Admin-Session-Expires": String(session?.expiresAt || ""),
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+};
 
 const getAutoApprove = async () => {
   try {
@@ -1338,7 +1353,10 @@ function MyOrder() {
             <button onClick={downloadInvoice} disabled={downloading} style={{padding:"12px",borderRadius:10,background:downloading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:downloading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:downloading?"default":"pointer"}}>
               {downloading?"Generating…":"⬇ Get Invoice"}
             </button>
-            <button onClick={()=>window.open(order.tracking_url,"_blank","noopener")} style={{padding:"12px",borderRadius:10,background:"transparent",color:AC,border:`1px solid ${AC}`,fontWeight:700,fontSize:13,cursor:"pointer"}}>
+            <button onClick={()=>{
+              if(order.tracking_url){ window.open(order.tracking_url,"_blank","noopener"); }
+              else{ alert("Tracking Link Not Available\nPlease Try Again Later or Contact Administrator"); }
+            }} style={{padding:"12px",borderRadius:10,background:"transparent",color:AC,border:`1px solid ${AC}`,fontWeight:700,fontSize:13,cursor:"pointer"}}>
               📍 Track My Order
             </button>
           </div>
@@ -7226,6 +7244,108 @@ ${items}
 // missing would leave a customer with a "Track My Order" button that goes
 // nowhere.
 const emptyOrderItem=()=>({name:"",qty:1,price:0});
+// ── ADMIN: INSIGHTS ──────────────────────────────────────────────────────────
+// A visitor is counted here if their tab pinged while visible in the last
+// ~25s window that ping covers — see the site-visit heartbeat effect
+// higher up in this file, and api/analytics.js's header comment for the
+// full reasoning on why this exists as a first-party tracker rather than
+// reading from GA4 (ad-blockers hide GA4 from a meaningful slice of a
+// technician audience; this pings pcbcare.in itself, not a known tracker
+// domain, so it isn't blocked the same way).
+function AdminInsights(){
+  const T=useTheme();
+  const [data,setData]=useState(null);
+  const [err,setErr]=useState("");
+  const [days,setDays]=useState(14);
+
+  useEffect(()=>{
+    setData(null);
+    analyticsAdminApi("admin_get_insights",{days}).then(setData).catch(e=>setErr(e.message));
+  },[days]);
+
+  const statCard=(label,value)=>(
+    <div style={{flex:1,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:12,padding:"14px 12px",textAlign:"center"}}>
+      <div style={{fontSize:22,fontWeight:800,color:"#fff"}}>{value==null?"…":value}</div>
+      <div style={{fontSize:10,color:"#6b7db3",marginTop:2}}>{label}</div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:4}}>Insights</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>Active visitors, based on your own site — not Google Analytics (see note below).</div>
+
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14}}>{err}</div>}
+
+      <div style={{display:"flex",gap:10,marginBottom:18}}>
+        {statCard("Last Hour", data?.activeLastHour)}
+        {statCard("Today", data?.activeToday)}
+        {statCard("Yesterday", data?.activeYesterday)}
+      </div>
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>Daily Active Users</div>
+        <select value={days} onChange={e=>setDays(Number(e.target.value))} style={{background:T.card,color:T.text,border:"1px solid #2a3050",borderRadius:6,fontSize:11,padding:"4px 8px"}}>
+          <option value={7}>7 days</option>
+          <option value={14}>14 days</option>
+          <option value={30}>30 days</option>
+          <option value={90}>90 days</option>
+        </select>
+      </div>
+
+      {!data?<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>:<BarChart series={data.chart}/>}
+
+      <div style={{fontSize:10,color:"#6b7db3",marginTop:16,lineHeight:1.5}}>
+        Counts a visitor once per day if their tab was open and visible on pcbcare.in at least once that day. Bots and crawlers are filtered out server-side. Tracking started when this feature shipped — there's no data from before that, and (by design) none of this ever expires.
+      </div>
+    </div>
+  );
+}
+
+// A plain inline-SVG bar chart — no charting library dependency. Built for
+// exactly one shape of data (a short array of {date, activeUsers}), not as
+// a general-purpose component; if this app ever needs a second or third
+// chart type, that's the point to pull in a real charting library instead
+// of growing this by hand.
+function BarChart({series}){
+  const T=useTheme();
+  if(!series||series.length===0) return <div style={{color:"#6b7db3",fontSize:12}}>No data yet.</div>;
+  const w=320, h=160, padL=28, padB=28, padT=10, padR=6;
+  const chartW=w-padL-padR, chartH=h-padT-padB;
+  const max=Math.max(1, ...series.map(d=>d.activeUsers));
+  const barGap=4;
+  const barW=Math.max(2,(chartW/series.length)-barGap);
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%",height:"auto",display:"block"}}>
+      {[0,0.5,1].map(f=>(
+        <line key={f} x1={padL} x2={w-padR} y1={padT+chartH*(1-f)} y2={padT+chartH*(1-f)} stroke="#2a3050" strokeWidth="1"/>
+      ))}
+      {[0,0.5,1].map(f=>(
+        <text key={f} x={padL-4} y={padT+chartH*(1-f)+3} fontSize="7" fill="#6b7db3" textAnchor="end">{Math.round(max*f)}</text>
+      ))}
+      {series.map((d,i)=>{
+        const barH = max>0 ? (d.activeUsers/max)*chartH : 0;
+        const x = padL + i*(chartW/series.length) + barGap/2;
+        const y = padT + chartH - barH;
+        const showLabel = series.length<=14 || i%Math.ceil(series.length/10)===0;
+        return (
+          <g key={d.date}>
+            <rect x={x} y={y} width={barW} height={barH} rx={2} fill={`url(#barGrad)`}/>
+            {showLabel&&<text x={x+barW/2} y={h-padB+12} fontSize="6" fill="#6b7db3" textAnchor="middle">{d.date.slice(5)}</text>}
+          </g>
+        );
+      })}
+      <defs>
+        <linearGradient id="barGrad" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stopColor={PC}/>
+          <stop offset="100%" stopColor={AC}/>
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
 function AdminOrders(){
   const T=useTheme();
   const [view,setView]=useState("list"); // "list" | "form"
@@ -7294,7 +7414,6 @@ function AdminOrders(){
     if(!customerAddress.trim()) return setErr("Customer address is required.");
     if(!customerPhone.trim()) return setErr("Customer phone number is required.");
     if(!courierName.trim()) return setErr("Couriered By is required.");
-    if(!trackingUrl.trim()) return setErr("Tracking URL is required.");
     const cleanItems=items.filter(it=>it.name.trim());
     if(cleanItems.length===0) return setErr("At least one ordered product is required.");
     setSaving(true);
@@ -7384,15 +7503,15 @@ function AdminOrders(){
         </div>
 
         <div style={{background:"#1a1f2e",border:`1px solid ${AC}44`,borderRadius:10,padding:12,marginBottom:16}}>
-          <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:10}}>Shipping — both fields required</div>
+          <div style={{fontSize:11,fontWeight:700,color:AC,marginBottom:10}}>Shipping — Couriered By required, Tracking URL optional</div>
           <div style={{marginBottom:10}}>
             <label style={labelStyle}>Couriered By</label>
             <input style={inputStyle} value={courierName} onChange={e=>setCourierName(e.target.value)} placeholder="e.g. Delhivery, India Post, Blue Dart"/>
           </div>
           <div>
-            <label style={labelStyle}>Tracking URL</label>
+            <label style={labelStyle}>Tracking URL (optional)</label>
             <input style={inputStyle} value={trackingUrl} onChange={e=>setTrackingUrl(e.target.value)} placeholder="https://..."/>
-            <div style={{fontSize:10,color:T.subtext,marginTop:4}}>This is exactly where the customer's "Track My Order" button will send them.</div>
+            <div style={{fontSize:10,color:T.subtext,marginTop:4}}>This is exactly where the customer's "Track My Order" button will send them. Leave blank if you don't have a tracking link yet — the customer sees a "not available yet" message instead of a broken link.</div>
           </div>
         </div>
 
@@ -7614,6 +7733,7 @@ function AdminPanel({onLogout}) {
     {id:"reviews",label:"Reviews",icon:"⭐"},
     {id:"requests",label:"Requests",icon:"📥",badge:pendingCount>0},
     {id:"orders",label:"Orders",icon:"📦"},
+    {id:"insights",label:"Insights",icon:"📊"},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"technicians",label:"Technicians",icon:"👷"},
     {id:"settings",label:"Settings",icon:"⚙️"},
@@ -7649,6 +7769,7 @@ function AdminPanel({onLogout}) {
         {tab==="reviews"&&<AdminReviews/>}
         {tab==="requests"&&<AdminRequests/>}
         {tab==="orders"&&<AdminOrders/>}
+        {tab==="insights"&&<AdminInsights/>}
         {tab==="users"&&<AdminUsers/>}
         {tab==="technicians"&&<AdminTechnicians/>}
         {tab==="settings"&&<AdminSettings/>}
@@ -7880,6 +8001,41 @@ useEffect(() => {
       window.removeEventListener("focus",beat);
     };
   },[user]);
+
+  // ── Site-visit ping (analytics) ──
+  // Separate from the technician presence heartbeat above — runs for
+  // every visitor, logged in or not, admin or not. Writes directly to
+  // Supabase's site_pings table with the anon key, same pattern as the
+  // heartbeat above; RLS on that table only permits INSERT, so this can
+  // contribute a row but can't read anyone's traffic data back out. No
+  // expiry by design — see api/analytics.js's header comment.
+  useEffect(()=>{
+    const SESSION_KEY="pcb_visit_session_id";
+    let sessionId=DB.get(SESSION_KEY,null);
+    if(!sessionId){
+      sessionId=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID()
+        :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&0x3|0x8)).toString(16);});
+      DB.set(SESSION_KEY,sessionId);
+    }
+    const ping=()=>{
+      if(document.visibilityState!=="visible") return;
+      fetch(`${SB_URL}/rest/v1/site_pings`,{
+        method:"POST",
+        headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},
+        body:JSON.stringify({session_id:sessionId,path:window.location.pathname,user_agent:navigator.userAgent}),
+      }).catch(()=>{});
+    };
+    ping();
+    const iv=setInterval(ping,25000);
+    const onVis=()=>{ if(document.visibilityState==="visible") ping(); };
+    document.addEventListener("visibilitychange",onVis);
+    window.addEventListener("focus",ping);
+    return ()=>{
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange",onVis);
+      window.removeEventListener("focus",ping);
+    };
+  },[]);
 
   const handleLogout=()=>{
     DB.remove("pcb_user");
