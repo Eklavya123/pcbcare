@@ -389,7 +389,10 @@ const ordersAdminApi = async (action, payload = {}) => {
 };
 const analyticsAdminApi = async (action, payload = {}) => {
   const session = DB.get("pcb_admin_session", null);
-  const r = await fetch("/api/analytics", {
+  // Points at /api/orders, not a dedicated /api/analytics — that file was
+  // merged into orders.js to stay under Vercel's 12-serverless-function
+  // cap on the Hobby plan. See orders.js's admin_get_insights comment.
+  const r = await fetch("/api/orders", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
