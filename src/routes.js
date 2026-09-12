@@ -12,4 +12,4 @@ export const PATH_TO_TAB = Object.fromEntries(
   Object.entries(TAB_ROUTES).map(([k, v]) => [v, k])
 );
 
-export const RESERVED_PATH_PREFIXES = ["/shop", "/wiring", "/blog", ...Object.values(TAB_ROUTES)];
+export const RESERVED_PATH_PREFIXES = ["/shop", "/wiring", "/blog", "/g", ...Object.values(TAB_ROUTES)];
