@@ -8,7 +8,8 @@
 // address and phone, so it's deliberately unreachable except through
 // this file).
 //
-// Three actions:
+// Four actions (a fifth, admin_get_insights, is unrelated to orders but
+// lives here too — see its own comment further down for why):
 //   admin_create_order — admin-only. Creates an order; order_number is
 //     assigned automatically by the DB (a sequence starting at 111765,
 //     formatted "SN111765", "SN111766", ... — never pass order_number
@@ -100,12 +101,80 @@ const authenticateAdmin = (req) => {
   }
 };
 
+// ── Insights helpers (formerly api/analytics.js) ──
+// Merged into this file because Vercel's Hobby plan caps a deployment at
+// 12 serverless functions total, and this project was sitting at exactly
+// that limit before analytics.js existed as its own 13th file — adding it
+// separately silently failed the deployment past the build step. Folding
+// its one action in here, alongside another admin-only, order-adjacent
+// endpoint, was the lowest-risk fix: no new file, no function-count cost,
+// and every line of logic below is unchanged from analytics.js, not
+// rewritten.
+//
+// India-local day boundaries. Postgres/Supabase store timestamptz in UTC;
+// "today" for an admin in Jabalpur should mean the Asia/Kolkata calendar
+// day, not the UTC one — those disagree for part of every single day
+// (UTC+5:30 offset), so using UTC boundaries here would make "today" and
+// "yesterday" silently wrong for roughly 5.5 hours out of every 24.
+const kolkataDateString = (d) => {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+};
+const kolkataMidnightUTC = (dateStr) => {
+  return new Date(`${dateStr}T00:00:00+05:30`);
+};
+
 module.exports = async (req, res) => {
   if (initError) {
     return res.status(500).json({ error: initError });
   }
   try {
     const { action } = req.body || req.query || {};
+
+    // ── Admin: site visitor insights (formerly api/analytics.js's
+    // admin_get_insights) — see the merge note above. ──
+    if (action === "admin_get_insights") {
+      authenticateAdmin(req);
+
+      const now = new Date();
+      const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+      const todayStr = kolkataDateString(now);
+      const todayStart = kolkataMidnightUTC(todayStr);
+      const yesterdayStart = new Date(todayStart.getTime() - 24*60*60*1000);
+
+      const numDays = Math.min(Math.max(Number(req.body?.days) || 14, 1), 90);
+      const chartStart = new Date(todayStart.getTime() - (numDays-1) * 24*60*60*1000);
+
+      const rows = await sb("site_pings", {
+        filter: `?is_bot=eq.false&pinged_at=gte.${chartStart.toISOString()}&select=session_id,pinged_at`,
+      });
+
+      const distinctSince = (sinceISO, beforeISO) => {
+        const since = new Date(sinceISO).getTime();
+        const before = beforeISO ? new Date(beforeISO).getTime() : Infinity;
+        const set = new Set();
+        for (const r of rows) {
+          const t = new Date(r.pinged_at).getTime();
+          if (t >= since && t < before) set.add(r.session_id);
+        }
+        return set.size;
+      };
+
+      const activeLastHour = distinctSince(hourAgo.toISOString());
+      const activeToday = distinctSince(todayStart.toISOString());
+      const activeYesterday = distinctSince(yesterdayStart.toISOString(), todayStart.toISOString());
+
+      const chart = [];
+      for (let i = numDays - 1; i >= 0; i--) {
+        const dayStart = new Date(todayStart.getTime() - i * 24*60*60*1000);
+        const dayEnd = new Date(dayStart.getTime() + 24*60*60*1000);
+        chart.push({
+          date: kolkataDateString(dayStart),
+          activeUsers: distinctSince(dayStart.toISOString(), dayEnd.toISOString()),
+        });
+      }
+
+      return res.status(200).json({ activeLastHour, activeToday, activeYesterday, chart });
+    }
 
     // ── Admin: create a new order ──
     // courierName and trackingUrl are enforced as mandatory here, not just
