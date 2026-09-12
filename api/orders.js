@@ -124,8 +124,12 @@ module.exports = async (req, res) => {
       if (!customerAddress?.trim()) throw new Error("Customer address is required");
       if (!customerPhone?.trim()) throw new Error("Customer phone is required");
       if (!courierName?.trim()) throw new Error("Couriered By is required");
-      if (!trackingUrl?.trim()) throw new Error("Tracking URL is required");
-      try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://)"); }
+      // Optional now — an order can exist before a tracking link is ready.
+      // If one IS provided, it still has to actually be a URL; a garbage
+      // string here would silently break the frontend's Track button.
+      if (trackingUrl?.trim()) {
+        try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://), or leave it blank"); }
+      }
       if (!Array.isArray(items) || items.length === 0) throw new Error("At least one ordered product is required");
       if (amount == null || isNaN(Number(amount)) || Number(amount) <= 0) throw new Error("A valid amount is required");
       // Shipping is optional — omitted or 0 is fine, but if provided it must
@@ -144,7 +148,7 @@ module.exports = async (req, res) => {
           amount: Number(amount),
           shipping_amount: shipping,
           courier_name: courierName.trim(),
-          tracking_url: trackingUrl.trim(),
+          tracking_url: trackingUrl?.trim() || null,
         },
         prefer: "return=representation",
       });
@@ -170,8 +174,12 @@ module.exports = async (req, res) => {
       if (!customerAddress?.trim()) throw new Error("Customer address is required");
       if (!customerPhone?.trim()) throw new Error("Customer phone is required");
       if (!courierName?.trim()) throw new Error("Couriered By is required");
-      if (!trackingUrl?.trim()) throw new Error("Tracking URL is required");
-      try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://)"); }
+      // Optional now — an order can exist before a tracking link is ready.
+      // If one IS provided, it still has to actually be a URL; a garbage
+      // string here would silently break the frontend's Track button.
+      if (trackingUrl?.trim()) {
+        try { new URL(trackingUrl); } catch { throw new Error("Tracking URL must be a valid URL (include https://), or leave it blank"); }
+      }
       if (!Array.isArray(items) || items.length === 0) throw new Error("At least one ordered product is required");
       if (amount == null || isNaN(Number(amount)) || Number(amount) <= 0) throw new Error("A valid amount is required");
       const shipping = shippingAmount == null || shippingAmount === "" ? 0 : Number(shippingAmount);
@@ -189,7 +197,7 @@ module.exports = async (req, res) => {
           amount: Number(amount),
           shipping_amount: shipping,
           courier_name: courierName.trim(),
-          tracking_url: trackingUrl.trim(),
+          tracking_url: trackingUrl?.trim() || null,
           updated_at: new Date().toISOString(),
         },
         prefer: "return=representation",
