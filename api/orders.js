@@ -297,7 +297,178 @@ module.exports = async (req, res) => {
       return res.status(200).json({ order });
     }
 
+    // ── Dots and Boxes — hidden two-player game, /g/<code> ──
+    // Also unrelated to orders, also folded in here for the same
+    // function-count reason as admin_get_insights above. See
+    // dots_boxes_games's table comment for the full picture.
+    //
+    // Board coordinate convention (standard, easy to get backwards, so
+    // written out explicitly): for an R×C grid of BOXES there are R+1
+    // rows of dots and C+1 columns of dots.
+    //   h_edges[r][c] (r: 0..R, c: 0..C-1) — the horizontal edge between
+    //     dot (r,c) and dot (r,c+1). It's the BOTTOM of box (r-1,c) and
+    //     the TOP of box (r,c).
+    //   v_edges[r][c] (r: 0..R-1, c: 0..C) — the vertical edge between
+    //     dot (r,c) and dot (r+1,c). It's the RIGHT of box (r,c-1) and
+    //     the LEFT of box (r,c).
+    // A box is complete when its top, bottom, left and right edges are
+    // all drawn (non-zero). Completing a box grants the same player
+    // another turn — that's the one rule that makes this game more than
+    // tic-tac-toe, and it's the part most likely to get silently wrong if
+    // this is ever rewritten, so test any change against a case where one
+    // move completes two boxes at once (an edge shared by two boxes that
+    // were both already three-sided).
+
+    const randomCode = () => {
+      const chars = "abcdefghjkmnpqrstuvwxyz23456789"; // no 0/o/1/l/i — avoids ambiguous codes read aloud or hand-copied
+      let s = "";
+      for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+      return s;
+    };
+
+    const emptyMatrix = (rows, cols, fill) => Array.from({ length: rows }, () => Array(cols).fill(fill));
+
+    // Returns [isComplete, ...] check for a single box, given the current
+    // edge matrices (post-move).
+    const boxComplete = (h, v, r, c) => {
+      return h[r][c] !== 0 && h[r + 1][c] !== 0 && v[r][c] !== 0 && v[r][c + 1] !== 0;
+    };
+
+    if (action === "game_create") {
+      const { sessionId } = req.body;
+      if (!sessionId) throw new Error("sessionId is required");
+      const boxRows = 4, boxCols = 4;
+      const code = randomCode();
+      const [created] = await sb("dots_boxes_games", {
+        method: "POST",
+        body: {
+          code,
+          box_rows: boxRows,
+          box_cols: boxCols,
+          h_edges: emptyMatrix(boxRows + 1, boxCols, 0),
+          v_edges: emptyMatrix(boxRows, boxCols + 1, 0),
+          boxes: emptyMatrix(boxRows, boxCols, 0),
+          player1_session: sessionId,
+          status: "waiting",
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ code: created.code });
+    }
+
+    // Fetches the game and, as a side effect, seats the caller into the
+    // first open seat if they aren't already seated — this is what makes
+    // "share the URL, second person just opens it" work with no separate
+    // join step. Returns the caller's role so the frontend knows whether
+    // to show them a board they can move on or a spectator view.
+    if (action === "game_get") {
+      const { code, sessionId } = req.body;
+      if (!code) throw new Error("code is required");
+      const rows = await sb("dots_boxes_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "No game found with that code." });
+
+      let role = "spectator";
+      if (game.player1_session === sessionId) role = "player1";
+      else if (game.player2_session === sessionId) role = "player2";
+      else if (!game.player1_session) {
+        await sb("dots_boxes_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player1_session: sessionId } });
+        role = "player1";
+      } else if (!game.player2_session) {
+        await sb("dots_boxes_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player2_session: sessionId, status: "active" } });
+        role = "player2";
+        game.status = "active";
+      }
+
+      return res.status(200).json({ game, role });
+    }
+
+    if (action === "game_move") {
+      const { code, sessionId, r, c, orientation } = req.body;
+      if (!code || !sessionId || orientation !== "h" && orientation !== "v" || typeof r !== "number" || typeof c !== "number") {
+        throw new Error("Invalid move payload");
+      }
+      const rows = await sb("dots_boxes_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.status !== "active") throw new Error("Game isn't active — both players need to have joined, or it's already finished");
+
+      const myPlayer = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!myPlayer) throw new Error("You're not a player in this game");
+      if (myPlayer !== game.turn) throw new Error("It's not your turn");
+
+      const h = game.h_edges, v = game.v_edges, boxes = game.boxes;
+      const R = game.box_rows, C = game.box_cols;
+
+      if (orientation === "h") {
+        if (r < 0 || r > R || c < 0 || c >= C) throw new Error("Move out of bounds");
+        if (h[r][c] !== 0) throw new Error("That edge is already drawn");
+        h[r][c] = myPlayer;
+      } else {
+        if (r < 0 || r >= R || c < 0 || c > C) throw new Error("Move out of bounds");
+        if (v[r][c] !== 0) throw new Error("That edge is already drawn");
+        v[r][c] = myPlayer;
+      }
+
+      // Check the one or two boxes this edge could have just completed.
+      let completedAny = false;
+      const candidates = orientation === "h"
+        ? [[r - 1, c], [r, c]]
+        : [[r, c - 1], [r, c]];
+      for (const [br, bc] of candidates) {
+        if (br < 0 || br >= R || bc < 0 || bc >= C) continue;
+        if (boxes[br][bc] === 0 && boxComplete(h, v, br, bc)) {
+          boxes[br][bc] = myPlayer;
+          completedAny = true;
+        }
+      }
+
+      const score1 = boxes.flat().filter(x => x === 1).length;
+      const score2 = boxes.flat().filter(x => x === 2).length;
+      const totalBoxes = R * C;
+      const finished = score1 + score2 === totalBoxes;
+
+      const updateBody = {
+        h_edges: h, v_edges: v, boxes,
+        score1, score2,
+        turn: completedAny ? myPlayer : (myPlayer === 1 ? 2 : 1), // completing a box grants another turn
+        status: finished ? "finished" : "active",
+        winner: finished ? (score1 === score2 ? 0 : (score1 > score2 ? 1 : 2)) : null,
+        updated_at: new Date().toISOString(),
+      };
+      const [updated] = await sb("dots_boxes_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: updateBody, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
+    // Rematch — same code, same two seated players, fresh empty board.
+    // Either player can trigger it; there's no reason to require both to
+    // agree for something this low-stakes.
+    if (action === "game_reset") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("dots_boxes_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (sessionId !== game.player1_session && sessionId !== game.player2_session) throw new Error("Only the two players can start a rematch");
+      const R = game.box_rows, C = game.box_cols;
+      const [updated] = await sb("dots_boxes_games", {
+        method: "PATCH",
+        filter: `?id=eq.${game.id}`,
+        body: {
+          h_edges: emptyMatrix(R + 1, C, 0),
+          v_edges: emptyMatrix(R, C + 1, 0),
+          boxes: emptyMatrix(R, C, 0),
+          turn: 1, score1: 0, score2: 0,
+          status: game.player1_session && game.player2_session ? "active" : "waiting",
+          winner: null,
+          updated_at: new Date().toISOString(),
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
+
   } catch (err) {
     const status = /required|valid URL|valid amount/i.test(err.message) ? 400
       : /Not authorized as admin|Admin session expired/i.test(err.message) ? 403
