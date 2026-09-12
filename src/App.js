@@ -372,6 +372,21 @@ const ordersApi = async (action, payload = {}) => {
   if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
   return data;
 };
+// Same endpoint as ordersApi — the game_* actions live in api/orders.js
+// too, not a dedicated file, for the same Vercel-function-count reason as
+// admin_get_insights. Kept as its own named helper anyway so call sites
+// read as "this is a game call", not "this is an orders call that happens
+// to be about a game."
+const gameApi = async (action, payload = {}) => {
+  const r = await fetch("/api/orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+};
 const ordersAdminApi = async (action, payload = {}) => {
   const session = DB.get("pcb_admin_session", null);
   const r = await fetch("/api/orders", {
@@ -807,6 +822,197 @@ const shouldPromptProfileCompletion = (u) => {
 // instead of "cover", so nothing is cropped off the edges on tall, short, wide,
 // or narrow viewports. The skip button has been removed per spec — the intro
 // always plays to completion (or to its safety-timeout) before continuing.
+// ── HIDDEN GAME: Dots and Boxes (/g, /g/<code>) ──────────────────────────────
+// Session identity is a separate localStorage key from every other session
+// id in this file (site-visit ping, etc.) — deliberately not shared, so
+// clearing one doesn't affect the other, and so a player's seat in a game
+// can't be confused with anything else this app tracks about a browser.
+const GAME_SESSION_KEY = "pcb_game_session_id";
+const getGameSessionId = () => {
+  let id = DB.get(GAME_SESSION_KEY, null);
+  if(!id){
+    id=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID()
+      :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,ch=>{const rnd=Math.random()*16|0;return (ch==="x"?rnd:((rnd&0x3)|0x8)).toString(16);});
+    DB.set(GAME_SESSION_KEY,id);
+  }
+  return id;
+};
+
+function DotsAndBoxesApp(){
+  const sessionId = useRef(getGameSessionId()).current;
+  const code = window.location.pathname.split("/")[2] || null;
+  const [game,setGame] = useState(null);
+  const [role,setRole] = useState(null);
+  const [err,setErr] = useState("");
+  const [creating,setCreating] = useState(false);
+  const [moving,setMoving] = useState(false);
+  const [copied,setCopied] = useState(false);
+
+  const refresh = async () => {
+    try{
+      const r = await gameApi("game_get",{code,sessionId});
+      setGame(r.game); setRole(r.role); setErr("");
+    }catch(e){ setErr(e.message); }
+  };
+
+  useEffect(()=>{
+    if(!code) return;
+    refresh();
+    const iv = setInterval(()=>{ if(document.visibilityState==="visible") refresh(); }, 1500);
+    return ()=>clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[code]);
+
+  const createGame = async () => {
+    setCreating(true); setErr("");
+    try{
+      const {code:newCode} = await gameApi("game_create",{sessionId});
+      window.location.href = `/g/${newCode}`;
+    }catch(e){ setErr(e.message); setCreating(false); }
+  };
+
+  const move = async (orientation,r,c) => {
+    if(moving) return;
+    setMoving(true);
+    try{
+      const {game:updated} = await gameApi("game_move",{code,sessionId,r,c,orientation});
+      setGame(updated); setErr("");
+    }catch(e){ setErr(e.message); }
+    setMoving(false);
+  };
+
+  const rematch = async () => {
+    try{ const {game:updated} = await gameApi("game_reset",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+  };
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(window.location.href).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
+  };
+
+  const wrap = {minHeight:"100vh",background:"#0a0d14",color:"#fff",display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 16px",fontFamily:"system-ui,sans-serif"};
+
+  // ── /g with no code — the "create a new game" landing screen ──
+  if(!code){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:22,fontWeight:800,marginBottom:8}}>Dots &amp; Boxes</div>
+        <div style={{fontSize:13,color:"#6b7db3",marginBottom:24,textAlign:"center",maxWidth:320}}>Start a game, then share the link it gives you with whoever you want to play against.</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
+        <button onClick={createGame} disabled={creating} style={{padding:"14px 28px",borderRadius:12,background:creating?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:creating?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:15,cursor:creating?"default":"pointer"}}>
+          {creating?"Creating…":"Start New Game"}
+        </button>
+      </div>
+    );
+  }
+
+  if(err&&!game){
+    return <div style={wrap}><div style={{color:"#ff8a8a",fontSize:14}}>{err}</div></div>;
+  }
+  if(!game){
+    return <div style={wrap}><div style={{color:"#6b7db3",fontSize:14}}>Loading game…</div></div>;
+  }
+
+  const R=game.box_rows, C=game.box_cols;
+  const SPACING=52, MARGIN=24, DOT_R=6, HIT=18;
+  const svgW = MARGIN*2 + C*SPACING, svgH = MARGIN*2 + R*SPACING;
+  const px = (col)=>MARGIN+col*SPACING, py = (row)=>MARGIN+row*SPACING;
+  const P1="#ef4444", P2="#3b82f6"; // matches the classic red/blue look
+  const colorFor = (v)=> v===1?P1:v===2?P2:"#3a4266";
+
+  const isMyTurn = (role==="player1"&&game.turn===1) || (role==="player2"&&game.turn===2);
+  const canPlay = role!=="spectator" && game.status==="active" && isMyTurn && !moving;
+
+  const myScore = role==="player2" ? game.score2 : game.score1;
+  const theirScore = role==="player2" ? game.score1 : game.score2;
+
+  return (
+    <div style={wrap}>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Dots &amp; Boxes</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>
+        {role==="spectator"?"Watching":`You are Player ${role==="player1"?1:2}`} · Code {code.toUpperCase()}
+      </div>
+
+      <div style={{display:"flex",gap:20,marginBottom:14}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{width:12,height:12,borderRadius:6,background:P1,margin:"0 auto 4px"}}/>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score1}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>Player 1</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{width:12,height:12,borderRadius:6,background:P2,margin:"0 auto 4px"}}/>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score2}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>Player 2</div>
+        </div>
+      </div>
+
+      {game.status==="waiting"&&(
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:12,marginBottom:16,textAlign:"center",maxWidth:svgW}}>
+          <div style={{fontSize:12,color:"#fff",marginBottom:8}}>Waiting for a second player to join.</div>
+          <button onClick={copyLink} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:AC,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>
+            {copied?"Copied!":"Copy Invite Link"}
+          </button>
+        </div>
+      )}
+
+      {game.status==="active"&&role!=="spectator"&&(
+        <div style={{fontSize:13,fontWeight:700,color:isMyTurn?AC:"#6b7db3",marginBottom:12}}>
+          {isMyTurn?"Your turn":`Waiting for Player ${game.turn}…`}
+        </div>
+      )}
+
+      {game.status==="finished"&&(
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:14,marginBottom:16,textAlign:"center",maxWidth:svgW}}>
+          <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>
+            {game.winner===0?"It's a tie!":`Player ${game.winner} wins!`}
+          </div>
+          {role!=="spectator"&&<button onClick={rematch} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>Play Again</button>}
+        </div>
+      )}
+
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
+
+      <svg width={svgW} height={svgH} style={{background:"#12172a",borderRadius:12}}>
+        {/* boxes */}
+        {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
+          <rect key={`b${r}-${c}`} x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
+        )))}
+        {/* horizontal edges */}
+        {game.h_edges.map((rowArr,r)=>rowArr.map((v,c)=>{
+          const x1=px(c),x2=px(c+1),y=py(r);
+          const clickable = canPlay && v===0;
+          return (
+            <g key={`h${r}-${c}`}>
+              <line x1={x1} y1={y} x2={x2} y2={y} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+              {clickable&&<line x1={x1} y1={y} x2={x2} y2={y} stroke="transparent" strokeWidth={HIT} style={{cursor:"pointer"}} onClick={()=>move("h",r,c)}/>}
+            </g>
+          );
+        }))}
+        {/* vertical edges */}
+        {game.v_edges.map((rowArr,r)=>rowArr.map((v,c)=>{
+          const x=px(c),y1=py(r),y2=py(r+1);
+          const clickable = canPlay && v===0;
+          return (
+            <g key={`v${r}-${c}`}>
+              <line x1={x} y1={y1} x2={x} y2={y2} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+              {clickable&&<line x1={x} y1={y1} x2={x} y2={y2} stroke="transparent" strokeWidth={HIT} style={{cursor:"pointer"}} onClick={()=>move("v",r,c)}/>}
+            </g>
+          );
+        }))}
+        {/* dots */}
+        {Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
+          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8"/>
+        )))}
+      </svg>
+
+      <div style={{fontSize:10,color:"#4a5578",marginTop:20,textAlign:"center",maxWidth:svgW}}>
+        {role==="spectator"?"Both seats are taken — you're watching this game, not playing it.":"Take turns drawing one line. Complete a box's fourth side to claim it and go again."}
+      </div>
+    </div>
+  );
+}
+
+
 function Intro({onDone}) {
   const videoRef=useRef(null);
   useEffect(()=>{
@@ -8095,6 +8301,14 @@ useEffect(() => {
     }
     setTab(id);
   };
+
+  // Hidden two-player game — /g (create) or /g/<code> (play). Deliberately
+  // checked before anything else in this function, including the intro
+  // video and stage machinery: nothing about this route should ever be
+  // affected by, or interact with, the rest of the app's state. Nothing
+  // links here from anywhere in the visible site — the URL itself is the
+  // only way in.
+  if(window.location.pathname==="/g"||window.location.pathname.startsWith("/g/")) return <DotsAndBoxesApp/>;
 
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
 
