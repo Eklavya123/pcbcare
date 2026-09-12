@@ -7308,7 +7308,6 @@ function AdminInsights(){
 // chart type, that's the point to pull in a real charting library instead
 // of growing this by hand.
 function BarChart({series}){
-  const T=useTheme();
   if(!series||series.length===0) return <div style={{color:"#6b7db3",fontSize:12}}>No data yet.</div>;
   const w=320, h=160, padL=28, padB=28, padT=10, padR=6;
   const chartW=w-padL-padR, chartH=h-padT-padB;
@@ -8014,7 +8013,7 @@ useEffect(() => {
     let sessionId=DB.get(SESSION_KEY,null);
     if(!sessionId){
       sessionId=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID()
-        :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&0x3|0x8)).toString(16);});
+        :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:((r&0x3)|0x8)).toString(16);});
       DB.set(SESSION_KEY,sessionId);
     }
     const ping=()=>{
