@@ -335,9 +335,13 @@ module.exports = async (req, res) => {
     };
 
     if (action === "game_create") {
-      const { sessionId } = req.body;
+      const { sessionId, boxRows: reqRows, boxCols: reqCols, playerName } = req.body;
       if (!sessionId) throw new Error("sessionId is required");
-      const boxRows = 4, boxCols = 4;
+      // Bounded 2..12 per side — below 2 isn't a real game, above 12 makes
+      // the board unreasonably large on a phone screen and turns a single
+      // move into a lot of tapping-and-scrolling for not much reason.
+      const boxRows = Math.min(12, Math.max(2, Number(reqRows) || 4));
+      const boxCols = Math.min(12, Math.max(2, Number(reqCols) || 4));
       const code = randomCode();
       const [created] = await sb("dots_boxes_games", {
         method: "POST",
@@ -349,6 +353,7 @@ module.exports = async (req, res) => {
           v_edges: emptyMatrix(boxRows, boxCols + 1, 0),
           boxes: emptyMatrix(boxRows, boxCols, 0),
           player1_session: sessionId,
+          player1_name: playerName?.trim()?.slice(0, 24) || null,
           status: "waiting",
         },
         prefer: "return=representation",
@@ -356,11 +361,55 @@ module.exports = async (req, res) => {
       return res.status(200).json({ code: created.code });
     }
 
+    // Sets the caller's display name — separate from seating (game_get)
+    // because a player can be seated before they've chosen a name (the
+    // frontend gates the board behind a name prompt), and a player should
+    // be able to change their name later without re-seating.
+    if (action === "game_set_name") {
+      const { code, sessionId, name } = req.body;
+      if (!name?.trim()) throw new Error("Name is required");
+      const rows = await sb("dots_boxes_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const field = game.player1_session === sessionId ? "player1_name" : game.player2_session === sessionId ? "player2_name" : null;
+      if (!field) throw new Error("You're not a player in this game");
+      const [updated] = await sb("dots_boxes_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: { [field]: name.trim().slice(0, 24) },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
+    }
+
+    // Chat — scoped to the game_id, sender identity taken from which seat
+    // the session actually occupies (not trusted from a "sender" field the
+    // client could lie about).
+    if (action === "game_send_message") {
+      const { code, sessionId, message } = req.body;
+      if (!message?.trim()) throw new Error("Message can't be empty");
+      if (message.length > 500) throw new Error("Message too long");
+      const rows = await sb("dots_boxes_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session,player1_name,player2_name` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const sender = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!sender) throw new Error("Only players in this game can chat");
+      const senderName = sender === 1 ? game.player1_name : game.player2_name;
+      await sb("game_messages", {
+        method: "POST",
+        body: { game_id: game.id, sender, sender_name: senderName || `Player ${sender}`, message: message.trim().slice(0, 500) },
+      });
+      return res.status(200).json({ ok: true });
+    }
+
     // Fetches the game and, as a side effect, seats the caller into the
     // first open seat if they aren't already seated — this is what makes
     // "share the URL, second person just opens it" work with no separate
     // join step. Returns the caller's role so the frontend knows whether
-    // to show them a board they can move on or a spectator view.
+    // to show them a board they can move on or a spectator view. Also
+    // returns recent chat messages in the same call, so the existing
+    // 1.5s poll drives both game state and chat without a second poll
+    // loop — this is a 2-player low-traffic feature, not worth the extra
+    // complexity of separating them.
     if (action === "game_get") {
       const { code, sessionId } = req.body;
       if (!code) throw new Error("code is required");
@@ -380,7 +429,9 @@ module.exports = async (req, res) => {
         game.status = "active";
       }
 
-      return res.status(200).json({ game, role });
+      const messages = await sb("game_messages", { filter: `?game_id=eq.${game.id}&select=*&order=created_at.asc&limit=200` });
+
+      return res.status(200).json({ game, role, messages });
     }
 
     if (action === "game_move") {
