@@ -843,15 +843,74 @@ function DotsAndBoxesApp(){
   const code = window.location.pathname.split("/")[2] || null;
   const [game,setGame] = useState(null);
   const [role,setRole] = useState(null);
+  const [messages,setMessages] = useState([]);
   const [err,setErr] = useState("");
   const [creating,setCreating] = useState(false);
   const [moving,setMoving] = useState(false);
   const [copied,setCopied] = useState(false);
 
+  // Grid-size picker on the create screen only — irrelevant once a game exists.
+  const [newRows,setNewRows] = useState(4);
+  const [newCols,setNewCols] = useState(4);
+  const [newName,setNewName] = useState("");
+
+  // Name entry for whichever seat I'm in, once I've joined a game but before
+  // the server has a name on file for me.
+  const [nameInput,setNameInput] = useState("");
+  const [savingName,setSavingName] = useState(false);
+
+  // Drag-to-draw state. pendingMove holds a drawn-but-not-yet-confirmed
+  // edge — nothing is sent to the server until the checkmark is tapped.
+  const svgRef = useRef(null);
+  const [dragFrom,setDragFrom] = useState(null); // {r,c} dot coords
+  const [dragPos,setDragPos] = useState(null);   // live pointer position in SVG units, while dragging
+  const [pendingMove,setPendingMove] = useState(null); // {orientation,r,c}
+
+  // Chat UI
+  const [chatOpen,setChatOpen] = useState(false);
+  const [chatInput,setChatInput] = useState("");
+  const [sendingChat,setSendingChat] = useState(false);
+  const [popup,setPopup] = useState(null); // transient "new message" toast text
+  const seenMessageCount = useRef(0);
+  const chatEndRef = useRef(null);
+
+  // Refs so the polling closure (set up once on mount) always sees current
+  // values without needing the interval itself recreated every render —
+  // without this, `role` and `chatOpen` inside refresh() would stay stuck
+  // at whatever they were on the very first render, forever.
+  const roleRef = useRef(role);
+  useEffect(()=>{ roleRef.current = role; },[role]);
+  const chatOpenRef = useRef(chatOpen);
+  useEffect(()=>{ chatOpenRef.current = chatOpen; },[chatOpen]);
+  const popupTimerRef = useRef(null);
+
   const refresh = async () => {
     try{
       const r = await gameApi("game_get",{code,sessionId});
-      setGame(r.game); setRole(r.role); setErr("");
+      setGame(r.game); setRole(r.role);
+      setMessages(()=>{
+        const incoming = r.messages||[];
+        // New-message popup only fires for messages from the OTHER
+        // player that arrived while chat is closed — never for my own
+        // messages echoing back, and never spamming a popup for every
+        // poll tick once already seen.
+        if(incoming.length>seenMessageCount.current){
+          const newOnes = incoming.slice(seenMessageCount.current);
+          const fromOther = newOnes.filter(m=>{
+            const myPlayerNum = roleRef.current==="player2"?2:1;
+            return m.sender!==myPlayerNum;
+          });
+          if(fromOther.length && !chatOpenRef.current){
+            const last = fromOther[fromOther.length-1];
+            setPopup(`${last.sender_name||"Opponent"}: ${last.message.slice(0,60)}`);
+            clearTimeout(popupTimerRef.current);
+            popupTimerRef.current = setTimeout(()=>setPopup(null),4000);
+          }
+        }
+        seenMessageCount.current = incoming.length;
+        return incoming;
+      });
+      setErr("");
     }catch(e){ setErr(e.message); }
   };
 
@@ -863,23 +922,37 @@ function DotsAndBoxesApp(){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[code]);
 
+  useEffect(()=>{
+    if(chatOpen && chatEndRef.current) chatEndRef.current.scrollIntoView({behavior:"smooth"});
+  },[messages,chatOpen]);
+
   const createGame = async () => {
     setCreating(true); setErr("");
     try{
-      const {code:newCode} = await gameApi("game_create",{sessionId});
+      const {code:newCode} = await gameApi("game_create",{sessionId,boxRows:newRows,boxCols:newCols,playerName:newName});
       window.location.href = `/g/${newCode}`;
     }catch(e){ setErr(e.message); setCreating(false); }
   };
 
-  const move = async (orientation,r,c) => {
-    if(moving) return;
+  const submitName = async () => {
+    if(!nameInput.trim()) return;
+    setSavingName(true);
+    try{ await gameApi("game_set_name",{code,sessionId,name:nameInput.trim()}); await refresh(); }
+    catch(e){ setErr(e.message); }
+    setSavingName(false);
+  };
+
+  const confirmMove = async () => {
+    if(!pendingMove||moving) return;
     setMoving(true);
     try{
-      const {game:updated} = await gameApi("game_move",{code,sessionId,r,c,orientation});
+      const {game:updated} = await gameApi("game_move",{code,sessionId,...pendingMove});
       setGame(updated); setErr("");
     }catch(e){ setErr(e.message); }
+    setPendingMove(null);
     setMoving(false);
   };
+  const cancelMove = () => setPendingMove(null);
 
   const rematch = async () => {
     try{ const {game:updated} = await gameApi("game_reset",{code,sessionId}); setGame(updated); }
@@ -890,7 +963,18 @@ function DotsAndBoxesApp(){
     navigator.clipboard.writeText(window.location.href).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
   };
 
+  const sendChat = async () => {
+    if(!chatInput.trim()||sendingChat) return;
+    setSendingChat(true);
+    const text = chatInput.trim();
+    setChatInput("");
+    try{ await gameApi("game_send_message",{code,sessionId,message:text}); await refresh(); }
+    catch(e){ setErr(e.message); }
+    setSendingChat(false);
+  };
+
   const wrap = {minHeight:"100vh",background:"#0a0d14",color:"#fff",display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 16px",fontFamily:"system-ui,sans-serif"};
+  const stepperBtn = {width:32,height:32,borderRadius:8,background:"#1a1f2e",border:"1px solid #2a3050",color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer"};
 
   // ── /g with no code — the "create a new game" landing screen ──
   if(!code){
@@ -899,7 +983,33 @@ function DotsAndBoxesApp(){
         <div style={{fontSize:22,fontWeight:800,marginBottom:8}}>Dots &amp; Boxes</div>
         <div style={{fontSize:13,color:"#6b7db3",marginBottom:24,textAlign:"center",maxWidth:320}}>Start a game, then share the link it gives you with whoever you want to play against.</div>
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
-        <button onClick={createGame} disabled={creating} style={{padding:"14px 28px",borderRadius:12,background:creating?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:creating?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:15,cursor:creating?"default":"pointer"}}>
+
+        <div style={{width:"100%",maxWidth:280,marginBottom:14}}>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
+            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
+        </div>
+
+        <div style={{display:"flex",gap:24,marginBottom:24}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:6}}>Rows</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <button style={stepperBtn} onClick={()=>setNewRows(n=>Math.max(2,n-1))}>−</button>
+              <div style={{width:24,textAlign:"center",fontWeight:700}}>{newRows}</div>
+              <button style={stepperBtn} onClick={()=>setNewRows(n=>Math.min(12,n+1))}>+</button>
+            </div>
+          </div>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:11,color:"#6b7db3",marginBottom:6}}>Columns</div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <button style={stepperBtn} onClick={()=>setNewCols(n=>Math.max(2,n-1))}>−</button>
+              <div style={{width:24,textAlign:"center",fontWeight:700}}>{newCols}</div>
+              <button style={stepperBtn} onClick={()=>setNewCols(n=>Math.min(12,n+1))}>+</button>
+            </div>
+          </div>
+        </div>
+
+        <button onClick={createGame} disabled={creating||!newName.trim()} style={{padding:"14px 28px",borderRadius:12,background:(creating||!newName.trim())?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(creating||!newName.trim())?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:15,cursor:(creating||!newName.trim())?"default":"pointer"}}>
           {creating?"Creating…":"Start New Game"}
         </button>
       </div>
@@ -913,33 +1023,106 @@ function DotsAndBoxesApp(){
     return <div style={wrap}><div style={{color:"#6b7db3",fontSize:14}}>Loading game…</div></div>;
   }
 
+  // ── Name gate — shown once I'm seated but before I've picked a name ──
+  const myNameOnFile = role==="player1"?game.player1_name : role==="player2"?game.player2_name : "—";
+  if((role==="player1"||role==="player2") && !myNameOnFile){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
+        <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
+          style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
+        <button onClick={submitName} disabled={savingName||!nameInput.trim()} style={{padding:"12px 26px",borderRadius:10,background:(savingName||!nameInput.trim())?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(savingName||!nameInput.trim())?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+          {savingName?"Saving…":"Continue"}
+        </button>
+      </div>
+    );
+  }
+
   const R=game.box_rows, C=game.box_cols;
-  const SPACING=52, MARGIN=24, DOT_R=6, HIT=18;
+  const SPACING=48, MARGIN=22, DOT_R=6, DOT_HIT=16;
   const svgW = MARGIN*2 + C*SPACING, svgH = MARGIN*2 + R*SPACING;
   const px = (col)=>MARGIN+col*SPACING, py = (row)=>MARGIN+row*SPACING;
-  const P1="#ef4444", P2="#3b82f6"; // matches the classic red/blue look
+  const P1="#ef4444", P2="#3b82f6";
   const colorFor = (v)=> v===1?P1:v===2?P2:"#3a4266";
+  const initialFor = (v)=> v===1?(game.player1_name?.[0]?.toUpperCase()||"1"):(game.player2_name?.[0]?.toUpperCase()||"2");
 
   const isMyTurn = (role==="player1"&&game.turn===1) || (role==="player2"&&game.turn===2);
-  const canPlay = role!=="spectator" && game.status==="active" && isMyTurn && !moving;
+  const canPlay = role!=="spectator" && game.status==="active" && isMyTurn && !moving && !pendingMove;
+
+  // Converts a pointer client position to SVG-unit coordinates, accounting
+  // for the SVG being displayed smaller/larger than its own width/height
+  // (it's responsive on narrow screens) — without this, drags would be
+  // increasingly inaccurate the more the SVG is scaled down from its
+  // natural size.
+  const toSvgPoint = (clientX,clientY) => {
+    const rect = svgRef.current.getBoundingClientRect();
+    return {
+      x: (clientX-rect.left) * (svgW/rect.width),
+      y: (clientY-rect.top) * (svgH/rect.height),
+    };
+  };
+
+  const nearestDot = (svgX,svgY) => {
+    const col = Math.round((svgX-MARGIN)/SPACING);
+    const row = Math.round((svgY-MARGIN)/SPACING);
+    if(row<0||row>R||col<0||col>C) return null;
+    const dx = svgX-px(col), dy = svgY-py(row);
+    if(Math.sqrt(dx*dx+dy*dy) > SPACING*0.5) return null;
+    return {r:row,c:col};
+  };
+
+  const startDrag = (r,c) => { if(canPlay) setDragFrom({r,c}); };
+  const onDragMove = (e) => {
+    if(!dragFrom) return;
+    const p = toSvgPoint(e.clientX,e.clientY);
+    setDragPos(p);
+  };
+  const endDrag = (e) => {
+    if(!dragFrom) return;
+    const p = toSvgPoint(e.clientX,e.clientY);
+    const to = nearestDot(p.x,p.y);
+    setDragFrom(null); setDragPos(null);
+    if(!to) return;
+    const {r:r0,c:c0} = dragFrom, {r:r1,c:c1} = to;
+    if(r0===r1 && Math.abs(c0-c1)===1){
+      const c = Math.min(c0,c1);
+      if(game.h_edges[r0][c]===0) setPendingMove({orientation:"h",r:r0,c});
+    } else if(c0===c1 && Math.abs(r0-r1)===1){
+      const r = Math.min(r0,r1);
+      if(game.v_edges[r][c0]===0) setPendingMove({orientation:"v",r,c:c0});
+    }
+  };
+
+  // Pending-move preview coordinates, for drawing the dashed line + ✅❌ prompt.
+  let pendingX1,pendingY1,pendingX2,pendingY2;
+  if(pendingMove){
+    if(pendingMove.orientation==="h"){
+      pendingX1=px(pendingMove.c); pendingY1=py(pendingMove.r);
+      pendingX2=px(pendingMove.c+1); pendingY2=py(pendingMove.r);
+    }else{
+      pendingX1=px(pendingMove.c); pendingY1=py(pendingMove.r);
+      pendingX2=px(pendingMove.c); pendingY2=py(pendingMove.r+1);
+    }
+  }
 
   return (
-    <div style={wrap}>
+    <div style={wrap} onPointerMove={onDragMove} onPointerUp={endDrag}>
       <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Dots &amp; Boxes</div>
       <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>
-        {role==="spectator"?"Watching":`You are Player ${role==="player1"?1:2}`} · Code {code.toUpperCase()}
+        {role==="spectator"?"Watching":`You are ${myNameOnFile}`} · Code {code.toUpperCase()}
       </div>
 
       <div style={{display:"flex",gap:20,marginBottom:14}}>
         <div style={{textAlign:"center"}}>
           <div style={{width:12,height:12,borderRadius:6,background:P1,margin:"0 auto 4px"}}/>
           <div style={{fontSize:20,fontWeight:800}}>{game.score1}</div>
-          <div style={{fontSize:10,color:"#6b7db3"}}>Player 1</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{game.player1_name||"Player 1"}</div>
         </div>
         <div style={{textAlign:"center"}}>
           <div style={{width:12,height:12,borderRadius:6,background:P2,margin:"0 auto 4px"}}/>
           <div style={{fontSize:20,fontWeight:800}}>{game.score2}</div>
-          <div style={{fontSize:10,color:"#6b7db3"}}>Player 2</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{game.player2_name||"Player 2"}</div>
         </div>
       </div>
 
@@ -952,16 +1135,19 @@ function DotsAndBoxesApp(){
         </div>
       )}
 
-      {game.status==="active"&&role!=="spectator"&&(
+      {game.status==="active"&&role!=="spectator"&&!pendingMove&&(
         <div style={{fontSize:13,fontWeight:700,color:isMyTurn?AC:"#6b7db3",marginBottom:12}}>
-          {isMyTurn?"Your turn":`Waiting for Player ${game.turn}…`}
+          {isMyTurn?"Your turn — drag between two dots":`Waiting for ${game.turn===1?(game.player1_name||"Player 1"):(game.player2_name||"Player 2")}…`}
         </div>
+      )}
+      {pendingMove&&(
+        <div style={{fontSize:12,color:"#fff",marginBottom:12}}>Confirm this line?</div>
       )}
 
       {game.status==="finished"&&(
         <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:14,marginBottom:16,textAlign:"center",maxWidth:svgW}}>
           <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>
-            {game.winner===0?"It's a tie!":`Player ${game.winner} wins!`}
+            {game.winner===0?"It's a tie!":`${game.winner===1?(game.player1_name||"Player 1"):(game.player2_name||"Player 2")} wins!`}
           </div>
           {role!=="spectator"&&<button onClick={rematch} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>Play Again</button>}
         </div>
@@ -969,45 +1155,93 @@ function DotsAndBoxesApp(){
 
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
 
-      <svg width={svgW} height={svgH} style={{background:"#12172a",borderRadius:12}}>
-        {/* boxes */}
+      <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",borderRadius:12,maxWidth:"100%",touchAction:"none"}}>
         {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
-          <rect key={`b${r}-${c}`} x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
+          <g key={`b${r}-${c}`}>
+            <rect x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
+            <text x={px(c)+SPACING/2} y={py(r)+SPACING/2+5} fontSize={SPACING*0.32} fontWeight="800" fill="#fff" textAnchor="middle" opacity={0.85}>{initialFor(v)}</text>
+          </g>
         )))}
-        {/* horizontal edges */}
-        {game.h_edges.map((rowArr,r)=>rowArr.map((v,c)=>{
-          const x1=px(c),x2=px(c+1),y=py(r);
-          const clickable = canPlay && v===0;
-          return (
-            <g key={`h${r}-${c}`}>
-              <line x1={x1} y1={y} x2={x2} y2={y} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
-              {clickable&&<line x1={x1} y1={y} x2={x2} y2={y} stroke="transparent" strokeWidth={HIT} style={{cursor:"pointer"}} onClick={()=>move("h",r,c)}/>}
-            </g>
-          );
-        }))}
-        {/* vertical edges */}
-        {game.v_edges.map((rowArr,r)=>rowArr.map((v,c)=>{
-          const x=px(c),y1=py(r),y2=py(r+1);
-          const clickable = canPlay && v===0;
-          return (
-            <g key={`v${r}-${c}`}>
-              <line x1={x} y1={y1} x2={x} y2={y2} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
-              {clickable&&<line x1={x} y1={y1} x2={x} y2={y2} stroke="transparent" strokeWidth={HIT} style={{cursor:"pointer"}} onClick={()=>move("v",r,c)}/>}
-            </g>
-          );
-        }))}
-        {/* dots */}
+
+        {game.h_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
+          <line key={`h${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c+1)} y2={py(r)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+        )))}
+        {game.v_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
+          <line key={`v${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c)} y2={py(r+1)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+        )))}
+
+        {/* live drag preview */}
+        {dragFrom&&dragPos&&(
+          <line x1={px(dragFrom.c)} y1={py(dragFrom.r)} x2={dragPos.x} y2={dragPos.y} stroke={role==="player1"?P1:P2} strokeWidth={4} strokeLinecap="round" strokeDasharray="2 4" opacity={0.8}/>
+        )}
+        {/* pending (drawn, unconfirmed) move */}
+        {pendingMove&&(
+          <line x1={pendingX1} y1={pendingY1} x2={pendingX2} y2={pendingY2} stroke={role==="player1"?P1:P2} strokeWidth={6} strokeLinecap="round" strokeDasharray="6 4"/>
+        )}
+
         {Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
-          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8"/>
+          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={canPlay?DOT_HIT:DOT_R} fill={canPlay?"#8b93b8":"#8b93b8"} opacity={canPlay?0.25:1}
+            style={{cursor:canPlay?"grab":"default",touchAction:"none"}}
+            onPointerDown={canPlay?(e)=>{e.currentTarget.setPointerCapture(e.pointerId); startDrag(r,c);}:undefined}/>
+        )))}
+        {/* solid dot on top of the (larger, transparent) hit circle, so dots look normal-sized while still being easy to grab */}
+        {canPlay&&Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
+          <circle key={`dv${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
         )))}
       </svg>
 
+      {pendingMove&&(
+        <div style={{display:"flex",gap:20,marginTop:16}}>
+          <button onClick={cancelMove} disabled={moving} style={{width:52,height:52,borderRadius:26,background:"#ff475722",border:"2px solid #ff4757",fontSize:22,cursor:"pointer"}}>❌</button>
+          <button onClick={confirmMove} disabled={moving} style={{width:52,height:52,borderRadius:26,background:"#00c8a022",border:"2px solid #00c8a0",fontSize:22,cursor:"pointer"}}>✅</button>
+        </div>
+      )}
+
       <div style={{fontSize:10,color:"#4a5578",marginTop:20,textAlign:"center",maxWidth:svgW}}>
-        {role==="spectator"?"Both seats are taken — you're watching this game, not playing it.":"Take turns drawing one line. Complete a box's fourth side to claim it and go again."}
+        {role==="spectator"?"Both seats are taken — you're watching this game, not playing it.":"Drag between two adjacent dots to draw a line, then confirm it. Complete a box's fourth side to claim it and go again."}
       </div>
+
+      {/* ── Chat ── */}
+      {popup&&!chatOpen&&(
+        <div onClick={()=>setChatOpen(true)} style={{position:"fixed",bottom:80,right:16,maxWidth:220,background:"#1a1f2e",border:`1px solid ${AC}`,borderRadius:10,padding:"10px 12px",fontSize:11,color:"#fff",cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.4)",zIndex:50}}>
+          💬 {popup}
+        </div>
+      )}
+      {!chatOpen&&(
+        <button onClick={()=>setChatOpen(true)} style={{position:"fixed",bottom:16,right:16,width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${PC},${AC})`,border:"none",fontSize:22,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.4)",zIndex:50}}>
+          💬
+        </button>
+      )}
+      {chatOpen&&(
+        <div style={{position:"fixed",bottom:16,right:16,width:280,maxWidth:"calc(100vw - 32px)",height:360,background:"#12172a",border:"1px solid #2a3050",borderRadius:14,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,0.5)",zIndex:50,overflow:"hidden"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:"1px solid #2a3050",background:"#1a1f2e"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>Chat</div>
+            <button onClick={()=>setChatOpen(false)} style={{background:"none",border:"none",color:"#6b7db3",fontSize:16,cursor:"pointer"}}>─</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:10,display:"flex",flexDirection:"column",gap:6}}>
+            {messages.length===0&&<div style={{fontSize:11,color:"#4a5578",textAlign:"center",marginTop:20}}>No messages yet.</div>}
+            {messages.map(m=>{
+              const mine = (role==="player1"&&m.sender===1)||(role==="player2"&&m.sender===2);
+              return (
+                <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"80%"}}>
+                  {!mine&&<div style={{fontSize:9,color:"#6b7db3",marginBottom:2}}>{m.sender_name}</div>}
+                  <div style={{background:mine?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:mine?"#0a0d14":"#fff",padding:"7px 10px",borderRadius:10,fontSize:12,wordBreak:"break-word"}}>{m.message}</div>
+                </div>
+              );
+            })}
+            <div ref={chatEndRef}/>
+          </div>
+          <div style={{display:"flex",gap:6,padding:10,borderTop:"1px solid #2a3050"}}>
+            <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") sendChat();}} placeholder="Message…" maxLength={500}
+              style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:12}}/>
+            <button onClick={sendChat} disabled={sendingChat||!chatInput.trim()} style={{padding:"8px 12px",borderRadius:8,background:(sendingChat||!chatInput.trim())?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(sendingChat||!chatInput.trim())?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:12,cursor:"pointer"}}>➤</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 
 function Intro({onDone}) {
