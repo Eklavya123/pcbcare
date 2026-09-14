@@ -1244,6 +1244,279 @@ function DotsAndBoxesApp(){
 
 
 
+const WORD_SESSION_KEY = "pcb_word_session_id";
+const getWordSessionId = () => {
+  let id = DB.get(WORD_SESSION_KEY, null);
+  if(!id){
+    id=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID()
+      :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,ch=>{const rnd=Math.random()*16|0;return (ch==="x"?rnd:((rnd&0x3)|0x8)).toString(16);});
+    DB.set(WORD_SESSION_KEY,id);
+  }
+  return id;
+};
+
+function LetterDuelApp(){
+  const sessionId = useRef(getWordSessionId()).current;
+  const code = window.location.pathname.split("/")[2] || null;
+  const [game,setGame] = useState(null);
+  const [role,setRole] = useState(null);
+  const [myLetterChosen,setMyLetterChosen] = useState(false);
+  const [err,setErr] = useState("");
+  const [creating,setCreating] = useState(false);
+  const [newName,setNewName] = useState("");
+  const [nameInput,setNameInput] = useState("");
+  const [savingName,setSavingName] = useState(false);
+  const [myChoice,setMyChoice] = useState(null); // tracked locally the instant I pick — the server redacts my own letter back to me too during "choosing"
+  const [letterInput,setLetterInput] = useState("");
+  const [wordInput,setWordInput] = useState("");
+  const [submitting,setSubmitting] = useState(false);
+  const [busy,setBusy] = useState(false);
+  const [secondsLeft,setSecondsLeft] = useState(null);
+
+  const refresh = async () => {
+    try{
+      const r = await gameApi("word_get",{code,sessionId});
+      setGame(r.game); setRole(r.role); setMyLetterChosen(r.myLetterChosen);
+      setErr("");
+    }catch(e){ setErr(e.message); }
+  };
+
+  useEffect(()=>{
+    if(!code) return;
+    refresh();
+    const iv = setInterval(()=>{ if(document.visibilityState==="visible") refresh(); }, 1200);
+    return ()=>clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[code]);
+
+  // Live local countdown, driven off the server's choose_deadline — not
+  // off the polling interval — so it ticks smoothly every second
+  // regardless of the 1.2s poll cadence. Reads gamePhase/chooseDeadline
+  // (extracted primitives) rather than game itself, so the interval isn't
+  // torn down and recreated on every poll tick just because the game
+  // object's reference changed.
+  const gamePhase = game?.phase;
+  const chooseDeadline = game?.choose_deadline;
+  useEffect(()=>{
+    if(gamePhase!=="choosing"||!chooseDeadline){ setSecondsLeft(null); return; }
+    const tick=()=>{
+      const remaining = Math.max(0, Math.ceil((new Date(chooseDeadline).getTime()-Date.now())/1000));
+      setSecondsLeft(remaining);
+    };
+    tick();
+    const iv = setInterval(tick, 250);
+    return ()=>clearInterval(iv);
+  },[gamePhase,chooseDeadline]);
+
+  // Reset locally-tracked state whenever a fresh round starts.
+  useEffect(()=>{
+    if(gamePhase==="ready"){ setMyChoice(null); setLetterInput(""); setWordInput(""); }
+  },[gamePhase]);
+
+  const createGame = async () => {
+    setCreating(true); setErr("");
+    try{
+      const {code:newCode} = await gameApi("word_create",{sessionId,playerName:newName});
+      window.location.href = `/l/${newCode}`;
+    }catch(e){ setErr(e.message); setCreating(false); }
+  };
+
+  const submitName = async () => {
+    if(!nameInput.trim()) return;
+    setSavingName(true);
+    try{ await gameApi("word_set_name",{code,sessionId,name:nameInput.trim()}); await refresh(); }
+    catch(e){ setErr(e.message); }
+    setSavingName(false);
+  };
+
+  const pressReady = async () => {
+    setBusy(true); setErr("");
+    try{ const {game:updated} = await gameApi("word_ready",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+
+  const chooseLetter = async () => {
+    if(!/^[a-zA-Z]$/.test(letterInput)) return setErr("Pick exactly one letter.");
+    setBusy(true); setErr("");
+    try{
+      await gameApi("word_choose_letter",{code,sessionId,letter:letterInput});
+      setMyChoice(letterInput.toUpperCase());
+      setMyLetterChosen(true);
+    }catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+
+  const submitWord = async () => {
+    if(!wordInput.trim()) return;
+    setSubmitting(true); setErr("");
+    try{ const {game:updated} = await gameApi("word_submit",{code,sessionId,word:wordInput.trim()}); setGame(updated); }
+    catch(e){ setErr(e.message); await refresh(); }
+    setSubmitting(false);
+  };
+
+  const approve = async () => {
+    setBusy(true); setErr("");
+    try{ const {game:updated} = await gameApi("word_approve",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+  const disapprove = async () => {
+    setBusy(true); setErr("");
+    try{ const {game:updated} = await gameApi("word_disapprove",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+  const playAgain = async () => {
+    setBusy(true); setErr("");
+    try{ const {game:updated} = await gameApi("word_reset",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setBusy(false);
+  };
+
+  const copyLink = () => { navigator.clipboard.writeText(window.location.href); };
+
+  const wrap = {minHeight:"100vh",background:"#0a0d14",color:"#fff",display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 16px",fontFamily:"system-ui,sans-serif"};
+  const btnStyle = (disabled)=>({padding:"13px 26px",borderRadius:12,background:disabled?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:disabled?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer"});
+
+  if(!code){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:22,fontWeight:800,marginBottom:8}}>Letter Duel</div>
+        <div style={{fontSize:13,color:"#6b7db3",marginBottom:24,textAlign:"center",maxWidth:320}}>Both players secretly pick a letter, then race to build a real word starting with one and ending with the other.</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
+        <div style={{width:"100%",maxWidth:280,marginBottom:20}}>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
+            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
+        </div>
+        <button onClick={createGame} disabled={creating||!newName.trim()} style={btnStyle(creating||!newName.trim())}>{creating?"Creating…":"Start New Game"}</button>
+      </div>
+    );
+  }
+
+  if(err&&!game) return <div style={wrap}><div style={{color:"#ff8a8a",fontSize:14}}>{err}</div></div>;
+  if(!game) return <div style={wrap}><div style={{color:"#6b7db3",fontSize:14}}>Loading game…</div></div>;
+
+  const myNameOnFile = role==="player1"?game.player1_name : role==="player2"?game.player2_name : "—";
+  if((role==="player1"||role==="player2") && !myNameOnFile){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
+        <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
+          style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
+        <button onClick={submitName} disabled={savingName||!nameInput.trim()} style={btnStyle(savingName||!nameInput.trim())}>{savingName?"Saving…":"Continue"}</button>
+      </div>
+    );
+  }
+
+  const p1Name = game.player1_name||"Player 1", p2Name = game.player2_name||"Player 2";
+  const myReady = role==="player1"?game.ready1:role==="player2"?game.ready2:null;
+  const theirReady = role==="player1"?game.ready2:role==="player2"?game.ready1:null;
+
+  return (
+    <div style={wrap}>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Letter Duel</div>
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>
+        {role==="spectator"?"Watching":`You are ${myNameOnFile}`} · Code {code.toUpperCase()}
+      </div>
+
+      <div style={{display:"flex",gap:24,marginBottom:20}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score1}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{p1Name}</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score2}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{p2Name}</div>
+        </div>
+      </div>
+
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320,textAlign:"center"}}>{err}</div>}
+
+      {game.phase==="waiting"&&(
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:14,textAlign:"center",maxWidth:320}}>
+          <div style={{fontSize:12,color:"#fff",marginBottom:10}}>Waiting for a second player to join.</div>
+          <button onClick={copyLink} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:AC,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>Copy Invite Link</button>
+        </div>
+      )}
+
+      {game.phase==="ready"&&role!=="spectator"&&(
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:12,color:"#6b7db3",marginBottom:14}}>
+            {myReady?`Waiting for ${role==="player1"?p2Name:p1Name} to be ready…`:`${theirReady?`${role==="player1"?p2Name:p1Name} is ready. `:""}Press ready when you are.`}
+          </div>
+          {!myReady&&<button onClick={pressReady} disabled={busy} style={btnStyle(busy)}>I'm Ready</button>}
+        </div>
+      )}
+
+      {game.phase==="choosing"&&role!=="spectator"&&(
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:32,fontWeight:800,color:AC,marginBottom:10}}>{secondsLeft!=null?secondsLeft:"…"}</div>
+          {!myLetterChosen&&!myChoice?(
+            <>
+              <div style={{fontSize:12,color:"#6b7db3",marginBottom:10}}>Pick your secret letter.</div>
+              <input value={letterInput} onChange={e=>setLetterInput(e.target.value.replace(/[^a-zA-Z]/g,"").slice(0,1).toUpperCase())} onKeyDown={e=>{if(e.key==="Enter") chooseLetter();}} maxLength={1} autoFocus
+                style={{width:64,height:64,fontSize:32,textAlign:"center",borderRadius:12,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",marginBottom:14,textTransform:"uppercase"}}/>
+              <div>
+                <button onClick={chooseLetter} disabled={busy||!letterInput} style={btnStyle(busy||!letterInput)}>Lock In</button>
+              </div>
+            </>
+          ):(
+            <div style={{fontSize:13,color:"#fff"}}>You picked <strong>{myChoice||"a letter"}</strong>. Waiting for the reveal…</div>
+          )}
+        </div>
+      )}
+
+      {game.phase==="revealed"&&role!=="spectator"&&(
+        <div style={{textAlign:"center",width:"100%",maxWidth:320}}>
+          <div style={{fontSize:12,color:"#6b7db3",marginBottom:8}}>The letters are:</div>
+          <div style={{display:"flex",justifyContent:"center",gap:16,marginBottom:16}}>
+            <div style={{width:56,height:56,borderRadius:12,background:"#1a1f2e",border:`2px solid ${AC}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800}}>{(game.letter1||"?").toUpperCase()}</div>
+            <div style={{width:56,height:56,borderRadius:12,background:"#1a1f2e",border:`2px solid ${AC}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,fontWeight:800}}>{(game.letter2||"?").toUpperCase()}</div>
+          </div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:10}}>Type a word that starts with one and ends with the other. First to submit wins the round — if your opponent approves it.</div>
+          <div style={{display:"flex",gap:8}}>
+            <input value={wordInput} onChange={e=>setWordInput(e.target.value.replace(/[^a-zA-Z]/g,""))} onKeyDown={e=>{if(e.key==="Enter") submitWord();}} placeholder="Your word" autoFocus
+              style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box"}}/>
+            <button onClick={submitWord} disabled={submitting||!wordInput.trim()} style={btnStyle(submitting||!wordInput.trim())}>{submitting?"…":"Go"}</button>
+          </div>
+        </div>
+      )}
+
+      {game.phase==="pending_approval"&&(
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:16,textAlign:"center",maxWidth:320}}>
+          {role!=="spectator"&&(game.pending_by===(role==="player1"?1:2))?(
+            <div style={{fontSize:13,color:"#fff"}}>You submitted <strong>{game.pending_word}</strong>. Waiting for {role==="player1"?p2Name:p1Name} to approve it…</div>
+          ):(
+            <>
+              <div style={{fontSize:13,color:"#fff",marginBottom:4}}>
+                {game.pending_by===1?p1Name:p2Name} submitted:
+              </div>
+              <div style={{fontSize:24,fontWeight:800,color:AC,marginBottom:14}}>{game.pending_word}</div>
+              {role!=="spectator"&&(
+                <div style={{display:"flex",gap:16,justifyContent:"center"}}>
+                  <button onClick={disapprove} disabled={busy} style={{width:52,height:52,borderRadius:26,background:"#ff475722",border:"2px solid #ff4757",fontSize:22,cursor:"pointer"}}>❌</button>
+                  <button onClick={approve} disabled={busy} style={{width:52,height:52,borderRadius:26,background:"#00c8a022",border:"2px solid #00c8a0",fontSize:22,cursor:"pointer"}}>✅</button>
+                </div>
+              )}
+              {role==="spectator"&&<div style={{fontSize:11,color:"#6b7db3"}}>Waiting for {game.pending_by===1?p2Name:p1Name} to approve or disapprove.</div>}
+            </>
+          )}
+        </div>
+      )}
+
+      {game.phase==="cancelled"&&(
+        <div style={{background:"#1a1f2e",border:"1px solid #ff475755",borderRadius:10,padding:16,textAlign:"center",maxWidth:320}}>
+          <div style={{fontSize:13,color:"#ff8a8a",marginBottom:14}}>Game cancelled — {game.cancelled_reason}</div>
+          {role!=="spectator"&&<button onClick={playAgain} disabled={busy} style={btnStyle(busy)}>Play Again</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Intro({onDone}) {
   const videoRef=useRef(null);
   useEffect(()=>{
@@ -8540,6 +8813,7 @@ useEffect(() => {
   // links here from anywhere in the visible site — the URL itself is the
   // only way in.
   if(window.location.pathname==="/g"||window.location.pathname.startsWith("/g/")) return <DotsAndBoxesApp/>;
+  if(window.location.pathname==="/l"||window.location.pathname.startsWith("/l/")) return <LetterDuelApp/>;
 
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
 
