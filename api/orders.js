@@ -730,6 +730,22 @@ module.exports = async (req, res) => {
       return res.status(200).json({ game: updated });
     }
 
+    // ── Keep-alive ──
+    // Triggered by Vercel Cron (see vercel.json's "crons" entry) once a
+    // day, nothing else calls this. Supabase's free tier pauses a project
+    // after a stretch of no traffic, and the pause itself is what causes
+    // the intermittent "Failed to get project config" error users saw —
+    // not a bug in any query, the project was asleep. A daily touch is
+    // comfortably more frequent than the pause threshold, so this should
+    // prevent it from ever pausing again. Deliberately public — Vercel
+    // Cron requests aren't carrying an admin session, and there's nothing
+    // sensitive being returned here anyway, just a trivial read to prove
+    // the database responded.
+    if (action === "keepalive") {
+      await sb("orders", { filter: "?select=id&limit=1" });
+      return res.status(200).json({ ok: true, ts: new Date().toISOString() });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
 
   } catch (err) {
