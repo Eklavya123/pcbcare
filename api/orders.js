@@ -518,6 +518,218 @@ module.exports = async (req, res) => {
       return res.status(200).json({ game: updated });
     }
 
+    // ── Letter Duel — hidden two-player word game, /l/<code> ──
+    // Also folded in here for the Vercel function-count reason explained
+    // above word_duel_games' table comment.
+    //
+    // Reveal timing is deliberate: both players' letters stay hidden from
+    // each other until choose_deadline actually passes, even if both
+    // already chose earlier — checked on every word_get poll, not on a
+    // server-side timer, since this whole app has no background job
+    // runner. A player who never chooses in time gets a random letter
+    // assigned automatically at that same check, so the game can't get
+    // stuck waiting on someone who closed their tab.
+    const randomLetter = () => "abcdefghijklmnopqrstuvwxyz"[Math.floor(Math.random() * 26)];
+
+    // Structural check only — does this word actually start with one of
+    // the two chosen letters and end with the other? Whether it's a
+    // genuine, real word is deliberately NOT checked here; that judgment
+    // belongs entirely to the opponent via word_approve/word_disapprove,
+    // by explicit design.
+    const wordMatchesLetters = (word, l1, l2) => {
+      const w = word.toLowerCase();
+      const a = (l1 || "").toLowerCase(), b = (l2 || "").toLowerCase();
+      return (w[0] === a && w[w.length - 1] === b) || (w[0] === b && w[w.length - 1] === a);
+    };
+
+    if (action === "word_create") {
+      const { sessionId, playerName } = req.body;
+      if (!sessionId) throw new Error("sessionId is required");
+      const code = randomCode();
+      const [created] = await sb("word_duel_games", {
+        method: "POST",
+        body: { code, player1_session: sessionId, player1_name: playerName?.trim()?.slice(0, 24) || null, phase: "waiting" },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ code: created.code });
+    }
+
+    if (action === "word_get") {
+      const { code, sessionId } = req.body;
+      if (!code) throw new Error("code is required");
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      let game = rows[0];
+      if (!game) return res.status(404).json({ error: "No game found with that code." });
+
+      let role = "spectator";
+      if (game.player1_session === sessionId) role = "player1";
+      else if (game.player2_session === sessionId) role = "player2";
+      else if (!game.player1_session) {
+        await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player1_session: sessionId } });
+        role = "player1"; game.player1_session = sessionId;
+      } else if (!game.player2_session) {
+        await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player2_session: sessionId, phase: "ready" } });
+        role = "player2"; game.player2_session = sessionId; game.phase = "ready";
+      }
+
+      // Auto-resolve an expired choosing window — see comment above.
+      if (game.phase === "choosing" && game.choose_deadline && new Date(game.choose_deadline) <= new Date()) {
+        const fill = {};
+        if (!game.letter1) fill.letter1 = randomLetter();
+        if (!game.letter2) fill.letter2 = randomLetter();
+        fill.phase = "revealed";
+        const [updated] = await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: fill, prefer: "return=representation" });
+        game = updated;
+      }
+
+      // Redact letters from the response while still in the choosing
+      // phase — they exist in the row (so a straggler's timeout-fill has
+      // something to compare against) but must never reach the client
+      // before reveal.
+      const payload = { ...game };
+      let myLetterChosen = false;
+      if (game.phase === "choosing") {
+        myLetterChosen = role === "player1" ? !!game.letter1 : role === "player2" ? !!game.letter2 : false;
+        payload.letter1 = null;
+        payload.letter2 = null;
+      }
+
+      return res.status(200).json({ game: payload, role, myLetterChosen });
+    }
+
+    if (action === "word_set_name") {
+      const { code, sessionId, name } = req.body;
+      if (!name?.trim()) throw new Error("Name is required");
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const field = game.player1_session === sessionId ? "player1_name" : game.player2_session === sessionId ? "player2_name" : null;
+      if (!field) throw new Error("You're not a player in this game");
+      const [updated] = await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { [field]: name.trim().slice(0, 24) }, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "word_ready") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const field = game.player1_session === sessionId ? "ready1" : game.player2_session === sessionId ? "ready2" : null;
+      if (!field) throw new Error("You're not a player in this game");
+      const otherReady = field === "ready1" ? game.ready2 : game.ready1;
+      const body = { [field]: true };
+      if (otherReady) {
+        body.phase = "choosing";
+        body.choose_deadline = new Date(Date.now() + 10000).toISOString();
+        body.letter1 = null; body.letter2 = null;
+        body.pending_word = null; body.pending_by = null;
+      }
+      const [updated] = await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "word_choose_letter") {
+      const { code, sessionId, letter } = req.body;
+      if (!/^[a-zA-Z]$/.test(letter || "")) throw new Error("Pick a single letter");
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,phase,player1_session,player2_session` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.phase !== "choosing") throw new Error("It's not time to choose a letter right now");
+      const field = game.player1_session === sessionId ? "letter1" : game.player2_session === sessionId ? "letter2" : null;
+      if (!field) throw new Error("You're not a player in this game");
+      // Conditioned on phase still being 'choosing' at the DB level —
+      // guards against a choice landing right as the deadline flips over
+      // to revealed on another request.
+      await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}&phase=eq.choosing`, body: { [field]: letter.toLowerCase() } });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === "word_submit") {
+      const { code, sessionId, word } = req.body;
+      if (!/^[a-zA-Z]{2,30}$/.test(word || "")) throw new Error("Enter a valid word (letters only)");
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.phase !== "revealed") throw new Error("Not time to submit a word right now");
+      const myPlayer = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!myPlayer) throw new Error("You're not a player in this game");
+      if (!wordMatchesLetters(word, game.letter1, game.letter2)) {
+        throw new Error(`Your word has to start with one of "${game.letter1?.toUpperCase()}"/"${game.letter2?.toUpperCase()}" and end with the other.`);
+      }
+      // Conditioned on phase still being 'revealed' — this is the actual
+      // race resolution for "whoever submits first." If another request
+      // already moved phase to pending_approval, this matches zero rows
+      // and updated is undefined, meaning the opponent beat this player
+      // to it.
+      const result = await sb("word_duel_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}&phase=eq.revealed`,
+        body: { phase: "pending_approval", pending_word: word, pending_by: myPlayer, updated_at: new Date().toISOString() },
+        prefer: "return=representation",
+      });
+      const updated = result[0];
+      if (!updated) throw new Error("Your opponent already submitted a word first.");
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "word_approve") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.phase !== "pending_approval") throw new Error("Nothing waiting for approval");
+      const myPlayer = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!myPlayer || myPlayer === game.pending_by) throw new Error("Only the other player can approve this word");
+      const scoreField = game.pending_by === 1 ? "score1" : "score2";
+      const [updated] = await sb("word_duel_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: {
+          [scoreField]: (game[scoreField] || 0) + 1,
+          phase: "ready", ready1: false, ready2: false,
+          letter1: null, letter2: null, choose_deadline: null,
+          pending_word: null, pending_by: null,
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "word_disapprove") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.phase !== "pending_approval") throw new Error("Nothing waiting for approval");
+      const myPlayer = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!myPlayer || myPlayer === game.pending_by) throw new Error("Only the other player can disapprove this word");
+      const byName = game.pending_by === 1 ? (game.player1_name || "Player 1") : (game.player2_name || "Player 2");
+      const [updated] = await sb("word_duel_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: { phase: "cancelled", cancelled_reason: `${byName}'s word "${game.pending_word}" was rejected.` },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
+    }
+
+    // Rematch after a cancellation — fresh board, same two seats.
+    if (action === "word_reset") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (sessionId !== game.player1_session && sessionId !== game.player2_session) throw new Error("Only the two players can start a rematch");
+      const [updated] = await sb("word_duel_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: {
+          phase: "ready", ready1: false, ready2: false,
+          letter1: null, letter2: null, choose_deadline: null,
+          pending_word: null, pending_by: null, cancelled_reason: null,
+          score1: 0, score2: 0,
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
+    }
+
     return res.status(400).json({ error: "Unknown action" });
 
   } catch (err) {
