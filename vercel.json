@@ -2,5 +2,8 @@
   "rewrites": [
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/orders?action=keepalive", "schedule": "0 0 * * *" }
   ]
 }
