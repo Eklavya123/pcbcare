@@ -611,20 +611,26 @@ module.exports = async (req, res) => {
 
     if (action === "word_ready") {
       const { code, sessionId } = req.body;
-      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
-      const game = rows[0];
-      if (!game) return res.status(404).json({ error: "Game not found" });
-      const field = game.player1_session === sessionId ? "ready1" : game.player2_session === sessionId ? "ready2" : null;
-      if (!field) throw new Error("You're not a player in this game");
-      const otherReady = field === "ready1" ? game.ready2 : game.ready1;
-      const body = { [field]: true };
-      if (otherReady) {
-        body.phase = "choosing";
-        body.choose_deadline = new Date(Date.now() + 10000).toISOString();
-        body.letter1 = null; body.letter2 = null;
-        body.pending_word = null; body.pending_by = null;
+      // Calls word_duel_set_ready (a Postgres function using SELECT ... FOR
+      // UPDATE) instead of doing read-then-write here in JS. The previous
+      // version read the game, decided whether to transition based on
+      // that snapshot, then wrote — two players pressing Ready within the
+      // same instant could each read the other's PRE-update flag, so both
+      // got marked ready but neither write ever saw both flags true at
+      // once, and the phase transition to "choosing" silently never fired.
+      // This only reproduced under a specific timing coincidence, which is
+      // exactly what made it show up as "usually works, sometimes doesn't."
+      // The fix has to live in the database as a single atomic operation;
+      // no amount of care in this file's read-then-write ordering can
+      // close that race from the application side.
+      let updated;
+      try {
+        updated = await sb("rpc/word_duel_set_ready", { method: "POST", body: { p_code: code, p_session_id: sessionId } });
+      } catch (e) {
+        if (/game_not_found/.test(e.message)) return res.status(404).json({ error: "Game not found" });
+        if (/not_a_player/.test(e.message)) throw new Error("You're not a player in this game");
+        throw e;
       }
-      const [updated] = await sb("word_duel_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body, prefer: "return=representation" });
       return res.status(200).json({ game: updated });
     }
 
