@@ -1171,7 +1171,7 @@ function DotsAndBoxesApp(){
 
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
 
-      <div style={{maxWidth:"100%", maxHeight:"60vh", overflow:"auto", borderRadius:12, WebkitOverflowScrolling:"touch"}}>
+      <div style={{width:"100%", maxWidth:"100%", minWidth:0, maxHeight:"60vh", overflow:"auto", borderRadius:12, WebkitOverflowScrolling:"touch"}}>
       <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",display:"block",touchAction:"none"}}
         onPointerDown={canPlay?onBoardPointerDown:undefined}>
         {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
