@@ -1040,7 +1040,7 @@ function DotsAndBoxesApp(){
   }
 
   const R=game.box_rows, C=game.box_cols;
-  const SPACING=48, MARGIN=22, DOT_R=6, DOT_HIT=16;
+  const SPACING=48, MARGIN=22, DOT_R=6;
   const svgW = MARGIN*2 + C*SPACING, svgH = MARGIN*2 + R*SPACING;
   const px = (col)=>MARGIN+col*SPACING, py = (row)=>MARGIN+row*SPACING;
   const P1="#ef4444", P2="#3b82f6";
@@ -1073,6 +1073,22 @@ function DotsAndBoxesApp(){
   };
 
   const startDrag = (r,c) => { if(canPlay) setDragFrom({r,c}); };
+  // Single pointerdown handler on the whole board — finds the nearest dot
+  // to wherever you actually pressed, using the same forgiving math as
+  // ending a drag, rather than requiring a precise hit on one specific
+  // small circle. That mismatch (forgiving end, strict start) was the
+  // real bug: at higher grid densities the board is scaled down more to
+  // fit the screen, shrinking every touch target's physical size, and the
+  // strict per-dot hit-test degraded much faster than the math-based
+  // end-detection did.
+  const onBoardPointerDown = (e) => {
+    if(!canPlay) return;
+    const p = toSvgPoint(e.clientX,e.clientY);
+    const dot = nearestDot(p.x,p.y);
+    if(!dot) return;
+    svgRef.current.setPointerCapture(e.pointerId);
+    startDrag(dot.r,dot.c);
+  };
   const onDragMove = (e) => {
     if(!dragFrom) return;
     const p = toSvgPoint(e.clientX,e.clientY);
@@ -1155,7 +1171,9 @@ function DotsAndBoxesApp(){
 
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
 
-      <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",borderRadius:12,maxWidth:"100%",touchAction:"none"}}>
+      <div style={{maxWidth:"100%", maxHeight:"60vh", overflow:"auto", borderRadius:12, WebkitOverflowScrolling:"touch"}}>
+      <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",display:"block",touchAction:"none"}}
+        onPointerDown={canPlay?onBoardPointerDown:undefined}>
         {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
           <g key={`b${r}-${c}`}>
             <rect x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
@@ -1179,16 +1197,14 @@ function DotsAndBoxesApp(){
           <line x1={pendingX1} y1={pendingY1} x2={pendingX2} y2={pendingY2} stroke={role==="player1"?P1:P2} strokeWidth={6} strokeLinecap="round" strokeDasharray="6 4"/>
         )}
 
+        {/* Purely visual now — pointerEvents:none on all of these. Every
+            drag starts and ends via onBoardPointerDown/endDrag's nearest-
+            dot math above, not by hitting one of these circles directly. */}
         {Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
-          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={canPlay?DOT_HIT:DOT_R} fill={canPlay?"#8b93b8":"#8b93b8"} opacity={canPlay?0.25:1}
-            style={{cursor:canPlay?"grab":"default",touchAction:"none"}}
-            onPointerDown={canPlay?(e)=>{e.currentTarget.setPointerCapture(e.pointerId); startDrag(r,c);}:undefined}/>
-        )))}
-        {/* solid dot on top of the (larger, transparent) hit circle, so dots look normal-sized while still being easy to grab */}
-        {canPlay&&Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
-          <circle key={`dv${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
+          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
         )))}
       </svg>
+      </div>
 
       {pendingMove&&(
         <div style={{display:"flex",gap:20,marginTop:16}}>
