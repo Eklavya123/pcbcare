@@ -488,6 +488,17 @@ module.exports = async (req, res) => {
         updated_at: new Date().toISOString(),
       };
       const [updated] = await sb("dots_boxes_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: updateBody, prefer: "return=representation" });
+
+      // Banking to the leaderboard happens exactly once, right here — this
+      // is the only code path that can ever set status to "finished"
+      // (game_move already refuses to run at all once status isn't
+      // "active"), so there's no risk of double-counting a game's points
+      // on a retry or a later poll.
+      if (finished) {
+        if (score1 > 0 && game.player1_name) await sb("rpc/leaderboard_add_points", { method: "POST", body: { p_game_type: "dots_boxes", p_name: game.player1_name, p_points: score1 } });
+        if (score2 > 0 && game.player2_name) await sb("rpc/leaderboard_add_points", { method: "POST", body: { p_game_type: "dots_boxes", p_name: game.player2_name, p_points: score2 } });
+      }
+
       return res.status(200).json({ game: updated });
     }
 
@@ -594,7 +605,28 @@ module.exports = async (req, res) => {
         payload.letter2 = null;
       }
 
-      return res.status(200).json({ game: payload, role, myLetterChosen });
+      const messages = await sb("word_duel_messages", { filter: `?game_id=eq.${game.id}&select=*&order=created_at.asc&limit=200` });
+
+      return res.status(200).json({ game: payload, role, myLetterChosen, messages });
+    }
+
+    // Chat for Letter Duel — mirrors game_send_message (Dots and Boxes)
+    // exactly, against the separate word_duel_messages table.
+    if (action === "word_send_message") {
+      const { code, sessionId, message } = req.body;
+      if (!message?.trim()) throw new Error("Message can't be empty");
+      if (message.length > 500) throw new Error("Message too long");
+      const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session,player1_name,player2_name` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const sender = game.player1_session === sessionId ? 1 : game.player2_session === sessionId ? 2 : null;
+      if (!sender) throw new Error("Only players in this game can chat");
+      const senderName = sender === 1 ? game.player1_name : game.player2_name;
+      await sb("word_duel_messages", {
+        method: "POST",
+        body: { game_id: game.id, sender, sender_name: senderName || `Player ${sender}`, message: message.trim().slice(0, 500) },
+      });
+      return res.status(200).json({ ok: true });
     }
 
     if (action === "word_set_name") {
@@ -696,6 +728,16 @@ module.exports = async (req, res) => {
         },
         prefer: "return=representation",
       });
+
+      // Letter Duel has no natural "game end" the way Dots and Boxes
+      // does — rounds continue indefinitely until someone leaves or a
+      // word gets disapproved. Each approved word is the natural unit of
+      // "a point genuinely earned," so it's banked to the leaderboard
+      // immediately here, not deferred to some end-of-game moment that
+      // may never come.
+      const approvedName = game.pending_by === 1 ? game.player1_name : game.player2_name;
+      if (approvedName) await sb("rpc/leaderboard_add_points", { method: "POST", body: { p_game_type: "letter_duel", p_name: approvedName, p_points: 1 } });
+
       return res.status(200).json({ game: updated });
     }
 
@@ -750,6 +792,18 @@ module.exports = async (req, res) => {
     if (action === "keepalive") {
       await sb("orders", { filter: "?select=id&limit=1" });
       return res.status(200).json({ ok: true, ts: new Date().toISOString() });
+    }
+
+    // Public — leaderboards are meant to be shown right inside each game's
+    // own screen, not gated behind anything. game_type is required so a
+    // caller always gets one specific leaderboard, not a mixed list.
+    if (action === "leaderboard_get") {
+      const { gameType } = req.body;
+      if (gameType !== "dots_boxes" && gameType !== "letter_duel") throw new Error("Invalid game type");
+      const entries = await sb("leaderboard_scores", {
+        filter: `?game_type=eq.${gameType}&select=display_name,total_points&order=total_points.desc&limit=50`,
+      });
+      return res.status(200).json({ entries });
     }
 
     return res.status(400).json({ error: "Unknown action" });
