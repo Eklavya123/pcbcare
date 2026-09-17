@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import jsPDF from "jspdf"; // npm install jspdf — new dependency for the Invoice Generator's PDF output
 import { TAB_ROUTES, PATH_TO_TAB, RESERVED_PATH_PREFIXES } from './routes';
 
@@ -914,6 +914,29 @@ function DotsAndBoxesApp(){
   const [scrollPos,setScrollPos] = useState({x:0,y:0});
   const barDrag = useRef(null); // {axis:'x'|'y', startClient, startScroll, track, thumb}
 
+  // Fires when the scrollable board container actually mounts. Wrapped in
+  // useCallback with an empty dependency array — this is the actual fix
+  // for a real crash that shipped earlier: a callback ref that's a fresh
+  // inline function on every render gets re-invoked by React on every
+  // single render (detach-then-reattach), and since this one calls
+  // setContainerSize unconditionally, that was an infinite render loop:
+  // render → new function identity → ref re-fires → setState → re-render
+  // → repeat. That's exactly what React's "Maximum update depth exceeded"
+  // error (#185) means. A stable function identity means React only
+  // calls this on genuine mount/unmount, not on every render. Also has to
+  // be declared here, before any early return below, like every other
+  // hook in this component — useCallback is itself a hook.
+  const measureBoardContainer = useCallback((node) => {
+    boardScrollRef.current = node;
+    if(node){
+      const w = node.clientWidth, h = node.clientHeight;
+      setContainerSize(prev => (prev.w===w && prev.h===h) ? prev : {w,h});
+    }
+  },[]);
+  const onBoardScroll = () => {
+    if(boardScrollRef.current) setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
+  };
+
   // Leaderboard overlay
   const [showLeaderboard,setShowLeaderboard] = useState(false);
 
@@ -1159,18 +1182,6 @@ function DotsAndBoxesApp(){
       const r = Math.min(r0,r1);
       if(game.v_edges[r][c0]===0) setPendingMove({orientation:"v",r,c:c0});
     }
-  };
-
-  // Fires when the scrollable board container actually mounts (i.e. once
-  // the early-loading returns above are past and the real board renders)
-  // — a plain useEffect keyed on mount wouldn't naturally re-fire at that
-  // point, since the ref would still be null the first time it ran.
-  const measureBoardContainer = (node) => {
-    boardScrollRef.current = node;
-    if(node) setContainerSize({w:node.clientWidth,h:node.clientHeight});
-  };
-  const onBoardScroll = () => {
-    if(boardScrollRef.current) setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
   };
 
   // Custom drag-bars, not native scrolling — touchAction:"none" on the
