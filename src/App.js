@@ -838,6 +838,44 @@ const getGameSessionId = () => {
   return id;
 };
 
+// Shared between both hidden games — an honor-system leaderboard keyed on
+// whatever name a player typed (normalized), not a verified account. See
+// leaderboard_scores' table comment in the migration for the full caveat.
+function Leaderboard({gameType,onClose}){
+  const [entries,setEntries] = useState(null);
+  const [err,setErr] = useState("");
+
+  useEffect(()=>{
+    gameApi("leaderboard_get",{gameType}).then(r=>setEntries(r.entries||[])).catch(e=>setErr(e.message));
+  },[gameType]);
+
+  const medal = (i) => i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}.`;
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100,padding:20}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#12172a",border:"1px solid #2a3050",borderRadius:16,padding:20,width:"100%",maxWidth:320,maxHeight:"70vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontSize:16,fontWeight:800,color:"#fff"}}>🏆 Leaderboard</div>
+          <button onClick={onClose} style={{background:"none",border:"none",color:"#6b7db3",fontSize:20,cursor:"pointer"}}>×</button>
+        </div>
+        {err&&<div style={{color:"#ff8a8a",fontSize:12}}>{err}</div>}
+        {entries===null&&!err&&<div style={{color:"#6b7db3",fontSize:13}}>Loading…</div>}
+        {entries&&entries.length===0&&<div style={{color:"#6b7db3",fontSize:13}}>No games finished yet.</div>}
+        {entries&&entries.map((e,i)=>(
+          <div key={e.display_name} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 4px",borderBottom:i<entries.length-1?"1px solid #2a3050":"none"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:14,width:28}}>{medal(i)}</span>
+              <span style={{fontSize:14,color:"#fff",fontWeight:600}}>{e.display_name}</span>
+            </div>
+            <span style={{fontSize:15,color:AC,fontWeight:800}}>{e.total_points}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
 function DotsAndBoxesApp(){
   const sessionId = useRef(getGameSessionId()).current;
   const code = window.location.pathname.split("/")[2] || null;
@@ -865,6 +903,19 @@ function DotsAndBoxesApp(){
   const [dragFrom,setDragFrom] = useState(null); // {r,c} dot coords
   const [dragPos,setDragPos] = useState(null);   // live pointer position in SVG units, while dragging
   const [pendingMove,setPendingMove] = useState(null); // {orientation,r,c}
+
+  // Custom drag-bars for panning an oversized board. Native touch-scroll
+  // on the board itself can't work alongside line-dragging — both want to
+  // interpret the same touch-drag gesture, and touchAction:"none" on the
+  // SVG (needed for reliable line-dragging) disables native scrolling
+  // entirely. These are separate elements, so there's no gesture conflict.
+  const boardScrollRef = useRef(null);
+  const [containerSize,setContainerSize] = useState({w:0,h:0});
+  const [scrollPos,setScrollPos] = useState({x:0,y:0});
+  const barDrag = useRef(null); // {axis:'x'|'y', startClient, startScroll, track, thumb}
+
+  // Leaderboard overlay
+  const [showLeaderboard,setShowLeaderboard] = useState(false);
 
   // Chat UI
   const [chatOpen,setChatOpen] = useState(false);
@@ -1110,6 +1161,53 @@ function DotsAndBoxesApp(){
     }
   };
 
+  // Fires when the scrollable board container actually mounts (i.e. once
+  // the early-loading returns above are past and the real board renders)
+  // — a plain useEffect keyed on mount wouldn't naturally re-fire at that
+  // point, since the ref would still be null the first time it ran.
+  const measureBoardContainer = (node) => {
+    boardScrollRef.current = node;
+    if(node) setContainerSize({w:node.clientWidth,h:node.clientHeight});
+  };
+  const onBoardScroll = () => {
+    if(boardScrollRef.current) setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
+  };
+
+  // Custom drag-bars, not native scrolling — touchAction:"none" on the
+  // board (required for reliable line-dragging) blocks native touch-pan
+  // gestures entirely, so a separate draggable element is the only way to
+  // pan without the two gestures fighting over the same touch input.
+  // Dragging still just calls the container's own .scrollLeft/.scrollTop
+  // under the hood — this is an alternative INPUT for the same native
+  // scroll position, not a reimplementation of scrolling itself.
+  const startBarDrag = (axis,e) => {
+    if(!boardScrollRef.current) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    barDrag.current = {
+      axis,
+      startClient: axis==="x"?e.clientX:e.clientY,
+      startScroll: axis==="x"?boardScrollRef.current.scrollLeft:boardScrollRef.current.scrollTop,
+      trackLen: axis==="x"?containerSize.w:containerSize.h,
+      contentLen: axis==="x"?svgW:svgH,
+    };
+  };
+  const onBarDragMove = (e) => {
+    const d = barDrag.current;
+    if(!d||!boardScrollRef.current) return;
+    const clientPos = d.axis==="x"?e.clientX:e.clientY;
+    const delta = clientPos-d.startClient;
+    // Dragging the bar itself (not a small thumb) — the whole track's
+    // length maps to the whole scrollable range, so a full-width drag
+    // pans the full distance.
+    const scrollRange = Math.max(0, d.contentLen-d.trackLen);
+    const scrollDelta = d.trackLen>0 ? (delta/d.trackLen)*scrollRange : 0;
+    const next = Math.max(0, Math.min(scrollRange, d.startScroll+scrollDelta));
+    if(d.axis==="x") boardScrollRef.current.scrollLeft = next;
+    else boardScrollRef.current.scrollTop = next;
+    setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
+  };
+  const endBarDrag = () => { barDrag.current = null; };
+
   // Pending-move preview coordinates, for drawing the dashed line + ✅❌ prompt.
   let pendingX1,pendingY1,pendingX2,pendingY2;
   if(pendingMove){
@@ -1124,7 +1222,11 @@ function DotsAndBoxesApp(){
 
   return (
     <div style={wrap} onPointerMove={onDragMove} onPointerUp={endDrag}>
-      <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Dots &amp; Boxes</div>
+      <div style={{width:"100%",maxWidth:svgW,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:18,fontWeight:800}}>Dots &amp; Boxes</div>
+        <button onClick={()=>setShowLeaderboard(true)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>🏆</button>
+      </div>
+      {showLeaderboard&&<Leaderboard gameType="dots_boxes" onClose={()=>setShowLeaderboard(false)}/>}
       <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>
         {role==="spectator"?"Watching":`You are ${myNameOnFile}`} · Code {code.toUpperCase()}
       </div>
@@ -1171,7 +1273,24 @@ function DotsAndBoxesApp(){
 
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
 
-      <div style={{width:"100%", maxWidth:"100%", minWidth:0, maxHeight:"60vh", overflow:"auto", borderRadius:12, WebkitOverflowScrolling:"touch"}}>
+      {(() => {
+        const needsH = containerSize.w>0 && svgW>containerSize.w;
+        const needsV = containerSize.h>0 && svgH>containerSize.h;
+        const hRange = Math.max(1,svgW-containerSize.w), vRange = Math.max(1,svgH-containerSize.h);
+        const hThumbPct = containerSize.w>0 ? Math.min(100,(containerSize.w/svgW)*100) : 100;
+        const hThumbLeftPct = needsH ? (scrollPos.x/hRange)*(100-hThumbPct) : 0;
+        const vThumbPct = containerSize.h>0 ? Math.min(100,(containerSize.h/svgH)*100) : 100;
+        const vThumbTopPct = needsV ? (scrollPos.y/vRange)*(100-vThumbPct) : 0;
+        return (
+          <>
+            {needsH&&(
+              <div onPointerDown={(e)=>startBarDrag("x",e)} onPointerMove={onBarDragMove} onPointerUp={endBarDrag}
+                style={{width:"100%",height:16,background:"#1a1f2e",borderRadius:8,marginBottom:8,position:"relative",cursor:"grab",touchAction:"none"}}>
+                <div style={{position:"absolute",top:3,bottom:3,left:`${hThumbLeftPct}%`,width:`${hThumbPct}%`,background:AC,borderRadius:5,opacity:0.7,pointerEvents:"none"}}/>
+              </div>
+            )}
+            <div style={{display:"flex",gap:8}}>
+              <div ref={measureBoardContainer} onScroll={onBoardScroll} style={{width:"100%",maxWidth:"100%",minWidth:0,maxHeight:"60vh",overflow:"auto",borderRadius:12,WebkitOverflowScrolling:"touch"}}>
       <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",display:"block",touchAction:"none"}}
         onPointerDown={canPlay?onBoardPointerDown:undefined}>
         {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
@@ -1204,7 +1323,17 @@ function DotsAndBoxesApp(){
           <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
         )))}
       </svg>
-      </div>
+              </div>
+              {needsV&&(
+                <div onPointerDown={(e)=>startBarDrag("y",e)} onPointerMove={onBarDragMove} onPointerUp={endBarDrag}
+                  style={{width:16,maxHeight:"60vh",background:"#1a1f2e",borderRadius:8,position:"relative",cursor:"grab",touchAction:"none",flexShrink:0,alignSelf:"stretch"}}>
+                  <div style={{position:"absolute",left:3,right:3,top:`${vThumbTopPct}%`,height:`${vThumbPct}%`,background:AC,borderRadius:5,opacity:0.7,pointerEvents:"none"}}/>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {pendingMove&&(
         <div style={{display:"flex",gap:20,marginTop:16}}>
@@ -1288,11 +1417,44 @@ function LetterDuelApp(){
   const [submitting,setSubmitting] = useState(false);
   const [busy,setBusy] = useState(false);
   const [secondsLeft,setSecondsLeft] = useState(null);
+  const [showLeaderboard,setShowLeaderboard] = useState(false);
+
+  // Chat — mirrors DotsAndBoxesApp's chat state exactly.
+  const [messages,setMessages] = useState([]);
+  const [chatOpen,setChatOpen] = useState(false);
+  const [chatInput,setChatInput] = useState("");
+  const [sendingChat,setSendingChat] = useState(false);
+  const [popup,setPopup] = useState(null);
+  const seenMessageCount = useRef(0);
+  const chatEndRef = useRef(null);
+  const roleRef = useRef(role);
+  useEffect(()=>{ roleRef.current = role; },[role]);
+  const chatOpenRef = useRef(chatOpen);
+  useEffect(()=>{ chatOpenRef.current = chatOpen; },[chatOpen]);
+  const popupTimerRef = useRef(null);
 
   const refresh = async () => {
     try{
       const r = await gameApi("word_get",{code,sessionId});
       setGame(r.game); setRole(r.role); setMyLetterChosen(r.myLetterChosen);
+      setMessages(()=>{
+        const incoming = r.messages||[];
+        if(incoming.length>seenMessageCount.current){
+          const newOnes = incoming.slice(seenMessageCount.current);
+          const fromOther = newOnes.filter(m=>{
+            const myPlayerNum = roleRef.current==="player2"?2:1;
+            return m.sender!==myPlayerNum;
+          });
+          if(fromOther.length && !chatOpenRef.current){
+            const last = fromOther[fromOther.length-1];
+            setPopup(`${last.sender_name||"Opponent"}: ${last.message.slice(0,60)}`);
+            clearTimeout(popupTimerRef.current);
+            popupTimerRef.current = setTimeout(()=>setPopup(null),4000);
+          }
+        }
+        seenMessageCount.current = incoming.length;
+        return incoming;
+      });
       setErr("");
     }catch(e){ setErr(e.message); }
   };
@@ -1392,6 +1554,21 @@ function LetterDuelApp(){
 
   const copyLink = () => { navigator.clipboard.writeText(window.location.href); };
 
+  useEffect(()=>{
+    if(chatOpen && chatEndRef.current) chatEndRef.current.scrollIntoView({behavior:"smooth"});
+  },[messages,chatOpen]);
+
+  const sendChat = async () => {
+    if(!chatInput.trim()||sendingChat) return;
+    setSendingChat(true);
+    const text = chatInput.trim();
+    setChatInput("");
+    try{ await gameApi("word_send_message",{code,sessionId,message:text}); await refresh(); }
+    catch(e){ setErr(e.message); }
+    setSendingChat(false);
+  };
+
+
   const wrap = {minHeight:"100vh",background:"#0a0d14",color:"#fff",display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 16px",fontFamily:"system-ui,sans-serif"};
   const btnStyle = (disabled)=>({padding:"13px 26px",borderRadius:12,background:disabled?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:disabled?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer"});
 
@@ -1433,7 +1610,11 @@ function LetterDuelApp(){
 
   return (
     <div style={wrap}>
-      <div style={{fontSize:18,fontWeight:800,marginBottom:2}}>Letter Duel</div>
+      <div style={{width:"100%",maxWidth:320,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:18,fontWeight:800}}>Letter Duel</div>
+        <button onClick={()=>setShowLeaderboard(true)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>🏆</button>
+      </div>
+      {showLeaderboard&&<Leaderboard gameType="letter_duel" onClose={()=>setShowLeaderboard(false)}/>}
       <div style={{fontSize:11,color:"#6b7db3",marginBottom:16}}>
         {role==="spectator"?"Watching":`You are ${myNameOnFile}`} · Code {code.toUpperCase()}
       </div>
@@ -1527,6 +1708,44 @@ function LetterDuelApp(){
         <div style={{background:"#1a1f2e",border:"1px solid #ff475755",borderRadius:10,padding:16,textAlign:"center",maxWidth:320}}>
           <div style={{fontSize:13,color:"#ff8a8a",marginBottom:14}}>Game cancelled — {game.cancelled_reason}</div>
           {role!=="spectator"&&<button onClick={playAgain} disabled={busy} style={btnStyle(busy)}>Play Again</button>}
+        </div>
+      )}
+
+      {/* ── Chat — identical design to Dots and Boxes' chat ── */}
+      {popup&&!chatOpen&&(
+        <div onClick={()=>setChatOpen(true)} style={{position:"fixed",bottom:80,right:16,maxWidth:220,background:"#1a1f2e",border:`1px solid ${AC}`,borderRadius:10,padding:"10px 12px",fontSize:11,color:"#fff",cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.4)",zIndex:50}}>
+          💬 {popup}
+        </div>
+      )}
+      {!chatOpen&&(
+        <button onClick={()=>setChatOpen(true)} style={{position:"fixed",bottom:16,right:16,width:52,height:52,borderRadius:26,background:`linear-gradient(135deg,${PC},${AC})`,border:"none",fontSize:22,cursor:"pointer",boxShadow:"0 4px 16px rgba(0,0,0,0.4)",zIndex:50}}>
+          💬
+        </button>
+      )}
+      {chatOpen&&(
+        <div style={{position:"fixed",bottom:16,right:16,width:280,maxWidth:"calc(100vw - 32px)",height:360,background:"#12172a",border:"1px solid #2a3050",borderRadius:14,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px rgba(0,0,0,0.5)",zIndex:50,overflow:"hidden"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",borderBottom:"1px solid #2a3050",background:"#1a1f2e"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#fff"}}>Chat</div>
+            <button onClick={()=>setChatOpen(false)} style={{background:"none",border:"none",color:"#6b7db3",fontSize:16,cursor:"pointer"}}>─</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:10,display:"flex",flexDirection:"column",gap:6}}>
+            {messages.length===0&&<div style={{fontSize:11,color:"#4a5578",textAlign:"center",marginTop:20}}>No messages yet.</div>}
+            {messages.map(m=>{
+              const mine = (role==="player1"&&m.sender===1)||(role==="player2"&&m.sender===2);
+              return (
+                <div key={m.id} style={{alignSelf:mine?"flex-end":"flex-start",maxWidth:"80%"}}>
+                  {!mine&&<div style={{fontSize:9,color:"#6b7db3",marginBottom:2}}>{m.sender_name}</div>}
+                  <div style={{background:mine?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:mine?"#0a0d14":"#fff",padding:"7px 10px",borderRadius:10,fontSize:12,wordBreak:"break-word"}}>{m.message}</div>
+                </div>
+              );
+            })}
+            <div ref={chatEndRef}/>
+          </div>
+          <div style={{display:"flex",gap:6,padding:10,borderTop:"1px solid #2a3050"}}>
+            <input value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") sendChat();}} placeholder="Message…" maxLength={500}
+              style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:12}}/>
+            <button onClick={sendChat} disabled={sendingChat||!chatInput.trim()} style={{padding:"8px 12px",borderRadius:8,background:(sendingChat||!chatInput.trim())?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(sendingChat||!chatInput.trim())?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:12,cursor:"pointer"}}>➤</button>
+          </div>
         </div>
       )}
     </div>
