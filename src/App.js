@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import jsPDF from "jspdf"; // npm install jspdf — new dependency for the Invoice Generator's PDF output
 import { TAB_ROUTES, PATH_TO_TAB, RESERVED_PATH_PREFIXES } from './routes';
 
@@ -904,39 +904,6 @@ function DotsAndBoxesApp(){
   const [dragPos,setDragPos] = useState(null);   // live pointer position in SVG units, while dragging
   const [pendingMove,setPendingMove] = useState(null); // {orientation,r,c}
 
-  // Custom drag-bars for panning an oversized board. Native touch-scroll
-  // on the board itself can't work alongside line-dragging — both want to
-  // interpret the same touch-drag gesture, and touchAction:"none" on the
-  // SVG (needed for reliable line-dragging) disables native scrolling
-  // entirely. These are separate elements, so there's no gesture conflict.
-  const boardScrollRef = useRef(null);
-  const [containerSize,setContainerSize] = useState({w:0,h:0});
-  const [scrollPos,setScrollPos] = useState({x:0,y:0});
-  const barDrag = useRef(null); // {axis:'x'|'y', startClient, startScroll, track, thumb}
-
-  // Fires when the scrollable board container actually mounts. Wrapped in
-  // useCallback with an empty dependency array — this is the actual fix
-  // for a real crash that shipped earlier: a callback ref that's a fresh
-  // inline function on every render gets re-invoked by React on every
-  // single render (detach-then-reattach), and since this one calls
-  // setContainerSize unconditionally, that was an infinite render loop:
-  // render → new function identity → ref re-fires → setState → re-render
-  // → repeat. That's exactly what React's "Maximum update depth exceeded"
-  // error (#185) means. A stable function identity means React only
-  // calls this on genuine mount/unmount, not on every render. Also has to
-  // be declared here, before any early return below, like every other
-  // hook in this component — useCallback is itself a hook.
-  const measureBoardContainer = useCallback((node) => {
-    boardScrollRef.current = node;
-    if(node){
-      const w = node.clientWidth, h = node.clientHeight;
-      setContainerSize(prev => (prev.w===w && prev.h===h) ? prev : {w,h});
-    }
-  },[]);
-  const onBoardScroll = () => {
-    if(boardScrollRef.current) setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
-  };
-
   // Leaderboard overlay
   const [showLeaderboard,setShowLeaderboard] = useState(false);
 
@@ -1184,41 +1151,6 @@ function DotsAndBoxesApp(){
     }
   };
 
-  // Custom drag-bars, not native scrolling — touchAction:"none" on the
-  // board (required for reliable line-dragging) blocks native touch-pan
-  // gestures entirely, so a separate draggable element is the only way to
-  // pan without the two gestures fighting over the same touch input.
-  // Dragging still just calls the container's own .scrollLeft/.scrollTop
-  // under the hood — this is an alternative INPUT for the same native
-  // scroll position, not a reimplementation of scrolling itself.
-  const startBarDrag = (axis,e) => {
-    if(!boardScrollRef.current) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    barDrag.current = {
-      axis,
-      startClient: axis==="x"?e.clientX:e.clientY,
-      startScroll: axis==="x"?boardScrollRef.current.scrollLeft:boardScrollRef.current.scrollTop,
-      trackLen: axis==="x"?containerSize.w:containerSize.h,
-      contentLen: axis==="x"?svgW:svgH,
-    };
-  };
-  const onBarDragMove = (e) => {
-    const d = barDrag.current;
-    if(!d||!boardScrollRef.current) return;
-    const clientPos = d.axis==="x"?e.clientX:e.clientY;
-    const delta = clientPos-d.startClient;
-    // Dragging the bar itself (not a small thumb) — the whole track's
-    // length maps to the whole scrollable range, so a full-width drag
-    // pans the full distance.
-    const scrollRange = Math.max(0, d.contentLen-d.trackLen);
-    const scrollDelta = d.trackLen>0 ? (delta/d.trackLen)*scrollRange : 0;
-    const next = Math.max(0, Math.min(scrollRange, d.startScroll+scrollDelta));
-    if(d.axis==="x") boardScrollRef.current.scrollLeft = next;
-    else boardScrollRef.current.scrollTop = next;
-    setScrollPos({x:boardScrollRef.current.scrollLeft,y:boardScrollRef.current.scrollTop});
-  };
-  const endBarDrag = () => { barDrag.current = null; };
-
   // Pending-move preview coordinates, for drawing the dashed line + ✅❌ prompt.
   let pendingX1,pendingY1,pendingX2,pendingY2;
   if(pendingMove){
@@ -1284,67 +1216,50 @@ function DotsAndBoxesApp(){
 
       {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:8,borderRadius:8,fontSize:11,marginBottom:12,maxWidth:svgW}}>{err}</div>}
 
-      {(() => {
-        const needsH = containerSize.w>0 && svgW>containerSize.w;
-        const needsV = containerSize.h>0 && svgH>containerSize.h;
-        const hRange = Math.max(1,svgW-containerSize.w), vRange = Math.max(1,svgH-containerSize.h);
-        const hThumbPct = containerSize.w>0 ? Math.min(100,(containerSize.w/svgW)*100) : 100;
-        const hThumbLeftPct = needsH ? (scrollPos.x/hRange)*(100-hThumbPct) : 0;
-        const vThumbPct = containerSize.h>0 ? Math.min(100,(containerSize.h/svgH)*100) : 100;
-        const vThumbTopPct = needsV ? (scrollPos.y/vRange)*(100-vThumbPct) : 0;
-        return (
-          <>
-            {needsH&&(
-              <div onPointerDown={(e)=>startBarDrag("x",e)} onPointerMove={onBarDragMove} onPointerUp={endBarDrag}
-                style={{width:"100%",height:16,background:"#1a1f2e",borderRadius:8,marginBottom:8,position:"relative",cursor:"grab",touchAction:"none"}}>
-                <div style={{position:"absolute",top:3,bottom:3,left:`${hThumbLeftPct}%`,width:`${hThumbPct}%`,background:AC,borderRadius:5,opacity:0.7,pointerEvents:"none"}}/>
-              </div>
-            )}
-            <div style={{display:"flex",gap:8}}>
-              <div ref={measureBoardContainer} onScroll={onBoardScroll} style={{width:"100%",maxWidth:"100%",minWidth:0,maxHeight:"60vh",overflow:"auto",borderRadius:12,WebkitOverflowScrolling:"touch"}}>
-      <svg ref={svgRef} width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",display:"block",touchAction:"none"}}
-        onPointerDown={canPlay?onBoardPointerDown:undefined}>
-        {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
-          <g key={`b${r}-${c}`}>
-            <rect x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
-            <text x={px(c)+SPACING/2} y={py(r)+SPACING/2+5} fontSize={SPACING*0.32} fontWeight="800" fill="#fff" textAnchor="middle" opacity={0.85}>{initialFor(v)}</text>
-          </g>
-        )))}
+      {/* The board always fits in view, at any grid size — this box is
+          capped by BOTH maxWidth and maxHeight, with aspect-ratio locked
+          to the board's real proportions, so the browser itself shrinks
+          whichever dimension needs it to keep the whole board on screen.
+          This is plain CSS, not custom scroll/measurement code — the
+          approach it replaced (a hand-rolled scrollable container plus
+          custom drag-bars) was the source of two real, separate bugs in a
+          row, so this deliberately trades "a fixed pixel-perfect touch
+          target size" for "something that reliably shows the whole board
+          and cannot loop or misfire." */}
+      <div style={{width:"100%",maxWidth:420,maxHeight:"65vh",aspectRatio:`${svgW} / ${svgH}`,margin:"0 auto"}}>
+        <svg ref={svgRef} width="100%" height="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{background:"#12172a",borderRadius:12,display:"block",touchAction:"none"}}
+          onPointerDown={canPlay?onBoardPointerDown:undefined}>
+          {game.boxes.map((rowArr,r)=>rowArr.map((v,c)=>v!==0&&(
+            <g key={`b${r}-${c}`}>
+              <rect x={px(c)+DOT_R} y={py(r)+DOT_R} width={SPACING-DOT_R*2} height={SPACING-DOT_R*2} rx={4} fill={colorFor(v)} opacity={0.55}/>
+              <text x={px(c)+SPACING/2} y={py(r)+SPACING/2+5} fontSize={SPACING*0.32} fontWeight="800" fill="#fff" textAnchor="middle" opacity={0.85}>{initialFor(v)}</text>
+            </g>
+          )))}
 
-        {game.h_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
-          <line key={`h${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c+1)} y2={py(r)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
-        )))}
-        {game.v_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
-          <line key={`v${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c)} y2={py(r+1)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
-        )))}
+          {game.h_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
+            <line key={`h${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c+1)} y2={py(r)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+          )))}
+          {game.v_edges.map((rowArr,r)=>rowArr.map((v,c)=>(
+            <line key={`v${r}-${c}`} x1={px(c)} y1={py(r)} x2={px(c)} y2={py(r+1)} stroke={colorFor(v)} strokeWidth={v?6:3} strokeLinecap="round"/>
+          )))}
 
-        {/* live drag preview */}
-        {dragFrom&&dragPos&&(
-          <line x1={px(dragFrom.c)} y1={py(dragFrom.r)} x2={dragPos.x} y2={dragPos.y} stroke={role==="player1"?P1:P2} strokeWidth={4} strokeLinecap="round" strokeDasharray="2 4" opacity={0.8}/>
-        )}
-        {/* pending (drawn, unconfirmed) move */}
-        {pendingMove&&(
-          <line x1={pendingX1} y1={pendingY1} x2={pendingX2} y2={pendingY2} stroke={role==="player1"?P1:P2} strokeWidth={6} strokeLinecap="round" strokeDasharray="6 4"/>
-        )}
+          {/* live drag preview */}
+          {dragFrom&&dragPos&&(
+            <line x1={px(dragFrom.c)} y1={py(dragFrom.r)} x2={dragPos.x} y2={dragPos.y} stroke={role==="player1"?P1:P2} strokeWidth={4} strokeLinecap="round" strokeDasharray="2 4" opacity={0.8}/>
+          )}
+          {/* pending (drawn, unconfirmed) move */}
+          {pendingMove&&(
+            <line x1={pendingX1} y1={pendingY1} x2={pendingX2} y2={pendingY2} stroke={role==="player1"?P1:P2} strokeWidth={6} strokeLinecap="round" strokeDasharray="6 4"/>
+          )}
 
-        {/* Purely visual now — pointerEvents:none on all of these. Every
-            drag starts and ends via onBoardPointerDown/endDrag's nearest-
-            dot math above, not by hitting one of these circles directly. */}
-        {Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
-          <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
-        )))}
-      </svg>
-              </div>
-              {needsV&&(
-                <div onPointerDown={(e)=>startBarDrag("y",e)} onPointerMove={onBarDragMove} onPointerUp={endBarDrag}
-                  style={{width:16,maxHeight:"60vh",background:"#1a1f2e",borderRadius:8,position:"relative",cursor:"grab",touchAction:"none",flexShrink:0,alignSelf:"stretch"}}>
-                  <div style={{position:"absolute",left:3,right:3,top:`${vThumbTopPct}%`,height:`${vThumbPct}%`,background:AC,borderRadius:5,opacity:0.7,pointerEvents:"none"}}/>
-                </div>
-              )}
-            </div>
-          </>
-        );
-      })()}
+          {/* Purely visual now — pointerEvents:none on all of these. Every
+              drag starts and ends via onBoardPointerDown/endDrag's nearest-
+              dot math above, not by hitting one of these circles directly. */}
+          {Array.from({length:R+1}).map((_,r)=>Array.from({length:C+1}).map((_,c)=>(
+            <circle key={`d${r}-${c}`} cx={px(c)} cy={py(r)} r={DOT_R} fill="#8b93b8" style={{pointerEvents:"none"}}/>
+          )))}
+        </svg>
+      </div>
 
       {pendingMove&&(
         <div style={{display:"flex",gap:20,marginTop:16}}>
