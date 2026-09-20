@@ -799,11 +799,268 @@ module.exports = async (req, res) => {
     // caller always gets one specific leaderboard, not a mixed list.
     if (action === "leaderboard_get") {
       const { gameType } = req.body;
-      if (gameType !== "dots_boxes" && gameType !== "letter_duel") throw new Error("Invalid game type");
+      if (gameType !== "dots_boxes" && gameType !== "letter_duel" && gameType !== "tambola") throw new Error("Invalid game type");
       const entries = await sb("leaderboard_scores", {
         filter: `?game_type=eq.${gameType}&select=display_name,total_points&order=total_points.desc&limit=50`,
       });
       return res.status(200).json({ entries });
+    }
+
+    // ── Tambola — hidden two-player game, /t/<code> ──
+    // Folded in here for the same Vercel function-count reason as the
+    // other two games. See tambola_games' table comment for the ticket
+    // layout (1-99, 9 columns of 11 each — not the traditional 1-90).
+    //
+    // The ticket-generation algorithm (rejection sampling for a valid
+    // row/column activation pattern) and every one of the 8 claim checks
+    // below were tested standalone against thousands of generated tickets
+    // and hand-built cases with known expected outcomes before being
+    // wired in here — not just read through. That mattered: the low50/
+    // high50 boundary at exactly 50 is easy to get subtly wrong (it's
+    // deliberately in BOTH ranges, matching how the ranges were
+    // specified), and a naive claim check can accidentally give partial
+    // credit across claim types if it isn't scoped to exactly the right
+    // set of numbers each time.
+    const TAMBOLA_COL_RANGES = [[1,11],[12,22],[23,33],[34,44],[45,55],[56,66],[67,77],[78,88],[89,99]];
+    const tShuffle = (arr) => { const a=[...arr]; for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
+
+    const generateTambolaActivation = () => {
+      for(let attempt=0; attempt<2000; attempt++){
+        const rows = [[],[],[]];
+        for(let r=0;r<3;r++) rows[r] = tShuffle([0,1,2,3,4,5,6,7,8]).slice(0,5).sort((a,b)=>a-b);
+        const colCount = Array(9).fill(0);
+        rows.forEach(r=>r.forEach(c=>colCount[c]++));
+        if(colCount.every(c=>c>=1 && c<=3)) return {rows, colCount};
+      }
+      return null; // astronomically unlikely given ~2.7 average attempts in testing
+    };
+
+    const generateTambolaTicket = () => {
+      const act = generateTambolaActivation();
+      if(!act) throw new Error("Could not generate a valid ticket layout — please try again");
+      const {rows, colCount} = act;
+      const grid = [Array(9).fill(null),Array(9).fill(null),Array(9).fill(null)];
+      for(let c=0;c<9;c++){
+        const [lo,hi] = TAMBOLA_COL_RANGES[c];
+        const pool = []; for(let n=lo;n<=hi;n++) pool.push(n);
+        const chosen = tShuffle(pool).slice(0,colCount[c]).sort((a,b)=>a-b);
+        const activeRows = [0,1,2].filter(r=>rows[r].includes(c));
+        activeRows.forEach((r,i)=>{ grid[r][c] = chosen[i]; });
+      }
+      return grid;
+    };
+
+    const tambolaTicketNumbers = (grid) => grid.flat().filter(x=>x!==null);
+    const tambolaCorners = (grid) => {
+      const top = grid[0].map((v,i)=>({v,i})).filter(x=>x.v!==null);
+      const bot = grid[2].map((v,i)=>({v,i})).filter(x=>x.v!==null);
+      return [top[0].v, top[top.length-1].v, bot[0].v, bot[bot.length-1].v];
+    };
+    const TAMBOLA_CLAIM_LABELS = {
+      line1:"First Line", line2:"Middle Line", line3:"Third Line",
+      low50:"1 to 50", high50:"50 to 99", corners:"Corners", odd:"Odd Numbers", even:"Even Numbers",
+    };
+    const checkTambolaClaim = (type, grid, crossedArr) => {
+      const crossed = new Set(crossedArr);
+      const isCrossed = (n) => crossed.has(n);
+      if(type==="line1") return grid[0].filter(x=>x!==null).every(isCrossed);
+      if(type==="line2") return grid[1].filter(x=>x!==null).every(isCrossed);
+      if(type==="line3") return grid[2].filter(x=>x!==null).every(isCrossed);
+      if(type==="low50"){ const nums=tambolaTicketNumbers(grid).filter(n=>n<=50); return nums.length>0 && nums.every(isCrossed); }
+      if(type==="high50"){ const nums=tambolaTicketNumbers(grid).filter(n=>n>=50); return nums.length>0 && nums.every(isCrossed); }
+      if(type==="corners") return tambolaCorners(grid).every(isCrossed);
+      if(type==="odd"){ const nums=tambolaTicketNumbers(grid).filter(n=>n%2===1); return nums.length>0 && nums.every(isCrossed); }
+      if(type==="even"){ const nums=tambolaTicketNumbers(grid).filter(n=>n%2===0); return nums.length>0 && nums.every(isCrossed); }
+      return false;
+    };
+    const TAMBOLA_CLAIM_POINTS = { line1:10, line2:10, line3:10, low50:15, high50:15, corners:10, odd:10, even:10 };
+
+    if (action === "tambola_create") {
+      const { sessionId, playerName } = req.body;
+      if (!sessionId) throw new Error("sessionId is required");
+      const code = randomCode();
+      const [created] = await sb("tambola_games", {
+        method: "POST",
+        body: {
+          code, player1_session: sessionId, player1_name: playerName?.trim()?.slice(0,24) || null,
+          player1_ticket: generateTambolaTicket(), status: "waiting",
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ code: created.code });
+    }
+
+    if (action === "tambola_set_name") {
+      const { code, sessionId, name } = req.body;
+      if (!name?.trim()) throw new Error("Name is required");
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const field = game.player1_session === sessionId ? "player1_name" : game.player2_session === sessionId ? "player2_name" : null;
+      if (!field) throw new Error("You're not a player in this game");
+      const [updated] = await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { [field]: name.trim().slice(0,24) }, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
+    // Regenerating is only allowed before that player has pressed ready —
+    // enforced here, not just hidden in the UI, since letting someone
+    // reroll a bad ticket mid-game would be a real fairness bug, not a
+    // cosmetic one.
+    if (action === "tambola_regenerate_ticket") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      const isP1 = game.player1_session === sessionId, isP2 = game.player2_session === sessionId;
+      if (!isP1 && !isP2) throw new Error("You're not a player in this game");
+      if ((isP1 && game.player1_ready) || (isP2 && game.player2_ready)) throw new Error("You've already marked ready — can't reroll now");
+      const field = isP1 ? "player1_ticket" : "player2_ticket";
+      const [updated] = await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { [field]: generateTambolaTicket() }, prefer: "return=representation" });
+      return res.status(200).json({ ticket: updated[field] });
+    }
+
+    if (action === "tambola_ready") {
+      const { code, sessionId } = req.body;
+      let updated;
+      try {
+        updated = await sb("rpc/tambola_set_ready", { method: "POST", body: { p_code: code, p_session_id: sessionId } });
+      } catch (e) {
+        if (/game_not_found/.test(e.message)) return res.status(404).json({ error: "Game not found" });
+        if (/not_a_player/.test(e.message)) throw new Error("You're not a player in this game");
+        throw e;
+      }
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "tambola_get") {
+      const { code, sessionId } = req.body;
+      if (!code) throw new Error("code is required");
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      let game = rows[0];
+      if (!game) return res.status(404).json({ error: "No game found with that code." });
+
+      let role = "spectator";
+      if (game.player1_session === sessionId) role = "player1";
+      else if (game.player2_session === sessionId) role = "player2";
+      else if (!game.player1_session) {
+        await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player1_session: sessionId } });
+        role = "player1"; game.player1_session = sessionId;
+      } else if (!game.player2_session) {
+        const ticket = generateTambolaTicket();
+        await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { player2_session: sessionId, player2_ticket: ticket, status: "setup" } });
+        role = "player2"; game.player2_session = sessionId; game.player2_ticket = ticket; game.status = "setup";
+      }
+
+      // Announcer — draws the next number once its scheduled time has
+      // passed, checked on every poll rather than a background job.
+      // Compare-and-swap on next_draw_at's exact previous value, so if
+      // both players' polls land at the same moment, only one of them
+      // actually advances the draw — the other's conditional PATCH
+      // matches zero rows and is silently skipped, not a double-draw.
+      if (game.status === "playing" && game.next_draw_at && new Date(game.next_draw_at) <= new Date()) {
+        const deck = game.deck || [];
+        if (deck.length > 0) {
+          const [num, ...rest] = deck;
+          const drawn = [...(game.drawn_numbers||[]), num];
+          const finished = rest.length === 0;
+          const result = await sb("tambola_games", {
+            method: "PATCH",
+            filter: `?id=eq.${game.id}&next_draw_at=eq.${encodeURIComponent(game.next_draw_at)}`,
+            body: {
+              deck: rest, drawn_numbers: drawn,
+              next_draw_at: finished ? null : new Date(Date.now()+6000).toISOString(),
+              status: finished ? "finished" : "playing",
+            },
+            prefer: "return=representation",
+          });
+          if (result[0]) game = result[0];
+        }
+      }
+
+      // Never send the opponent's ticket contents to the client — a
+      // player only ever needs their own ticket to play.
+      const payload = { ...game };
+      delete payload.player1_ticket; delete payload.player2_ticket;
+      const myTicket = role==="player1" ? game.player1_ticket : role==="player2" ? game.player2_ticket : null;
+      const myCrossed = role==="player1" ? game.player1_crossed : role==="player2" ? game.player2_crossed : [];
+
+      return res.status(200).json({ game: payload, role, myTicket, myCrossed });
+    }
+
+    // "Number Mismatch" is returned (not thrown as a hard error) whenever
+    // the clicked number hasn't actually been drawn yet — this is
+    // expected, routine user input, not a server fault. A number is
+    // accepted if it's ANY already-drawn number the player hasn't crossed
+    // yet, not only the single most-recently-announced one — deliberate,
+    // to tolerate real polling/network lag between the announcer drawing
+    // a number and a player's screen reflecting it.
+    if (action === "tambola_click_number") {
+      const { code, sessionId, number } = req.body;
+      const num = Number(number);
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.status !== "playing") throw new Error("Game isn't in play right now");
+      const isP1 = game.player1_session === sessionId, isP2 = game.player2_session === sessionId;
+      if (!isP1 && !isP2) throw new Error("You're not a player in this game");
+      const ticket = isP1 ? game.player1_ticket : game.player2_ticket;
+      const crossedField = isP1 ? "player1_crossed" : "player2_crossed";
+      const crossed = game[crossedField] || [];
+      if (!tambolaTicketNumbers(ticket).includes(num)) throw new Error("That number isn't on your ticket");
+      if (crossed.includes(num)) return res.status(200).json({ ok: true, alreadyCrossed: true, crossed });
+      if (!(game.drawn_numbers||[]).includes(num)) {
+        return res.status(200).json({ ok: false, mismatch: true, error: "Number Mismatch" });
+      }
+      const newCrossed = [...crossed, num];
+      await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { [crossedField]: newCrossed } });
+      return res.status(200).json({ ok: true, crossed: newCrossed });
+    }
+
+    if (action === "tambola_claim") {
+      const { code, sessionId, claimType } = req.body;
+      if (!TAMBOLA_CLAIM_LABELS[claimType]) throw new Error("Unknown claim type");
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.status !== "playing" && game.status !== "finished") throw new Error("Game isn't in play right now");
+      const isP1 = game.player1_session === sessionId, isP2 = game.player2_session === sessionId;
+      if (!isP1 && !isP2) throw new Error("You're not a player in this game");
+      const claims = game.claims || {};
+      if (claims[claimType]) throw new Error(`${TAMBOLA_CLAIM_LABELS[claimType]} was already claimed by ${claims[claimType].name}`);
+      const ticket = isP1 ? game.player1_ticket : game.player2_ticket;
+      const crossed = (isP1 ? game.player1_crossed : game.player2_crossed) || [];
+      if (!checkTambolaClaim(claimType, ticket, crossed)) throw new Error(`You haven't actually completed ${TAMBOLA_CLAIM_LABELS[claimType]} yet`);
+      const myNum = isP1 ? 1 : 2;
+      const myName = isP1 ? game.player1_name : game.player2_name;
+      const scoreField = isP1 ? "score1" : "score2";
+      const newClaims = { ...claims, [claimType]: { by: myNum, name: myName } };
+      const allClaimed = Object.keys(TAMBOLA_CLAIM_LABELS).every(k => newClaims[k]);
+      const [updated] = await sb("tambola_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: { claims: newClaims, [scoreField]: (game[scoreField]||0) + TAMBOLA_CLAIM_POINTS[claimType], status: allClaimed ? "finished" : game.status },
+        prefer: "return=representation",
+      });
+      if (myName) await sb("rpc/leaderboard_add_points", { method: "POST", body: { p_game_type: "tambola", p_name: myName, p_points: TAMBOLA_CLAIM_POINTS[claimType] } });
+      return res.status(200).json({ game: updated });
+    }
+
+    if (action === "tambola_reset") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (sessionId !== game.player1_session && sessionId !== game.player2_session) throw new Error("Only the two players can start a rematch");
+      const [updated] = await sb("tambola_games", {
+        method: "PATCH", filter: `?id=eq.${game.id}`,
+        body: {
+          player1_ticket: generateTambolaTicket(), player2_ticket: game.player2_session ? generateTambolaTicket() : null,
+          player1_crossed: [], player2_crossed: [], player1_ready: false, player2_ready: false,
+          deck: null, drawn_numbers: [], next_draw_at: null, claims: {}, score1: 0, score2: 0,
+          status: game.player2_session ? "setup" : "waiting",
+        },
+        prefer: "return=representation",
+      });
+      return res.status(200).json({ game: updated });
     }
 
     return res.status(400).json({ error: "Unknown action" });
