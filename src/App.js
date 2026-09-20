@@ -1678,6 +1678,277 @@ function LetterDuelApp(){
   );
 }
 
+const TAMBOLA_SESSION_KEY = "pcb_tambola_session_id";
+const getTambolaSessionId = () => {
+  let id = DB.get(TAMBOLA_SESSION_KEY, null);
+  if(!id){
+    id=(window.crypto&&window.crypto.randomUUID)?window.crypto.randomUUID()
+      :"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,ch=>{const rnd=Math.random()*16|0;return (ch==="x"?rnd:((rnd&0x3)|0x8)).toString(16);});
+    DB.set(TAMBOLA_SESSION_KEY,id);
+  }
+  return id;
+};
+
+const TAMBOLA_CLAIMS = [
+  {key:"line1",label:"First Line"},
+  {key:"line2",label:"Middle Line"},
+  {key:"line3",label:"Third Line"},
+  {key:"low50",label:"All 1–50"},
+  {key:"high50",label:"All 50–99"},
+  {key:"corners",label:"Corners"},
+  {key:"odd",label:"Odd Numbers"},
+  {key:"even",label:"Even Numbers"},
+];
+
+function TambolaApp(){
+  const sessionId = useRef(getTambolaSessionId()).current;
+  const code = window.location.pathname.split("/")[2] || null;
+  const [game,setGame] = useState(null);
+  const [role,setRole] = useState(null);
+  const [myTicket,setMyTicket] = useState(null);
+  const [myCrossed,setMyCrossed] = useState([]);
+  const [err,setErr] = useState("");
+  const [clickError,setClickError] = useState("");
+  const [creating,setCreating] = useState(false);
+  const [newName,setNewName] = useState("");
+  const [nameInput,setNameInput] = useState("");
+  const [savingName,setSavingName] = useState(false);
+  const [regenerating,setRegenerating] = useState(false);
+  const [readying,setReadying] = useState(false);
+  const [claiming,setClaiming] = useState(null);
+  const [showLeaderboard,setShowLeaderboard] = useState(false);
+
+  const refresh = async () => {
+    try{
+      const r = await gameApi("tambola_get",{code,sessionId});
+      setGame(r.game); setRole(r.role);
+      setMyTicket(r.myTicket); setMyCrossed(r.myCrossed||[]);
+      setErr("");
+    }catch(e){ setErr(e.message); }
+  };
+
+  useEffect(()=>{
+    if(!code) return;
+    refresh();
+    const iv = setInterval(()=>{ if(document.visibilityState==="visible") refresh(); }, 1500);
+    return ()=>clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[code]);
+
+  const createGame = async () => {
+    setCreating(true); setErr("");
+    try{
+      const {code:newCode} = await gameApi("tambola_create",{sessionId,playerName:newName});
+      window.location.href = `/t/${newCode}`;
+    }catch(e){ setErr(e.message); setCreating(false); }
+  };
+
+  const submitName = async () => {
+    if(!nameInput.trim()) return;
+    setSavingName(true);
+    try{ await gameApi("tambola_set_name",{code,sessionId,name:nameInput.trim()}); await refresh(); }
+    catch(e){ setErr(e.message); }
+    setSavingName(false);
+  };
+
+  const regenerate = async () => {
+    setRegenerating(true); setErr("");
+    try{ const {ticket} = await gameApi("tambola_regenerate_ticket",{code,sessionId}); setMyTicket(ticket); }
+    catch(e){ setErr(e.message); }
+    setRegenerating(false);
+  };
+
+  const pressReady = async () => {
+    setReadying(true); setErr("");
+    try{ const {game:updated} = await gameApi("tambola_ready",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setReadying(false);
+  };
+
+  const clickNumber = async (num) => {
+    if(myCrossed.includes(num)) return;
+    setClickError("");
+    try{
+      const r = await gameApi("tambola_click_number",{code,sessionId,number:num});
+      if(r.mismatch){ setClickError("Number Mismatch"); setTimeout(()=>setClickError(""),2500); }
+      else if(r.crossed) setMyCrossed(r.crossed);
+    }catch(e){ setErr(e.message); }
+  };
+
+  const claim = async (claimType) => {
+    setClaiming(claimType); setErr("");
+    try{ const {game:updated} = await gameApi("tambola_claim",{code,sessionId,claimType}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+    setClaiming(null);
+  };
+
+  const playAgain = async () => {
+    try{
+      const {game:updated} = await gameApi("tambola_reset",{code,sessionId});
+      setGame(updated); setMyCrossed([]);
+      await refresh();
+    }catch(e){ setErr(e.message); }
+  };
+
+  const copyLink = () => { navigator.clipboard.writeText(window.location.href); };
+
+  const wrap = {minHeight:"100vh",background:"#0a0d14",color:"#fff",display:"flex",flexDirection:"column",alignItems:"center",padding:"32px 16px",fontFamily:"system-ui,sans-serif"};
+  const btnStyle = (disabled)=>({padding:"13px 26px",borderRadius:12,background:disabled?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:disabled?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer"});
+
+  if(!code){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:22,fontWeight:800,marginBottom:8}}>Tambola</div>
+        <div style={{fontSize:13,color:"#6b7db3",marginBottom:24,textAlign:"center",maxWidth:320}}>Numbers 1–99. Get your own ticket, then race your opponent to complete lines, ranges, corners, odds and evens.</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
+        <div style={{width:"100%",maxWidth:280,marginBottom:20}}>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
+            style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
+        </div>
+        <button onClick={createGame} disabled={creating||!newName.trim()} style={btnStyle(creating||!newName.trim())}>{creating?"Creating…":"Start New Game"}</button>
+      </div>
+    );
+  }
+
+  if(err&&!game) return <div style={wrap}><div style={{color:"#ff8a8a",fontSize:14}}>{err}</div></div>;
+  if(!game) return <div style={wrap}><div style={{color:"#6b7db3",fontSize:14}}>Loading game…</div></div>;
+
+  const myNameOnFile = role==="player1"?game.player1_name : role==="player2"?game.player2_name : "—";
+  if((role==="player1"||role==="player2") && !myNameOnFile){
+    return (
+      <div style={wrap}>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
+        <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
+          style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
+        <button onClick={submitName} disabled={savingName||!nameInput.trim()} style={btnStyle(savingName||!nameInput.trim())}>{savingName?"Saving…":"Continue"}</button>
+      </div>
+    );
+  }
+
+  const p1Name = game.player1_name||"Player 1", p2Name = game.player2_name||"Player 2";
+  const myReady = role==="player1"?game.player1_ready:role==="player2"?game.player2_ready:null;
+  const theirReady = role==="player1"?game.player2_ready:role==="player2"?game.player1_ready:null;
+  const drawn = game.drawn_numbers||[];
+  const latest = drawn.length ? drawn[drawn.length-1] : null;
+  const claims = game.claims||{};
+
+  const cellSize = 34;
+  const renderTicket = () => (
+    <div style={{display:"inline-block",background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:8}}>
+      {myTicket&&myTicket.map((row,r)=>(
+        <div key={r} style={{display:"flex"}}>
+          {row.map((num,c)=>{
+            const crossed = num!==null && myCrossed.includes(num);
+            const clickable = num!==null && !crossed && game.status==="playing";
+            return (
+              <div key={c} onClick={()=>clickable&&clickNumber(num)} style={{
+                width:cellSize,height:cellSize,display:"flex",alignItems:"center",justifyContent:"center",
+                margin:2,borderRadius:6,fontSize:13,fontWeight:700,
+                background: num===null ? "transparent" : crossed ? "#00c8a044" : "#0a0d14",
+                color: num===null ? "transparent" : crossed ? "#00e5b8" : "#fff",
+                textDecoration: crossed ? "line-through" : "none",
+                cursor: clickable?"pointer":"default",
+                border: num!==null ? "1px solid #2a3050" : "none",
+              }}>{num}</div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={wrap}>
+      <div style={{width:"100%",maxWidth:360,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:18,fontWeight:800}}>Tambola</div>
+        <button onClick={()=>setShowLeaderboard(true)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>🏆</button>
+      </div>
+      {showLeaderboard&&<Leaderboard gameType="tambola" onClose={()=>setShowLeaderboard(false)}/>}
+      <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>
+        {role==="spectator"?"Watching":`You are ${myNameOnFile}`} · Code {code.toUpperCase()}
+      </div>
+
+      <div style={{display:"flex",gap:24,marginBottom:16}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score1}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{p1Name}</div>
+        </div>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontSize:20,fontWeight:800}}>{game.score2}</div>
+          <div style={{fontSize:10,color:"#6b7db3"}}>{p2Name}</div>
+        </div>
+      </div>
+
+      {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:320,textAlign:"center"}}>{err}</div>}
+
+      {game.status==="waiting"&&(
+        <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:14,textAlign:"center",maxWidth:320,marginBottom:16}}>
+          <div style={{fontSize:12,color:"#fff",marginBottom:10}}>Waiting for a second player to join.</div>
+          <button onClick={copyLink} style={{fontSize:12,padding:"8px 14px",borderRadius:8,background:AC,color:"#0a0d14",border:"none",fontWeight:700,cursor:"pointer"}}>Copy Invite Link</button>
+        </div>
+      )}
+
+      {game.status==="setup"&&role!=="spectator"&&(
+        <div style={{textAlign:"center",marginBottom:16}}>
+          <div style={{fontSize:12,color:"#6b7db3",marginBottom:10}}>Your ticket — reroll as many times as you want before you're ready.</div>
+          {renderTicket()}
+          <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
+            {!myReady&&<button onClick={regenerate} disabled={regenerating} style={{padding:"10px 16px",borderRadius:10,background:"#1a1f2e",border:"1px solid #2a3050",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>{regenerating?"…":"🎲 Reroll"}</button>}
+            {!myReady&&<button onClick={pressReady} disabled={readying} style={btnStyle(readying)}>I'm Ready</button>}
+          </div>
+          {myReady&&<div style={{fontSize:12,color:"#6b7db3",marginTop:10}}>{theirReady?"Starting…":`Waiting for ${role==="player1"?p2Name:p1Name} to be ready…`}</div>}
+        </div>
+      )}
+
+      {(game.status==="playing"||game.status==="finished")&&(
+        <>
+          <div style={{background:"#1a1f2e",border:`1px solid ${AC}`,borderRadius:14,padding:16,marginBottom:6,textAlign:"center",minWidth:100}}>
+            <div style={{fontSize:10,color:"#6b7db3",marginBottom:4}}>{game.status==="finished"?"Final Number":"Number Called"}</div>
+            <div style={{fontSize:36,fontWeight:800,color:AC}}>{latest!=null?latest:"—"}</div>
+          </div>
+          <div style={{fontSize:10,color:"#4a5578",marginBottom:16,maxWidth:320,textAlign:"center"}}>
+            {drawn.slice(-12).join(", ")||"Waiting for the first number…"}
+          </div>
+
+          {clickError&&<div style={{background:"#ff475733",border:"1px solid #ff4757",color:"#ff8a8a",padding:"8px 14px",borderRadius:8,fontSize:13,fontWeight:700,marginBottom:12}}>{clickError}</div>}
+
+          {role!=="spectator"&&<div style={{marginBottom:16}}>{renderTicket()}</div>}
+
+          <div style={{width:"100%",maxWidth:360,marginBottom:16}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7db3",marginBottom:8,textAlign:"center"}}>CLAIMS</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {TAMBOLA_CLAIMS.map(c=>{
+                const taken = claims[c.key];
+                return (
+                  <button key={c.key} onClick={()=>!taken&&role!=="spectator"&&claim(c.key)} disabled={!!taken||claiming===c.key||role==="spectator"}
+                    style={{padding:"10px 8px",borderRadius:8,fontSize:11,fontWeight:700,cursor:taken?"default":"pointer",
+                      background: taken ? "#1a1f2e" : "#1a1f2e",
+                      border: taken ? "1px solid #2a3050" : `1px solid ${AC}55`,
+                      color: taken ? "#4a5578" : "#fff"}}>
+                    {c.label}
+                    <div style={{fontSize:9,color:taken?"#4a5578":AC,marginTop:2}}>{taken?`✓ ${taken.name}`:(claiming===c.key?"…":"Claim")}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {game.status==="finished"&&(
+            <div style={{background:"#1a1f2e",border:`1px solid ${AC}55`,borderRadius:10,padding:14,textAlign:"center",maxWidth:320}}>
+              <div style={{fontSize:15,fontWeight:800,marginBottom:8}}>
+                {game.score1===game.score2?"It's a tie!":`${game.score1>game.score2?p1Name:p2Name} wins!`}
+              </div>
+              {role!=="spectator"&&<button onClick={playAgain} style={btnStyle(false)}>Play Again</button>}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Intro({onDone}) {
   const videoRef=useRef(null);
   useEffect(()=>{
@@ -8975,6 +9246,7 @@ useEffect(() => {
   // only way in.
   if(window.location.pathname==="/g"||window.location.pathname.startsWith("/g/")) return <DotsAndBoxesApp/>;
   if(window.location.pathname==="/l"||window.location.pathname.startsWith("/l/")) return <LetterDuelApp/>;
+  if(window.location.pathname==="/t"||window.location.pathname.startsWith("/t/")) return <TambolaApp/>;
 
   if(stage==="intro") return <Intro onDone={finishIntro}/>;
 
