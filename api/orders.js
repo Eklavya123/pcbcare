@@ -932,6 +932,25 @@ module.exports = async (req, res) => {
       return res.status(200).json({ game: updated });
     }
 
+    // Either player can change the pace — there's no reason to require
+    // both to agree for something this low-stakes. Takes effect starting
+    // from the next draw onward; doesn't retroactively rewrite whatever
+    // countdown is already in progress (see tambola_advance_draw). Both
+    // players see the change automatically on their next poll, since
+    // interval_seconds is just a normal column on the shared row — no
+    // separate sync mechanism needed.
+    if (action === "tambola_set_interval") {
+      const { code, sessionId, seconds } = req.body;
+      const allowed = [6, 10, 15, 20];
+      if (!allowed.includes(Number(seconds))) throw new Error("Interval must be 6, 10, 15, or 20 seconds");
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=id,player1_session,player2_session` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.player1_session !== sessionId && game.player2_session !== sessionId) throw new Error("You're not a player in this game");
+      const [updated] = await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body: { interval_seconds: Number(seconds) }, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
     if (action === "tambola_get") {
       const { code, sessionId } = req.body;
       if (!code) throw new Error("code is required");
@@ -951,30 +970,19 @@ module.exports = async (req, res) => {
         role = "player2"; game.player2_session = sessionId; game.player2_ticket = ticket; game.status = "setup";
       }
 
-      // Announcer — draws the next number once its scheduled time has
-      // passed, checked on every poll rather than a background job.
-      // Compare-and-swap on next_draw_at's exact previous value, so if
-      // both players' polls land at the same moment, only one of them
-      // actually advances the draw — the other's conditional PATCH
-      // matches zero rows and is silently skipped, not a double-draw.
-      if (game.status === "playing" && game.next_draw_at && new Date(game.next_draw_at) <= new Date()) {
-        const deck = game.deck || [];
-        if (deck.length > 0) {
-          const [num, ...rest] = deck;
-          const drawn = [...(game.drawn_numbers||[]), num];
-          const finished = rest.length === 0;
-          const result = await sb("tambola_games", {
-            method: "PATCH",
-            filter: `?id=eq.${game.id}&next_draw_at=eq.${encodeURIComponent(game.next_draw_at)}`,
-            body: {
-              deck: rest, drawn_numbers: drawn,
-              next_draw_at: finished ? null : new Date(Date.now()+6000).toISOString(),
-              status: finished ? "finished" : "playing",
-            },
-            prefer: "return=representation",
-          });
-          if (result[0]) game = result[0];
-        }
+      // Announcer — advances via tambola_advance_draw (a Postgres
+      // function using SELECT...FOR UPDATE, tested directly against
+      // exact-timing edge cases before being wired in here). This used
+      // to be a hand-rolled JS compare-and-swap on a timestamp string
+      // that was never verified over a real HTTP round-trip — replaced
+      // entirely rather than patched, same reasoning as the ready-press
+      // fix. It also catches up ALL overdue numbers in one call, not
+      // just the next one, so a player whose screen was off for a while
+      // sees the announcer at the correct current number instead of
+      // frozen wherever it was when they left.
+      if (game.status === "playing" && game.next_draw_at) {
+        const updated = await sb("rpc/tambola_advance_draw", { method: "POST", body: { p_code: code } });
+        if (updated) game = updated;
       }
 
       // Never send the opponent's ticket contents to the client — a
