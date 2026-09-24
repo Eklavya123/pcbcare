@@ -1765,6 +1765,12 @@ function TambolaApp(){
     setReadying(false);
   };
 
+  const changeInterval = async (seconds) => {
+    setErr("");
+    try{ const {game:updated} = await gameApi("tambola_set_interval",{code,sessionId,seconds}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+  };
+
   const clickNumber = async (num) => {
     if(myCrossed.includes(num)) return;
     setClickError("");
@@ -1894,6 +1900,17 @@ function TambolaApp(){
         <div style={{textAlign:"center",marginBottom:16}}>
           <div style={{fontSize:12,color:"#6b7db3",marginBottom:10}}>Your ticket — reroll as many times as you want before you're ready.</div>
           {renderTicket()}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:14}}>
+            <span style={{fontSize:10,color:"#6b7db3"}}>Pace:</span>
+            {[6,10,15,20].map(s=>(
+              <button key={s} onClick={()=>changeInterval(s)} style={{
+                padding:"5px 10px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
+                background: game.interval_seconds===s ? AC : "#1a1f2e",
+                color: game.interval_seconds===s ? "#0a0d14" : "#6b7db3",
+                border: game.interval_seconds===s ? "none" : "1px solid #2a3050",
+              }}>{s}s</button>
+            ))}
+          </div>
           <div style={{display:"flex",gap:10,justifyContent:"center",marginTop:14}}>
             {!myReady&&<button onClick={regenerate} disabled={regenerating} style={{padding:"10px 16px",borderRadius:10,background:"#1a1f2e",border:"1px solid #2a3050",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>{regenerating?"…":"🎲 Reroll"}</button>}
             {!myReady&&<button onClick={pressReady} disabled={readying} style={btnStyle(readying)}>I'm Ready</button>}
@@ -1908,6 +1925,19 @@ function TambolaApp(){
             <div style={{fontSize:10,color:"#6b7db3",marginBottom:4}}>{game.status==="finished"?"Final Number":"Number Called"}</div>
             <div style={{fontSize:36,fontWeight:800,color:AC}}>{latest!=null?latest:"—"}</div>
           </div>
+          {game.status==="playing"&&role!=="spectator"&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+              <span style={{fontSize:10,color:"#6b7db3"}}>Pace:</span>
+              {[6,10,15,20].map(s=>(
+                <button key={s} onClick={()=>changeInterval(s)} style={{
+                  padding:"5px 10px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",
+                  background: game.interval_seconds===s ? AC : "#1a1f2e",
+                  color: game.interval_seconds===s ? "#0a0d14" : "#6b7db3",
+                  border: game.interval_seconds===s ? "none" : "1px solid #2a3050",
+                }}>{s}s</button>
+              ))}
+            </div>
+          )}
           <div style={{fontSize:10,color:"#4a5578",marginBottom:16,maxWidth:320,textAlign:"center"}}>
             {drawn.slice(-12).join(", ")||"Waiting for the first number…"}
           </div>
