@@ -758,7 +758,13 @@ module.exports = async (req, res) => {
       return res.status(200).json({ game: updated });
     }
 
-    // Rematch after a cancellation — fresh board, same two seats.
+    // Continue after a disapproval — fresh round, same two seats, SAME
+    // running score. This is the only path out of "cancelled" (there's no
+    // other win condition in Letter Duel — see word_approve's comment), so
+    // this used to also zero score1/score2 on every single call, which
+    // meant every disapproval silently wiped both players' tallies the
+    // next time anyone pressed "Play Again." A disapproved word is just a
+    // voided attempt, not a match reset, so scores are left untouched now.
     if (action === "word_reset") {
       const { code, sessionId } = req.body;
       const rows = await sb("word_duel_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
@@ -771,7 +777,6 @@ module.exports = async (req, res) => {
           phase: "ready", ready1: false, ready2: false,
           letter1: null, letter2: null, choose_deadline: null,
           pending_word: null, pending_by: null, cancelled_reason: null,
-          score1: 0, score2: 0,
         },
         prefer: "return=representation",
       });
