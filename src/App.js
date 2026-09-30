@@ -166,7 +166,7 @@ const slugify = (s) => (s||"").toString().toLowerCase().trim()
 // pass and any crawler that executes JS — but NOT link-preview bots
 // (WhatsApp, Facebook, iMessage) since those only ever read the raw,
 // un-rendered HTML.
-const SITE_URL = "https://pcbcare.in";
+const SITE_URL = "https://shop.pcbcare.in";
 const setSEO = ({title,description,path,image,jsonLd,jsonLdId="page-jsonld",noindex=false}) => {
   try{
     if(title) document.title = title;
@@ -3216,6 +3216,13 @@ function Shop({initialPath,user}) {
         category:cat?cat.name:undefined,
         url:`${SITE_URL}/shop/product/${prod.slug}`,
         brand:{"@type":"Brand",name:"PCB Care"},
+        offers:prod.starting_price?{
+          "@type":"Offer",
+          price:prod.starting_price,
+          priceCurrency:"INR",
+          availability:"https://schema.org/InStock",
+          url:`${SITE_URL}/shop/product/${prod.slug}`,
+        }:undefined,
         aggregateRating:ratingSummary?{
           "@type":"AggregateRating",
           ratingValue:ratingSummary.ratingValue,

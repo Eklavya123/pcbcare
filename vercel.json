@@ -1,6 +1,17 @@
 {
   "rewrites": [
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    {
+      "source": "/shop/product/:slug",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(Googlebot|googlebot|Google-InspectionTool|bingbot|Bingbot|DuckDuckBot|duckduckbot|Baiduspider|YandexBot|yandexbot|facebookexternalhit|Twitterbot|twitterbot|LinkedInBot|linkedinbot|WhatsApp|whatsapp|TelegramBot|telegrambot|Slackbot|slackbot|Discordbot|discordbot|redditbot|Applebot|applebot|Pinterest|pinterest|ia_archiver|Slurp|slurp)"
+        }
+      ],
+      "destination": "/api/product-meta?slug=:slug"
+    },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "crons": [

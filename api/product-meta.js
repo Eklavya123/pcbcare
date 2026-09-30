@@ -22,8 +22,8 @@
 
 const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkeXlhaWFweWh3cW54emV1amltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE0NTI4MjAsImV4cCI6MjA5NzAyODgyMH0.YFoYsPEkkYCt84FfNF_4U189fhNjTT-1rq1BEst3njo";
-const SITE_URL = "https://pcbcare.in";
-const DEFAULT_IMAGE = "https://pcbcare.in/logo.png";
+const SITE_URL = "https://shop.pcbcare.in";
+const DEFAULT_IMAGE = "https://shop.pcbcare.in/logo512.png";
 
 const esc = (s) =>
   String(s || "")
