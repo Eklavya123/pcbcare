@@ -123,24 +123,51 @@ module.exports = async (req, res) => {
         : {}),
     };
 
-    // Swap the shell's generic <title> and description for the product's.
+    // Swap the shell's generic <title>/description/OG tags/canonical for the
+    // product's own — REPLACE in place, not append. The shell already ships
+    // an og:title/og:description/og:image/og:url and a canonical link (site
+    // defaults). Appending a second set alongside them instead of replacing
+    // was the actual bug here: most OG/link-preview parsers use the FIRST
+    // tag of a given property they find, so the product-specific ones added
+    // near the end of <head> could silently lose to the generic ones still
+    // sitting near the top — which looked exactly like "sometimes it works,
+    // sometimes it doesn't" depending on which parser/crawl pass looked.
     html = html
       .replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(title)}</title>`)
       .replace(
         /<meta name="description" content="[^"]*"\s*\/?>/,
         `<meta name="description" content="${esc(description)}" />`
+      )
+      .replace(
+        /<meta property="og:title" content="[^"]*"\s*\/?>/,
+        `<meta property="og:title" content="${esc(title)}" />`
+      )
+      .replace(
+        /<meta property="og:description" content="[^"]*"\s*\/?>/,
+        `<meta property="og:description" content="${esc(description)}" />`
+      )
+      .replace(
+        /<meta property="og:image" content="[^"]*"\s*\/?>/,
+        `<meta property="og:image" content="${esc(image)}" />`
+      )
+      .replace(
+        /<meta property="og:url" content="[^"]*"\s*\/?>/,
+        `<meta property="og:url" content="${esc(url)}" />`
+      )
+      .replace(
+        /<link rel="canonical" href="[^"]*"\s*\/?>/,
+        `<link rel="canonical" href="${esc(url)}" />`
       );
 
-    // Add OG/canonical/JSON-LD right before </head>, on top of whatever's
-    // already there — doesn't remove the site-wide ElectronicsStore schema.
+    // These genuinely don't exist in the shell yet, so appending is correct
+    // for them: og:type (shell has none), twitter:card, and this product's
+    // own JSON-LD (kept as a second script block alongside the shell's
+    // sitewide ElectronicsStore schema — a store page legitimately carrying
+    // both an Organization-level schema and an item-level Product schema is
+    // normal and not conflicting, unlike the canonical/OG tags above).
     const extraTags = `
-    <meta property="og:title" content="${esc(title)}" />
-    <meta property="og:description" content="${esc(description)}" />
-    <meta property="og:image" content="${esc(image)}" />
-    <meta property="og:url" content="${esc(url)}" />
     <meta property="og:type" content="product" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="canonical" href="${esc(url)}" />
     <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
   </head>`;
     html = html.replace("</head>", extraTags);
