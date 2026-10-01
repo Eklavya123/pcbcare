@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/merchant-feed.xml", "destination": "/api/sitemap?feed=merchant" },
     {
       "source": "/shop/product/:slug",
       "has": [

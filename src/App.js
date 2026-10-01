@@ -3353,6 +3353,9 @@ function Shop({initialPath,user}) {
         {p.starting_price&&<div style={{fontSize:15,fontWeight:700,color:PC,marginBottom:10}}>Starting from ₹{Number(p.starting_price).toLocaleString("en-IN")}</div>}
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
+        <div style={{textAlign:"center",marginTop:-10,marginBottom:20}}>
+          <button onClick={()=>{try{window.history.pushState({},"","/return-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Return &amp; Exchange Policy</button>
+        </div>
 
         {relatedProducts.length>0&&<>
           <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:10}}>More from {activeCategory?.name}</div>

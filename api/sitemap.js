@@ -27,10 +27,77 @@ const SITE_URL = "https://shop.pcbcare.in";
 const EXCLUDED_STATIC_SLUGS = new Set(["my-order","invoices","requests"]);
 
 const esc = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const realImageUrls = (images) => (images||[]).filter(img => img && !img.startsWith("data:"));
+
+// SHIPPING_COST_INR: Google requires shipping cost info for India specifically
+// (either account-level Shipping settings in Merchant Center, or this per-item
+// attribute). Left null until a real number is confirmed — guessing a figure
+// here would mean submitting a false cost to Google, which is worse than
+// omitting the tag entirely. Set this once known, e.g. SHIPPING_COST_INR = 150;
+const SHIPPING_COST_INR = null;
+
+// Builds the Google Shopping RSS feed straight from the live shop_products /
+// shop_categories tables — same eligibility rule as the admin Fix Products
+// tab (needs both a real image and a price, Google's two hard requirements),
+// so the automated feed and the manual-download one never drift apart.
+async function buildMerchantFeedXml(headers) {
+  const [prodsRes, catsRes] = await Promise.all([
+    fetch(`${SB_URL}/rest/v1/shop_products?select=*&order=created_at.desc`, { headers }),
+    fetch(`${SB_URL}/rest/v1/shop_categories?select=id,name`, { headers }),
+  ]);
+  const products = prodsRes.ok ? await prodsRes.json() : [];
+  const categories = catsRes.ok ? await catsRes.json() : [];
+  const catName = (id) => categories.find(c => c.id === id)?.name || "";
+
+  const items = products
+    .map(p => ({ p, images: realImageUrls(p.images) }))
+    .filter(({ p, images }) => images.length > 0 && p.starting_price !== null && p.starting_price !== undefined && p.starting_price !== "" && Number(p.starting_price) > 0)
+    .map(({ p, images }) => {
+      const [primary, ...rest] = images;
+      const desc = (p.description && p.description.trim()) || `${p.name} available at PCB Care${catName(p.category_id) ? ` — ${catName(p.category_id)}` : ""}. Contact us on WhatsApp for price and availability.`;
+      const condition = p.condition === "refurbished" ? "refurbished" : "new";
+      const brand = (p.brands && p.brands[0]) || "PCB Care";
+      return `  <item>
+    <g:id>${esc(p.slug)}</g:id>
+    <title>${esc(p.name)}</title>
+    <description>${esc(desc)}</description>
+    <link>${esc(`${SITE_URL}/shop/product/${p.slug}`)}</link>
+    <g:image_link>${esc(primary)}</g:image_link>
+    ${rest.map(img => `<g:additional_image_link>${esc(img)}</g:additional_image_link>`).join("\n    ")}
+    <g:availability>in_stock</g:availability>
+    <g:price>${Number(p.starting_price).toFixed(2)} INR</g:price>
+    <g:condition>${condition}</g:condition>
+    <g:brand>${esc(brand)}</g:brand>
+    <g:identifier_exists>no</g:identifier_exists>
+    ${catName(p.category_id) ? `<g:product_type>${esc(catName(p.category_id))}</g:product_type>` : ""}
+    ${SHIPPING_COST_INR != null ? `<g:shipping><g:country>IN</g:country><g:price>${Number(SHIPPING_COST_INR).toFixed(2)} INR</g:price></g:shipping>` : ""}
+  </item>`;
+    }).join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+<channel>
+  <title>PCB Care Product Feed</title>
+  <link>${esc(SITE_URL)}</link>
+  <description>Product feed for PCB Care — appliance PCB, sensor and remote parts.</description>
+${items}
+</channel>
+</rss>`;
+}
 
 module.exports = async (req, res) => {
   try {
     const headers = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+
+    // Merchant Center's Scheduled Fetch hits this same function at
+    // /merchant-feed.xml (see vercel.json) — reuses this file's existing
+    // Vercel function slot rather than needing a new one.
+    if (req.query && req.query.feed === "merchant") {
+      const xml = await buildMerchantFeedXml(headers);
+      res.setHeader("Content-Type", "application/xml");
+      res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
+      return res.status(200).send(xml);
+    }
 
     const [catsRes, prodsRes, blogRes, wiringRes, pagesRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/shop_categories?select=slug,created_at&order=sort_order`, { headers }),
