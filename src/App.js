@@ -8375,7 +8375,7 @@ function AdminMerchantFeed(){
         const condition=p.condition==="refurbished"?"refurbished":"new";
         const brand=(p.brands&&p.brands[0])||"PCB Care";
         return `  <item>
-    <g:id>${xmlEscape(p.slug)}</g:id>
+    <g:id>${xmlEscape(p.id)}</g:id>
     <title>${xmlEscape(p.name)}</title>
     <description>${xmlEscape(desc)}</description>
     <link>${xmlEscape(`${SITE_URL}/shop/product/${p.slug}`)}</link>

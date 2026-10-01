@@ -58,7 +58,7 @@ async function buildMerchantFeedXml(headers) {
       const condition = p.condition === "refurbished" ? "refurbished" : "new";
       const brand = (p.brands && p.brands[0]) || "PCB Care";
       return `  <item>
-    <g:id>${esc(p.slug)}</g:id>
+    <g:id>${esc(p.id)}</g:id>
     <title>${esc(p.name)}</title>
     <description>${esc(desc)}</description>
     <link>${esc(`${SITE_URL}/shop/product/${p.slug}`)}</link>
