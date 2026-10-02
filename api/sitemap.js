@@ -99,6 +99,31 @@ module.exports = async (req, res) => {
       return res.status(200).send(xml);
     }
 
+    if (req.query && req.query.feed === "local-inventory") {
+      const r = await fetch(`${SB_URL}/rest/v1/shop_products?select=id,images,starting_price`, { headers });
+      const products = r.ok ? await r.json() : [];
+      const items = products
+        .filter(p => realImageUrls(p.images).length > 0 && Number(p.starting_price) > 0)
+        .map(p => `  <item>
+    <g:id>${esc(p.id)}</g:id>
+    <g:store_code>jabalpur-main</g:store_code>
+    <g:quantity>1</g:quantity>
+    <g:availability>in_stock</g:availability>
+  </item>`).join("\n");
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+<channel>
+  <title>PCB Care Local Inventory Feed</title>
+  <link>${esc(SITE_URL)}</link>
+  <description>Store-level stock for jabalpur-main.</description>
+${items}
+</channel>
+</rss>`;
+      res.setHeader("Content-Type", "application/xml");
+      res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=3600");
+      return res.status(200).send(xml);
+    }
+
     const [catsRes, prodsRes, blogRes, wiringRes, pagesRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/shop_categories?select=slug,created_at&order=sort_order`, { headers }),
       fetch(`${SB_URL}/rest/v1/shop_products?select=slug,created_at&order=created_at.desc`, { headers }),
