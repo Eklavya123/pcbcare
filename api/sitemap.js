@@ -106,7 +106,7 @@ module.exports = async (req, res) => {
         .filter(p => realImageUrls(p.images).length > 0 && Number(p.starting_price) > 0)
         .map(p => `  <item>
     <g:id>${esc(p.id)}</g:id>
-    <g:store_code>jabalpur-main</g:store_code>
+    <g:store_code>15169769021413297045</g:store_code>
     <g:quantity>1</g:quantity>
     <g:availability>in_stock</g:availability>
   </item>`).join("\n");
