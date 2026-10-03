@@ -215,6 +215,39 @@ module.exports = async (req, res) => {
       return res.status(200).json({ invoice });
     }
 
+    // Resolved Cases — real server-side role gating, unlike Part Finder's
+    // client-only "user?.role==='viewer'" check (parts_data's RLS is wide
+    // open to the anon key, so that check is UI dressing, not security).
+    // This table has NO anon-accessible RLS policies at all, so the only
+    // way in is through here, where the Firebase token is verified and the
+    // caller's role is looked up server-side before anything is returned.
+    if (action === "resolved_cases_list") {
+      const { id: userId } = await authenticate(req);
+      const rows = await sb("users", { filter: `?id=eq.${userId}&select=role` });
+      const me = Array.isArray(rows) ? rows[0] : null;
+      if (!me || me.role !== "viewer") {
+        return res.status(403).json({ error: "Viewer role required" });
+      }
+      const cases = await sb("resolved_cases", { filter: "?select=*&order=created_at.desc" });
+      return res.status(200).json({ cases });
+    }
+
+    if (action === "resolved_cases_add") {
+      authenticateAdmin(req);
+      const { issue, errorCode, brand, fixDescription } = req.body;
+      const created = await sb("resolved_cases", {
+        method: "POST",
+        prefer: "return=representation",
+        body: {
+          issue: issue?.trim() || null,
+          error_code_or_led: errorCode?.trim() || null,
+          brand: brand?.trim() || null,
+          fix_description: fixDescription?.trim() || null,
+        },
+      });
+      return res.status(200).json({ case: Array.isArray(created) ? created[0] : created });
+    }
+
     if (action === "list_my_invoices") {
       const { id: technicianId } = await authenticate(req);
       const invoices = await sb("invoices", {

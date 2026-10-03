@@ -2392,6 +2392,7 @@ function Home({setTab,user}) {
     {id:"blog",icon:"📝",title:"Blog",desc:"Guides, tips & how-tos",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     ...(partsEnabled&&user?.role==="viewer"?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
+    ...(user?.role==="viewer"?[{id:"resolved",icon:"🛠️",title:"Resolved Cases",desc:"Past fixes by other technicians",color:"#27ae60"}]:[]),
     {id:"myorder",icon:"📦",title:"My Order",desc:"Track your order status",color:"#00e5ff"},
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
     {id:"invoices",icon:"🧾",title:"Invoices",desc:"Generate customer invoices",color:"#00c8a0"},
@@ -4069,6 +4070,46 @@ function PartFinder({user}) {
         <img src={modal} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12}}/>
         <button onClick={()=>setModal(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:T.text,fontSize:16,cursor:"pointer"}}>✕</button>
       </div>}
+    </div>
+  );
+}
+
+// Read-only list for technicians with the Viewer role. Access is enforced
+// server-side in api/invoices.js (resolved_cases_list) — the "denied" case
+// below is the real gate, not just UI; someone without the role literally
+// gets no data back, unlike Part Finder's client-only check.
+function ResolvedCases() {
+  const T=useTheme();
+  const [cases,setCases]=useState(null); // null=loading, []=empty, "denied"=403
+  useEffect(()=>{
+    invoicesApi("resolved_cases_list").then(r=>setCases(r.cases||[])).catch(()=>setCases("denied"));
+  },[]);
+
+  if(cases===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
+  if(cases==="denied") return (
+    <div style={{padding:16}}>
+      <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}>
+        <div style={{fontSize:32,marginBottom:8}}>🛠️</div>
+        <div style={{fontSize:13,color:T.subtext}}>Resolved Cases isn't available for your account.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:16}}>
+      <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>🛠️ Resolved Cases</h1>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Past fixes logged by the admin</div>
+      {cases.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No cases logged yet.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {cases.map(c=>(
+          <div key={c.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`}}>
+            {c.brand&&<div style={{fontSize:11,fontWeight:700,color:"#27ae60",marginBottom:4}}>{c.brand}</div>}
+            {c.issue&&<div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{c.issue}</div>}
+            {c.error_code_or_led&&<div style={{fontSize:12,color:T.subtext,marginBottom:4}}>Error code / LED: {c.error_code_or_led}</div>}
+            {c.fix_description&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5}}>{c.fix_description}</div>}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -7721,6 +7762,60 @@ function AdminSettings() {
   );
 }
 
+// ── ADMIN: RESOLVED CASES ────────────────────────────────────────────────────
+// Add-only — no edit/delete, matching what was asked for. Every field is
+// optional per spec; resolved_cases_add stores whatever's filled in as null
+// for the rest. Viewing (not adding) is what's role-gated — see
+// ResolvedCases() for technicians and resolved_cases_list in invoices.js
+// for the actual server-side enforcement.
+function AdminResolvedCases(){
+  const [issue,setIssue]=useState("");
+  const [errorCode,setErrorCode]=useState("");
+  const [brand,setBrand]=useState("");
+  const [fixDescription,setFixDescription]=useState("");
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState("");
+
+  const save=async()=>{
+    setSaving(true);setMsg("");
+    try{
+      await invoicesAdminApi("resolved_cases_add",{issue,errorCode,brand,fixDescription});
+      setIssue("");setErrorCode("");setBrand("");setFixDescription("");
+      setMsg("✅ Case logged");
+    }catch(e){
+      setMsg(`❌ ${e.message||"Failed to save"}`);
+    }finally{
+      setSaving(false);
+    }
+  };
+
+  const inputStyle={width:"100%",padding:"12px",borderRadius:10,background:"#0f1420",border:"1px solid #2a3050",color:"#fff",fontSize:13,marginBottom:12,boxSizing:"border-box"};
+
+  return (
+    <div style={{padding:16}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Log a resolved case</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:14,lineHeight:1.6}}>Visible only to technicians with the Viewer role approved. Every field below is optional.</div>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Issue</label>
+        <input value={issue} onChange={e=>setIssue(e.target.value)} placeholder="e.g. No power, display blank" style={inputStyle}/>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Error Code / LED Blinking</label>
+        <input value={errorCode} onChange={e=>setErrorCode(e.target.value)} placeholder="e.g. E4, 3 red blinks" style={inputStyle}/>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Brand</label>
+        <input value={brand} onChange={e=>setBrand(e.target.value)} placeholder="e.g. Voltas" style={inputStyle}/>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>How it was fixed</label>
+        <textarea value={fixDescription} onChange={e=>setFixDescription(e.target.value)} placeholder="What the actual fix was" rows={4} style={{...inputStyle,resize:"vertical",fontFamily:"inherit"}}/>
+
+        <button onClick={save} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",cursor:saving?"default":"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving...":"Save Case"}</button>
+        {msg&&<div style={{marginTop:10,fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",textAlign:"center"}}>{msg}</div>}
+      </div>
+    </div>
+  );
+}
+
 // ── ADMIN: SHOP (categories + products) ─────────────────────────────────────────
 function AdminShop() {
   const [section,setSection]=useState("categories"); // categories | products | merchant
@@ -8973,6 +9068,7 @@ function AdminPanel({onLogout}) {
     {id:"insights",label:"Insights",icon:"📊"},
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"technicians",label:"Technicians",icon:"👷"},
+    {id:"resolved",label:"Resolved Cases",icon:"🛠️"},
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
@@ -9010,6 +9106,7 @@ function AdminPanel({onLogout}) {
         {tab==="users"&&<AdminUsers/>}
         {tab==="technicians"&&<AdminTechnicians/>}
         {tab==="settings"&&<AdminSettings/>}
+        {tab==="resolved"&&<AdminResolvedCases/>}
       </div>
 
       {newReqPopup&&<div onClick={()=>setNewReqPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -9380,6 +9477,7 @@ useEffect(() => {
         {tab==="page"&&<StaticPage initialPath={pageInitialPath.current}/>}
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder user={user}/>}
+        {tab==="resolved"&&<ResolvedCases/>}
         {tab==="myorder"&&<MyOrder/>}
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
