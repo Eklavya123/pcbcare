@@ -3355,6 +3355,8 @@ function Shop({initialPath,user}) {
         <ShopTrustBadges/>
         <div style={{textAlign:"center",marginTop:-10,marginBottom:20}}>
           <button onClick={()=>{try{window.history.pushState({},"","/return-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Return &amp; Exchange Policy</button>
+          <span style={{color:T.subtext,fontSize:11,margin:"0 6px"}}>·</span>
+          <button onClick={()=>{try{window.history.pushState({},"","/delivery-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Delivery Policy</button>
         </div>
 
         {relatedProducts.length>0&&<>
