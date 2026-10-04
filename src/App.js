@@ -1698,6 +1698,9 @@ const TAMBOLA_CLAIMS = [
   {key:"corners",label:"Corners"},
   {key:"odd",label:"Odd Numbers"},
   {key:"even",label:"Even Numbers"},
+  {key:"early6",label:"Early 6"},
+  {key:"early10",label:"Early 10"},
+  {key:"smallBig",label:"Small & Big Number"},
 ];
 
 function TambolaApp(){
@@ -1717,6 +1720,8 @@ function TambolaApp(){
   const [readying,setReadying] = useState(false);
   const [claiming,setClaiming] = useState(null);
   const [showLeaderboard,setShowLeaderboard] = useState(false);
+  const [selectedClaims,setSelectedClaims] = useState(TAMBOLA_CLAIMS.map(c=>c.key));
+  const toggleClaimChoice = (key) => setSelectedClaims(s => s.includes(key) ? s.filter(k=>k!==key) : [...s,key]);
 
   const refresh = async () => {
     try{
@@ -1738,7 +1743,7 @@ function TambolaApp(){
   const createGame = async () => {
     setCreating(true); setErr("");
     try{
-      const {code:newCode} = await gameApi("tambola_create",{sessionId,playerName:newName});
+      const {code:newCode} = await gameApi("tambola_create",{sessionId,playerName:newName,allowedClaims:selectedClaims});
       window.location.href = `/t/${newCode}`;
     }catch(e){ setErr(e.message); setCreating(false); }
   };
@@ -1812,7 +1817,19 @@ function TambolaApp(){
           <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
             style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
         </div>
-        <button onClick={createGame} disabled={creating||!newName.trim()} style={btnStyle(creating||!newName.trim())}>{creating?"Creating…":"Start New Game"}</button>
+        <div style={{width:"100%",maxWidth:280,marginBottom:20}}>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:8}}>Winning Combinations (choose at least one)</div>
+          <div style={{display:"flex",flexDirection:"column",gap:7,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:12}}>
+            {TAMBOLA_CLAIMS.map(c=>(
+              <label key={c.key} style={{display:"flex",alignItems:"center",gap:9,fontSize:12.5,color:"#fff",cursor:"pointer"}}>
+                <input type="checkbox" checked={selectedClaims.includes(c.key)} onChange={()=>toggleClaimChoice(c.key)}
+                  style={{width:16,height:16,accentColor:AC,cursor:"pointer"}}/>
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <button onClick={createGame} disabled={creating||!newName.trim()||selectedClaims.length===0} style={btnStyle(creating||!newName.trim()||selectedClaims.length===0)}>{creating?"Creating…":"Start New Game"}</button>
       </div>
     );
   }
@@ -1949,7 +1966,7 @@ function TambolaApp(){
           <div style={{width:"100%",maxWidth:360,marginBottom:16}}>
             <div style={{fontSize:11,fontWeight:700,color:"#6b7db3",marginBottom:8,textAlign:"center"}}>CLAIMS</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              {TAMBOLA_CLAIMS.map(c=>{
+              {TAMBOLA_CLAIMS.filter(c=>(game.allowed_claims||["line1","line2","line3","low50","high50","corners","odd","even"]).includes(c.key)).map(c=>{
                 const taken = claims[c.key];
                 return (
                   <button key={c.key} onClick={()=>!taken&&role!=="spectator"&&claim(c.key)} disabled={!!taken||claiming===c.key||role==="spectator"}

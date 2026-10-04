@@ -864,7 +864,14 @@ module.exports = async (req, res) => {
     const TAMBOLA_CLAIM_LABELS = {
       line1:"First Line", line2:"Middle Line", line3:"Third Line",
       low50:"1 to 50", high50:"50 to 99", corners:"Corners", odd:"Odd Numbers", even:"Even Numbers",
+      early6:"Early 6", early10:"Early 10", smallBig:"Small & Big Number",
     };
+    const ALL_TAMBOLA_CLAIM_KEYS = Object.keys(TAMBOLA_CLAIM_LABELS);
+    // Default when a game doesn't carry its own allowed_claims (older rows
+    // from before this feature existed, or a client that didn't send a
+    // selection) — the original 8, exactly matching prior behavior. The 3
+    // new ones are opt-in only, never silently enabled for old games.
+    const DEFAULT_TAMBOLA_CLAIMS = ["line1","line2","line3","low50","high50","corners","odd","even"];
     const checkTambolaClaim = (type, grid, crossedArr) => {
       const crossed = new Set(crossedArr);
       const isCrossed = (n) => crossed.has(n);
@@ -876,19 +883,41 @@ module.exports = async (req, res) => {
       if(type==="corners") return tambolaCorners(grid).every(isCrossed);
       if(type==="odd"){ const nums=tambolaTicketNumbers(grid).filter(n=>n%2===1); return nums.length>0 && nums.every(isCrossed); }
       if(type==="even"){ const nums=tambolaTicketNumbers(grid).filter(n=>n%2===0); return nums.length>0 && nums.every(isCrossed); }
+      // Early 6 / Early 10 — first to get ANY 6 (or 10) of their own
+      // numbers struck off, regardless of which ones. Classic Tambola
+      // variant — not tied to a specific line or range.
+      if(type==="early6") return tambolaTicketNumbers(grid).filter(isCrossed).length >= 6;
+      if(type==="early10") return tambolaTicketNumbers(grid).filter(isCrossed).length >= 10;
+      // Small & Big — the single smallest AND single largest number on the
+      // ticket must BOTH be struck. Getting only one does not qualify;
+      // this is intentionally all-or-nothing, not two separate claims.
+      if(type==="smallBig"){
+        const nums = tambolaTicketNumbers(grid);
+        const smallest = Math.min(...nums), biggest = Math.max(...nums);
+        return isCrossed(smallest) && isCrossed(biggest);
+      }
       return false;
     };
-    const TAMBOLA_CLAIM_POINTS = { line1:10, line2:10, line3:10, low50:15, high50:15, corners:10, odd:10, even:10 };
+    const TAMBOLA_CLAIM_POINTS = { line1:10, line2:10, line3:10, low50:15, high50:15, corners:10, odd:10, even:10, early6:10, early10:15, smallBig:10 };
 
     if (action === "tambola_create") {
-      const { sessionId, playerName } = req.body;
+      const { sessionId, playerName, allowedClaims } = req.body;
       if (!sessionId) throw new Error("sessionId is required");
+      // Validated server-side, not trusted as-sent — a garbage or empty
+      // selection falls back to the original default rather than creating
+      // a game where nothing (or something invalid) is claimable.
+      let claimsForGame = DEFAULT_TAMBOLA_CLAIMS;
+      if (Array.isArray(allowedClaims) && allowedClaims.length > 0) {
+        const filtered = allowedClaims.filter(k => ALL_TAMBOLA_CLAIM_KEYS.includes(k));
+        if (filtered.length > 0) claimsForGame = filtered;
+      }
       const code = randomCode();
       const [created] = await sb("tambola_games", {
         method: "POST",
         body: {
           code, player1_session: sessionId, player1_name: playerName?.trim()?.slice(0,24) || null,
           player1_ticket: generateTambolaTicket(), status: "waiting",
+          allowed_claims: claimsForGame,
         },
         prefer: "return=representation",
       });
@@ -1035,6 +1064,8 @@ module.exports = async (req, res) => {
       const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
       const game = rows[0];
       if (!game) return res.status(404).json({ error: "Game not found" });
+      const gameClaimKeys = (game.allowed_claims && game.allowed_claims.length) ? game.allowed_claims : DEFAULT_TAMBOLA_CLAIMS;
+      if (!gameClaimKeys.includes(claimType)) throw new Error(`${TAMBOLA_CLAIM_LABELS[claimType]} isn't enabled for this game`);
       if (game.status !== "playing" && game.status !== "finished") throw new Error("Game isn't in play right now");
       const isP1 = game.player1_session === sessionId, isP2 = game.player2_session === sessionId;
       if (!isP1 && !isP2) throw new Error("You're not a player in this game");
@@ -1047,7 +1078,7 @@ module.exports = async (req, res) => {
       const myName = isP1 ? game.player1_name : game.player2_name;
       const scoreField = isP1 ? "score1" : "score2";
       const newClaims = { ...claims, [claimType]: { by: myNum, name: myName } };
-      const allClaimed = Object.keys(TAMBOLA_CLAIM_LABELS).every(k => newClaims[k]);
+      const allClaimed = gameClaimKeys.every(k => newClaims[k]);
       const [updated] = await sb("tambola_games", {
         method: "PATCH", filter: `?id=eq.${game.id}`,
         body: { claims: newClaims, [scoreField]: (game[scoreField]||0) + TAMBOLA_CLAIM_POINTS[claimType], status: allClaimed ? "finished" : game.status },
