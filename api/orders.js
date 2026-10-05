@@ -985,6 +985,31 @@ module.exports = async (req, res) => {
       return res.status(200).json({ game: updated });
     }
 
+    // Either player can pause or resume — both act on the same shared
+    // `paused` flag, which both players already see via their normal
+    // tambola_get polling, so there's no separate sync mechanism needed:
+    // whoever clicks, both screens update within one poll cycle. The
+    // advance-draw call in tambola_get is skipped entirely while paused,
+    // which is the actual freeze — not a client-side timer stop. On
+    // resume, next_draw_at is reset to "now + interval" rather than left
+    // as whatever stale timestamp it was before pausing — otherwise a long
+    // pause would make tambola_advance_draw's catch-up logic immediately
+    // fire every number that became "overdue" while paused, all at once.
+    if (action === "tambola_toggle_pause") {
+      const { code, sessionId } = req.body;
+      const rows = await sb("tambola_games", { filter: `?code=eq.${encodeURIComponent(code)}&select=*` });
+      const game = rows[0];
+      if (!game) return res.status(404).json({ error: "Game not found" });
+      if (game.player1_session !== sessionId && game.player2_session !== sessionId) throw new Error("You're not a player in this game");
+      const nowPaused = !game.paused;
+      const body = { paused: nowPaused };
+      if (!nowPaused && game.status === "playing") {
+        body.next_draw_at = new Date(Date.now() + (game.interval_seconds || 6) * 1000).toISOString();
+      }
+      const [updated] = await sb("tambola_games", { method: "PATCH", filter: `?id=eq.${game.id}`, body, prefer: "return=representation" });
+      return res.status(200).json({ game: updated });
+    }
+
     if (action === "tambola_get") {
       const { code, sessionId } = req.body;
       if (!code) throw new Error("code is required");
@@ -1014,7 +1039,7 @@ module.exports = async (req, res) => {
       // just the next one, so a player whose screen was off for a while
       // sees the announcer at the correct current number instead of
       // frozen wherever it was when they left.
-      if (game.status === "playing" && game.next_draw_at) {
+      if (game.status === "playing" && game.next_draw_at && !game.paused) {
         const updated = await sb("rpc/tambola_advance_draw", { method: "POST", body: { p_code: code } });
         if (updated) game = updated;
       }
@@ -1099,7 +1124,7 @@ module.exports = async (req, res) => {
         body: {
           player1_ticket: generateTambolaTicket(), player2_ticket: game.player2_session ? generateTambolaTicket() : null,
           player1_crossed: [], player2_crossed: [], player1_ready: false, player2_ready: false,
-          deck: null, drawn_numbers: [], next_draw_at: null, claims: {}, score1: 0, score2: 0,
+          deck: null, drawn_numbers: [], next_draw_at: null, claims: {}, score1: 0, score2: 0, paused: false,
           status: game.player2_session ? "setup" : "waiting",
         },
         prefer: "return=representation",

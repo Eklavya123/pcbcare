@@ -1776,6 +1776,12 @@ function TambolaApp(){
     catch(e){ setErr(e.message); }
   };
 
+  const togglePause = async () => {
+    setErr("");
+    try{ const {game:updated} = await gameApi("tambola_toggle_pause",{code,sessionId}); setGame(updated); }
+    catch(e){ setErr(e.message); }
+  };
+
   const clickNumber = async (num) => {
     if(myCrossed.includes(num)) return;
     setClickError("");
@@ -1938,10 +1944,14 @@ function TambolaApp(){
 
       {(game.status==="playing"||game.status==="finished")&&(
         <>
-          <div style={{background:"#1a1f2e",border:`1px solid ${AC}`,borderRadius:14,padding:16,marginBottom:6,textAlign:"center",minWidth:100}}>
-            <div style={{fontSize:10,color:"#6b7db3",marginBottom:4}}>{game.status==="finished"?"Final Number":"Number Called"}</div>
+          <div style={{background:"#1a1f2e",border:`1px solid ${AC}`,borderRadius:14,padding:16,marginBottom:6,textAlign:"center",minWidth:100,position:"relative"}}>
+            {game.status==="playing"&&role!=="spectator"&&(
+              <button onClick={togglePause} title={game.paused?"Resume":"Pause"} style={{position:"absolute",top:10,right:10,width:30,height:30,borderRadius:8,border:"none",cursor:"pointer",fontSize:14,background:game.paused?`${AC}33`:"#0a0d14",color:game.paused?AC:"#6b7db3"}}>{game.paused?"▶️":"⏸️"}</button>
+            )}
+            <div style={{fontSize:10,color:"#6b7db3",marginBottom:4}}>{game.status==="finished"?"Final Number":game.paused?"Paused":"Number Called"}</div>
             <div style={{fontSize:36,fontWeight:800,color:AC}}>{latest!=null?latest:"—"}</div>
           </div>
+          {game.paused&&game.status==="playing"&&<div style={{fontSize:11,color:"#ffb020",marginBottom:10,textAlign:"center"}}>Game paused — numbers won't be called until resumed</div>}
           {game.status==="playing"&&role!=="spectator"&&(
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
               <span style={{fontSize:10,color:"#6b7db3"}}>Pace:</span>
@@ -8595,10 +8605,21 @@ function AdminIndexed(){
   const [healthErr,setHealthErr]=useState("");
 
   const load=async()=>{
-    const d=await api("shop_products",{filter:"?select=id,name,slug,is_indexed&order=name.asc"});
+    const d=await api("shop_products",{filter:"?select=id,name,slug,index_status&order=name.asc"});
     setRows(d||[]);
   };
   useEffect(()=>{load();},[]);
+
+  const NEXT_STATUS={not_indexed:"pending",pending:"indexed",indexed:"not_indexed"};
+  const cycleStatus=async(p)=>{
+    const next=NEXT_STATUS[p.index_status]||"not_indexed";
+    setRows(rs=>rs.map(r=>r.id===p.id?{...r,index_status:next}:r)); // optimistic
+    try{
+      await api("shop_products",{method:"PATCH",filter:`?id=eq.${p.id}`,body:{index_status:next}});
+    }catch{
+      setRows(rs=>rs.map(r=>r.id===p.id?{...r,index_status:p.index_status}:r)); // revert on failure
+    }
+  };
 
   const runHealthCheck=async()=>{
     setChecking(true); setHealthErr(""); setHealthResults(null);
@@ -8614,16 +8635,6 @@ function AdminIndexed(){
     }
   };
 
-  const toggle=async(p)=>{
-    const next=!p.is_indexed;
-    setRows(rs=>rs.map(r=>r.id===p.id?{...r,is_indexed:next}:r)); // optimistic
-    try{
-      await api("shop_products",{method:"PATCH",filter:`?id=eq.${p.id}`,body:{is_indexed:next}});
-    }catch{
-      setRows(rs=>rs.map(r=>r.id===p.id?{...r,is_indexed:p.is_indexed}:r)); // revert on failure
-    }
-  };
-
   const copyUrl=(p)=>{
     const url=`${SITE_URL}/shop/product/${p.slug}`;
     navigator.clipboard.writeText(url);
@@ -8633,14 +8644,17 @@ function AdminIndexed(){
 
   if(rows===null) return <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}><div style={{fontSize:13,color:"#fff"}}>Loading products…</div></div>;
 
-  const indexedCount=rows.filter(r=>r.is_indexed).length;
+  const indexedCount=rows.filter(r=>r.index_status==="indexed").length;
+  const pendingCount=rows.filter(r=>r.index_status==="pending").length;
+  const STATUS_ICON={not_indexed:"❌",pending:"⌛",indexed:"✅"};
+  const STATUS_BG={not_indexed:"#ff475722",pending:"#ffb02022",indexed:"#4caf5022"};
 
   return (
     <div>
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Indexed on Google</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:4,lineHeight:1.6}}>Mark each product as you confirm it in Search Console. Tap the clipboard to copy its URL straight into URL Inspection.</div>
-        <div style={{fontSize:11,color:"#b0b8d0",marginBottom:4}}>{indexedCount} of {rows.length} marked indexed</div>
+        <div style={{fontSize:11,color:"#b0b8d0",marginBottom:4}}>{indexedCount} indexed · {pendingCount} submitted, awaiting · {rows.length-indexedCount-pendingCount} not yet submitted</div>
       </div>
 
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
@@ -8664,7 +8678,7 @@ function AdminIndexed(){
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {rows.map(p=>(
           <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px"}}>
-            <button onClick={()=>toggle(p)} style={{width:34,height:34,flexShrink:0,borderRadius:8,border:"none",cursor:"pointer",fontSize:17,background:p.is_indexed?"#4caf5022":"#ff475722"}}>{p.is_indexed?"✅":"❌"}</button>
+            <button onClick={()=>cycleStatus(p)} title="Tap to cycle: not submitted → submitted (pending) → indexed" style={{width:34,height:34,flexShrink:0,borderRadius:8,border:"none",cursor:"pointer",fontSize:17,background:STATUS_BG[p.index_status]||STATUS_BG.not_indexed}}>{STATUS_ICON[p.index_status]||"❌"}</button>
             <span style={{fontSize:12.5,color:"#fff",flex:1,lineHeight:1.4}}>{p.name}</span>
             <button onClick={()=>copyUrl(p)} title="Copy product URL" style={{width:34,height:34,flexShrink:0,borderRadius:8,border:"1px solid #2a3050",background:"#0f1420",cursor:"pointer",fontSize:15,color:copiedId===p.id?PC:"#6b7db3"}}>{copiedId===p.id?"✓":"📋"}</button>
           </div>
