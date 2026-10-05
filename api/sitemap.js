@@ -99,6 +99,62 @@ module.exports = async (req, res) => {
       return res.status(200).send(xml);
     }
 
+    // Live SEO health check — no external API, no Google/Ahrefs key needed.
+    // Fetches each product's OWN deployed page with a Googlebot User-Agent,
+    // the same way vercel.json's bot rewrite triggers product-meta.js, and
+    // checks the actual returned HTML for the exact failure patterns found
+    // earlier this project: canonical pointing at the wrong domain, a
+    // generic/fallback title instead of the product's own, no real image,
+    // and missing Offer schema. This validates deployed behavior, not just
+    // database content — a page can have perfect data and still serve
+    // wrong HTML if routing/config is broken, which is exactly what
+    // happened with product-meta.js being unwired for over a month.
+    if (req.query && req.query.feed === "health-check") {
+      const r = await fetch(`${SB_URL}/rest/v1/shop_products?select=id,name,slug,images,starting_price`, { headers });
+      const products = r.ok ? await r.json() : [];
+      const eligible = products.filter(p => realImageUrls(p.images).length > 0 && Number(p.starting_price) > 0);
+
+      const checkOne = async (p) => {
+        const url = `${SITE_URL}/shop/product/${p.slug}`;
+        const issues = [];
+        let html = "";
+        try {
+          const pageRes = await fetch(url, { headers: { "User-Agent": "Googlebot" } });
+          if (!pageRes.ok) issues.push(`Page returned HTTP ${pageRes.status}`);
+          html = await pageRes.text();
+        } catch (e) {
+          return { id: p.id, name: p.name, url, ok: false, issues: [`Fetch failed: ${e.message}`] };
+        }
+
+        const titleMatch = html.match(/<title>([\s\S]*?)<\/title>/);
+        const title = titleMatch ? titleMatch[1] : "";
+        if (!title || title.trim() === "PCB Care" || title.trim() === "Shop - PCB Care") {
+          issues.push("Title is missing or generic (not product-specific)");
+        } else if (!title.includes(p.name.split(" ")[0])) {
+          issues.push("Title doesn't appear to match the product name");
+        }
+
+        const canonicalMatch = html.match(/<link rel="canonical" href="([^"]*)"/);
+        if (!canonicalMatch) issues.push("No canonical tag found");
+        else if (!canonicalMatch[1].startsWith(SITE_URL)) issues.push(`Canonical points to the wrong domain: ${canonicalMatch[1]}`);
+
+        const ogImageMatch = html.match(/<meta property="og:image" content="([^"]*)"/);
+        if (!ogImageMatch || ogImageMatch[1].includes("logo")) issues.push("No real product image in og:image (showing logo/fallback or missing)");
+
+        if (!html.includes('"@type": "Product"') && !html.includes('"@type":"Product"')) {
+          issues.push("No Product schema (JSON-LD) found");
+        } else if (!html.includes('"offers"')) {
+          issues.push("Product schema present but missing offers/price");
+        }
+
+        return { id: p.id, name: p.name, url, ok: issues.length === 0, issues };
+      };
+
+      const results = await Promise.all(eligible.map(checkOne));
+      const passCount = results.filter(r => r.ok).length;
+      return res.status(200).json({ checked: results.length, passed: passCount, results });
+    }
+
     if (req.query && req.query.feed === "local-inventory") {
       const r = await fetch(`${SB_URL}/rest/v1/shop_products?select=id,images,starting_price`, { headers });
       const products = r.ok ? await r.json() : [];

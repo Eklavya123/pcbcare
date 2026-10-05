@@ -8590,12 +8590,29 @@ ${items}
 function AdminIndexed(){
   const [rows,setRows]=useState(null);
   const [copiedId,setCopiedId]=useState(null);
+  const [checking,setChecking]=useState(false);
+  const [healthResults,setHealthResults]=useState(null);
+  const [healthErr,setHealthErr]=useState("");
 
   const load=async()=>{
     const d=await api("shop_products",{filter:"?select=id,name,slug,is_indexed&order=name.asc"});
     setRows(d||[]);
   };
   useEffect(()=>{load();},[]);
+
+  const runHealthCheck=async()=>{
+    setChecking(true); setHealthErr(""); setHealthResults(null);
+    try{
+      const r=await fetch("/api/sitemap?feed=health-check");
+      const data=await r.json();
+      if(!r.ok) throw new Error(data.error||`Request failed (${r.status})`);
+      setHealthResults(data);
+    }catch(e){
+      setHealthErr(e.message||"Health check failed");
+    }finally{
+      setChecking(false);
+    }
+  };
 
   const toggle=async(p)=>{
     const next=!p.is_indexed;
@@ -8625,6 +8642,25 @@ function AdminIndexed(){
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:4,lineHeight:1.6}}>Mark each product as you confirm it in Search Console. Tap the clipboard to copy its URL straight into URL Inspection.</div>
         <div style={{fontSize:11,color:"#b0b8d0",marginBottom:4}}>{indexedCount} of {rows.length} marked indexed</div>
       </div>
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Live SEO Health Check</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12,lineHeight:1.6}}>Fetches each product's actual live page as Googlebot would see it and checks for the real bugs that cause indexing problems — wrong canonical domain, generic/missing title, no real image, missing price schema. No Google API involved — it's just checking your own site against itself.</div>
+        <button onClick={runHealthCheck} disabled={checking} style={{width:"100%",padding:"12px",borderRadius:10,background:checking?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:checking?"#6b7db3":"#0a0d14",border:"none",cursor:checking?"default":"pointer",fontWeight:700,fontSize:13}}>{checking?"Checking live pages…":"Run Health Check"}</button>
+        {healthErr&&<div style={{marginTop:10,fontSize:12,color:"#ff4757"}}>{healthErr}</div>}
+        {healthResults&&<div style={{marginTop:14}}>
+          <div style={{fontSize:12,color:PC,fontWeight:700,marginBottom:10}}>{healthResults.passed} of {healthResults.checked} pages passed clean</div>
+          {healthResults.results.filter(r=>!r.ok).length>0&&<div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {healthResults.results.filter(r=>!r.ok).map(r=>(
+              <div key={r.id} style={{background:"#0f1420",border:"1px solid #ff475755",borderRadius:8,padding:"8px 10px"}}>
+                <div style={{fontSize:12,color:"#fff",fontWeight:600,marginBottom:3}}>{r.name}</div>
+                {r.issues.map((iss,i)=>(<div key={i} style={{fontSize:11,color:"#ff8a8a"}}>• {iss}</div>))}
+              </div>
+            ))}
+          </div>}
+        </div>}
+      </div>
+
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
         {rows.map(p=>(
           <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px"}}>
