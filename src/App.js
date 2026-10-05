@@ -7851,13 +7851,14 @@ function AdminShop() {
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:4}}>🛍️ Shop</div>
       <div style={{fontSize:12,color:"#6b7db3",marginBottom:16}}>Manage the categories and products customers see on the public Shop tab.</div>
       <div style={{display:"flex",gap:8,marginBottom:18}}>
-        {[["categories","🗂️ Categories"],["products","📦 Products"],["merchant","🛠️ Fix Products"]].map(([id,label])=>(
+        {[["categories","🗂️ Categories"],["products","📦 Products"],["merchant","🛠️ Fix Products"],["indexed","📍 Indexed"]].map(([id,label])=>(
           <button key={id} onClick={()=>setSection(id)} style={{flex:1,padding:"10px",borderRadius:10,background:section===id?`linear-gradient(135deg,${PC},${AC})`:"#1a1f2e",color:section===id?"#0a0d14":"#6b7db3",border:`1px solid ${"#2a3050"}`,cursor:"pointer",fontWeight:700,fontSize:12}}>{label}</button>
         ))}
       </div>
       {section==="categories"&&<AdminShopCategories categories={categories} refresh={loadCategories} setMsg={setMsg}/>}
       {section==="products"&&<AdminShopProducts categories={categories} setMsg={setMsg}/>}
       {section==="merchant"&&<AdminMerchantFeed/>}
+      {section==="indexed"&&<AdminIndexed/>}
       {msg&&<div style={{fontSize:12,marginTop:14,padding:"8px 12px",borderRadius:8,background:msg.startsWith("✅")?"#4caf5022":"#ff475711",color:msg.startsWith("✅")?PC:"#ff4757"}}>{msg}</div>}
     </div>
   );
@@ -8580,6 +8581,58 @@ ${items}
         </div>
         <button onClick={buildFeed} disabled={generating||eligible.length===0} style={{width:"100%",padding:"12px",borderRadius:10,background:generating||eligible.length===0?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:generating||eligible.length===0?"#6b7db3":"#0a0d14",border:"none",cursor:generating||eligible.length===0?"default":"pointer",fontWeight:700,fontSize:13}}>{generating?"Generating…":"Generate Feed"}</button>
         {feedUrl&&<a href={feedUrl} download="pcbcare-merchant-feed.xml" style={{display:"block",textAlign:"center",marginTop:10,padding:"12px",borderRadius:10,background:"#2a3050",color:PC,fontWeight:700,fontSize:13,textDecoration:"none"}}>⬇️ Download Feed ({feedCount} products)</a>}
+      </div>
+    </div>
+  );
+}
+
+// ── ADMIN: INDEXED (manual tracking for Search Console URL Inspection) ─────
+function AdminIndexed(){
+  const [rows,setRows]=useState(null);
+  const [copiedId,setCopiedId]=useState(null);
+
+  const load=async()=>{
+    const d=await api("shop_products",{filter:"?select=id,name,slug,is_indexed&order=name.asc"});
+    setRows(d||[]);
+  };
+  useEffect(()=>{load();},[]);
+
+  const toggle=async(p)=>{
+    const next=!p.is_indexed;
+    setRows(rs=>rs.map(r=>r.id===p.id?{...r,is_indexed:next}:r)); // optimistic
+    try{
+      await api("shop_products",{method:"PATCH",filter:`?id=eq.${p.id}`,body:{is_indexed:next}});
+    }catch{
+      setRows(rs=>rs.map(r=>r.id===p.id?{...r,is_indexed:p.is_indexed}:r)); // revert on failure
+    }
+  };
+
+  const copyUrl=(p)=>{
+    const url=`${SITE_URL}/shop/product/${p.slug}`;
+    navigator.clipboard.writeText(url);
+    setCopiedId(p.id);
+    setTimeout(()=>setCopiedId(id=>id===p.id?null:id),1500);
+  };
+
+  if(rows===null) return <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}><div style={{fontSize:13,color:"#fff"}}>Loading products…</div></div>;
+
+  const indexedCount=rows.filter(r=>r.is_indexed).length;
+
+  return (
+    <div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Indexed on Google</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:4,lineHeight:1.6}}>Mark each product as you confirm it in Search Console. Tap the clipboard to copy its URL straight into URL Inspection.</div>
+        <div style={{fontSize:11,color:"#b0b8d0",marginBottom:4}}>{indexedCount} of {rows.length} marked indexed</div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {rows.map(p=>(
+          <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:10,padding:"10px 12px"}}>
+            <button onClick={()=>toggle(p)} style={{width:34,height:34,flexShrink:0,borderRadius:8,border:"none",cursor:"pointer",fontSize:17,background:p.is_indexed?"#4caf5022":"#ff475722"}}>{p.is_indexed?"✅":"❌"}</button>
+            <span style={{fontSize:12.5,color:"#fff",flex:1,lineHeight:1.4}}>{p.name}</span>
+            <button onClick={()=>copyUrl(p)} title="Copy product URL" style={{width:34,height:34,flexShrink:0,borderRadius:8,border:"1px solid #2a3050",background:"#0f1420",cursor:"pointer",fontSize:15,color:copiedId===p.id?PC:"#6b7db3"}}>{copiedId===p.id?"✓":"📋"}</button>
+          </div>
+        ))}
       </div>
     </div>
   );
