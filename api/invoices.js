@@ -221,6 +221,9 @@ module.exports = async (req, res) => {
     // This table has NO anon-accessible RLS policies at all, so the only
     // way in is through here, where the Firebase token is verified and the
     // caller's role is looked up server-side before anything is returned.
+    // resolved_cases_list now returns folders + cases together (one poll,
+    // client groups cases under their folder) — folders are the organizing
+    // unit (e.g. "Megmeet F1 Rev1.6"), cases live inside one.
     if (action === "resolved_cases_list") {
       const { id: userId } = await authenticate(req);
       const rows = await sb("users", { filter: `?id=eq.${userId}&select=role` });
@@ -228,20 +231,51 @@ module.exports = async (req, res) => {
       if (!me || me.role !== "viewer") {
         return res.status(403).json({ error: "Viewer role required" });
       }
-      const cases = await sb("resolved_cases", { filter: "?select=*&order=created_at.desc" });
-      return res.status(200).json({ cases });
+      const [folders, cases] = await Promise.all([
+        sb("resolved_case_folders", { filter: "?select=*&order=name.asc" }),
+        sb("resolved_cases", { filter: "?select=*&order=created_at.desc" }),
+      ]);
+      return res.status(200).json({ folders, cases });
+    }
+
+    // Folder names only — used to populate the "which folder" dropdown when
+    // adding a case. Deliberately not the full browsing view: admin's real
+    // access here is create, not review: see resolved_cases_list above for
+    // the actual browsing/viewing permission, which stays viewer-only.
+    if (action === "resolved_folders_for_admin") {
+      authenticateAdmin(req);
+      const folders = await sb("resolved_case_folders", { filter: "?select=id,name&order=name.asc" });
+      return res.status(200).json({ folders });
+    }
+
+    if (action === "resolved_folders_add") {
+      authenticateAdmin(req);
+      const { name } = req.body;
+      const trimmed = name?.trim();
+      if (!trimmed) throw new Error("Folder name is required");
+      const existing = await sb("resolved_case_folders", { filter: `?name=eq.${encodeURIComponent(trimmed)}&select=id,name` });
+      if (existing && existing.length) {
+        return res.status(200).json({ folder: existing[0], alreadyExisted: true });
+      }
+      const created = await sb("resolved_case_folders", {
+        method: "POST",
+        prefer: "return=representation",
+        body: { name: trimmed },
+      });
+      return res.status(200).json({ folder: Array.isArray(created) ? created[0] : created });
     }
 
     if (action === "resolved_cases_add") {
       authenticateAdmin(req);
-      const { issue, errorCode, brand, fixDescription } = req.body;
+      const { folderId, issue, errorCode, fixDescription } = req.body;
+      if (!folderId) throw new Error("A folder is required");
       const created = await sb("resolved_cases", {
         method: "POST",
         prefer: "return=representation",
         body: {
+          folder_id: folderId,
           issue: issue?.trim() || null,
           error_code_or_led: errorCode?.trim() || null,
-          brand: brand?.trim() || null,
           fix_description: fixDescription?.trim() || null,
         },
       });

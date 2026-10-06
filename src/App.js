@@ -4105,15 +4105,50 @@ function PartFinder({user}) {
 // server-side in api/invoices.js (resolved_cases_list) — the "denied" case
 // below is the real gate, not just UI; someone without the role literally
 // gets no data back, unlike Part Finder's client-only check.
+// Shared folder-browsing view — used read-only here for technicians, and
+// reused (read-only too) inside AdminResolvedCases so both surfaces look
+// and behave the same way. Only the add-folder/add-case forms differ by
+// surface; browsing itself is identical on purpose.
+function ResolvedCasesBrowser({folders,cases,T}){
+  const [openFolder,setOpenFolder]=useState(null);
+  if(folders.length===0) return <div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No folders yet.</div>;
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      {folders.map(f=>{
+        const folderCases=cases.filter(c=>c.folder_id===f.id);
+        const isOpen=openFolder===f.id;
+        return (
+          <div key={f.id} style={{background:T.card,borderRadius:12,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+            <button onClick={()=>setOpenFolder(isOpen?null:f.id)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:14,background:"none",border:"none",cursor:"pointer",textAlign:"left"}}>
+              <span style={{fontSize:13,fontWeight:700,color:T.text}}>📁 {f.name}</span>
+              <span style={{fontSize:11,color:T.subtext}}>{folderCases.length} case{folderCases.length===1?"":"s"} {isOpen?"▲":"▼"}</span>
+            </button>
+            {isOpen&&<div style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:8}}>
+              {folderCases.length===0&&<div style={{fontSize:12,color:T.subtext}}>No cases in this folder yet.</div>}
+              {folderCases.map(c=>(
+                <div key={c.id} style={{background:T.bg,borderRadius:10,padding:12,border:`1px solid ${T.border}`}}>
+                  {c.issue&&<div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{c.issue}</div>}
+                  {c.error_code_or_led&&<div style={{fontSize:12,color:T.subtext,marginBottom:4}}>Error code / LED: {c.error_code_or_led}</div>}
+                  {c.fix_description&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5}}>{c.fix_description}</div>}
+                </div>
+              ))}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ResolvedCases() {
   const T=useTheme();
-  const [cases,setCases]=useState(null); // null=loading, []=empty, "denied"=403
+  const [data,setData]=useState(null); // null=loading, "denied"=403
   useEffect(()=>{
-    invoicesApi("resolved_cases_list").then(r=>setCases(r.cases||[])).catch(()=>setCases("denied"));
+    invoicesApi("resolved_cases_list").then(r=>setData({folders:r.folders||[],cases:r.cases||[]})).catch(()=>setData("denied"));
   },[]);
 
-  if(cases===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
-  if(cases==="denied") return (
+  if(data===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
+  if(data==="denied") return (
     <div style={{padding:16}}>
       <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}>
         <div style={{fontSize:32,marginBottom:8}}>🛠️</div>
@@ -4126,17 +4161,7 @@ function ResolvedCases() {
     <div style={{padding:16}}>
       <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>🛠️ Resolved Cases</h1>
       <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Past fixes logged by the admin</div>
-      {cases.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No cases logged yet.</div>}
-      <div style={{display:"flex",flexDirection:"column",gap:10}}>
-        {cases.map(c=>(
-          <div key={c.id} style={{background:T.card,borderRadius:12,padding:14,border:`1px solid ${T.border}`}}>
-            {c.brand&&<div style={{fontSize:11,fontWeight:700,color:"#27ae60",marginBottom:4}}>{c.brand}</div>}
-            {c.issue&&<div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{c.issue}</div>}
-            {c.error_code_or_led&&<div style={{fontSize:12,color:T.subtext,marginBottom:4}}>Error code / LED: {c.error_code_or_led}</div>}
-            {c.fix_description&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5}}>{c.fix_description}</div>}
-          </div>
-        ))}
-      </div>
+      <ResolvedCasesBrowser folders={data.folders} cases={data.cases} T={T}/>
     </div>
   );
 }
@@ -7790,39 +7815,83 @@ function AdminSettings() {
 }
 
 // ── ADMIN: RESOLVED CASES ────────────────────────────────────────────────────
-// Add-only — no edit/delete, matching what was asked for. Every field is
-// optional per spec; resolved_cases_add stores whatever's filled in as null
-// for the rest. Viewing (not adding) is what's role-gated — see
-// ResolvedCases() for technicians and resolved_cases_list in invoices.js
-// for the actual server-side enforcement.
+// Create-only, by design — admin adds folders and cases but doesn't browse
+// them here (that's the Viewer-role technician's job, in ResolvedCases()).
+// Folder names ARE fetched for the dropdown below (resolved_folders_for_admin),
+// but that's deliberately names-only, not case content — the real viewing
+// permission stays exclusively server-verified Viewer-role, enforced in
+// resolved_cases_list in invoices.js, same as before.
 function AdminResolvedCases(){
+  const [folders,setFolders]=useState([]);
+  const [folderId,setFolderId]=useState("");
+  const [newFolderName,setNewFolderName]=useState("");
   const [issue,setIssue]=useState("");
   const [errorCode,setErrorCode]=useState("");
-  const [brand,setBrand]=useState("");
   const [fixDescription,setFixDescription]=useState("");
-  const [saving,setSaving]=useState(false);
-  const [msg,setMsg]=useState("");
+  const [savingFolder,setSavingFolder]=useState(false);
+  const [savingCase,setSavingCase]=useState(false);
+  const [folderMsg,setFolderMsg]=useState("");
+  const [caseMsg,setCaseMsg]=useState("");
 
-  const save=async()=>{
-    setSaving(true);setMsg("");
+  const loadFolders=async()=>{
     try{
-      await invoicesAdminApi("resolved_cases_add",{issue,errorCode,brand,fixDescription});
-      setIssue("");setErrorCode("");setBrand("");setFixDescription("");
-      setMsg("✅ Case logged");
+      const r=await invoicesAdminApi("resolved_folders_for_admin");
+      setFolders(r.folders||[]);
+    }catch{}
+  };
+  useEffect(()=>{loadFolders();},[]);
+
+  const addFolder=async()=>{
+    if(!newFolderName.trim()) return;
+    setSavingFolder(true);setFolderMsg("");
+    try{
+      const r=await invoicesAdminApi("resolved_folders_add",{name:newFolderName});
+      setNewFolderName("");
+      setFolderMsg(r.alreadyExisted?"That folder already exists — selected it below":"✅ Folder created");
+      await loadFolders();
+      setFolderId(r.folder.id);
     }catch(e){
-      setMsg(`❌ ${e.message||"Failed to save"}`);
+      setFolderMsg(`❌ ${e.message||"Failed to create folder"}`);
     }finally{
-      setSaving(false);
+      setSavingFolder(false);
+    }
+  };
+
+  const saveCase=async()=>{
+    if(!folderId){ setCaseMsg("❌ Pick a folder first"); return; }
+    setSavingCase(true);setCaseMsg("");
+    try{
+      await invoicesAdminApi("resolved_cases_add",{folderId,issue,errorCode,fixDescription});
+      setIssue("");setErrorCode("");setFixDescription("");
+      setCaseMsg("✅ Case logged");
+    }catch(e){
+      setCaseMsg(`❌ ${e.message||"Failed to save"}`);
+    }finally{
+      setSavingCase(false);
     }
   };
 
   const inputStyle={width:"100%",padding:"12px",borderRadius:10,background:"#0f1420",border:"1px solid #2a3050",color:"#fff",fontSize:13,marginBottom:12,boxSizing:"border-box"};
 
   return (
-    <div style={{padding:16}}>
+    <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>New folder</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:12,lineHeight:1.6}}>e.g. "Megmeet F1 Rev1.6" — cases get logged inside a folder below.</div>
+        <input value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder name" style={inputStyle}/>
+        <button onClick={addFolder} disabled={savingFolder||!newFolderName.trim()} style={{width:"100%",padding:"12px",borderRadius:10,background:(savingFolder||!newFolderName.trim())?"#2a3050":"#2a3050",color:(savingFolder||!newFolderName.trim())?"#6b7db3":PC,border:`1px solid ${PC}55`,cursor:(savingFolder||!newFolderName.trim())?"default":"pointer",fontWeight:700,fontSize:13}}>{savingFolder?"Creating...":"📁 Create Folder"}</button>
+        {folderMsg&&<div style={{marginTop:10,fontSize:12,color:folderMsg.startsWith("✅")?PC:folderMsg.startsWith("❌")?"#ff4757":"#ffb020",textAlign:"center"}}>{folderMsg}</div>}
+      </div>
+
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Log a resolved case</div>
-        <div style={{fontSize:11,color:"#6b7db3",marginBottom:14,lineHeight:1.6}}>Visible only to technicians with the Viewer role approved. Every field below is optional.</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:14,lineHeight:1.6}}>Visible only to technicians with the Viewer role approved. Issue, error code, and fix are all optional.</div>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Folder</label>
+        <select value={folderId} onChange={e=>setFolderId(e.target.value)} style={inputStyle}>
+          <option value="">Select a folder…</option>
+          {folders.map(f=>(<option key={f.id} value={f.id}>{f.name}</option>))}
+        </select>
 
         <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Issue</label>
         <input value={issue} onChange={e=>setIssue(e.target.value)} placeholder="e.g. No power, display blank" style={inputStyle}/>
@@ -7830,14 +7899,11 @@ function AdminResolvedCases(){
         <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Error Code / LED Blinking</label>
         <input value={errorCode} onChange={e=>setErrorCode(e.target.value)} placeholder="e.g. E4, 3 red blinks" style={inputStyle}/>
 
-        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Brand</label>
-        <input value={brand} onChange={e=>setBrand(e.target.value)} placeholder="e.g. Voltas" style={inputStyle}/>
-
         <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>How it was fixed</label>
         <textarea value={fixDescription} onChange={e=>setFixDescription(e.target.value)} placeholder="What the actual fix was" rows={4} style={{...inputStyle,resize:"vertical",fontFamily:"inherit"}}/>
 
-        <button onClick={save} disabled={saving} style={{width:"100%",padding:"12px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",cursor:saving?"default":"pointer",fontWeight:700,fontSize:13}}>{saving?"Saving...":"Save Case"}</button>
-        {msg&&<div style={{marginTop:10,fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",textAlign:"center"}}>{msg}</div>}
+        <button onClick={saveCase} disabled={savingCase||!folderId} style={{width:"100%",padding:"12px",borderRadius:10,background:(savingCase||!folderId)?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(savingCase||!folderId)?"#6b7db3":"#0a0d14",border:"none",cursor:(savingCase||!folderId)?"default":"pointer",fontWeight:700,fontSize:13}}>{savingCase?"Saving...":"Save Case"}</button>
+        {caseMsg&&<div style={{marginTop:10,fontSize:12,color:caseMsg.startsWith("✅")?PC:"#ff4757",textAlign:"center"}}>{caseMsg}</div>}
       </div>
     </div>
   );
