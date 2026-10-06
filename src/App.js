@@ -2419,7 +2419,7 @@ function Home({setTab,user}) {
     {id:"blog",icon:"📝",title:"Blog",desc:"Guides, tips & how-tos",color:"#ffd700"},
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     ...(partsEnabled&&user?.role==="viewer"?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
-    ...(user?.role==="viewer"?[{id:"resolved",icon:"🛠️",title:"Resolved Cases",desc:"Past fixes by other technicians",color:"#27ae60"}]:[]),
+    ...(user?.role==="viewer"?[{id:"resolved",icon:"🛠️",title:"Resolved Cases",desc:"Past fixes logged by the admin",color:"#27ae60"}]:[]),
     {id:"myorder",icon:"📦",title:"My Order",desc:"Track your order status",color:"#00e5ff"},
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
     {id:"invoices",icon:"🧾",title:"Invoices",desc:"Generate customer invoices",color:"#00c8a0"},
@@ -4108,32 +4108,42 @@ function PartFinder({user}) {
 // Shared folder-browsing view — used read-only here for technicians, and
 // reused (read-only too) inside AdminResolvedCases so both surfaces look
 // and behave the same way. Only the add-folder/add-case forms differ by
-// surface; browsing itself is identical on purpose.
+// surface; browsing itself is identical on purpose. Drill-down, not an
+// accordion — tapping a folder replaces the view with that folder's case
+// list plus a back button, rather than expanding inline.
 function ResolvedCasesBrowser({folders,cases,T}){
   const [openFolder,setOpenFolder]=useState(null);
+
+  if(openFolder){
+    const folderCases=cases.filter(c=>c.folder_id===openFolder.id);
+    return (
+      <div>
+        <button onClick={()=>setOpenFolder(null)} style={{background:"none",border:"none",color:T.subtext,fontSize:12,cursor:"pointer",padding:0,marginBottom:14,display:"flex",alignItems:"center",gap:4}}>← Back to folders</button>
+        <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:12}}>📁 {openFolder.name}</div>
+        {folderCases.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No cases in this folder yet.</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {folderCases.map(c=>(
+            <div key={c.id} style={{background:T.card,borderRadius:10,padding:12,border:`1px solid ${T.border}`}}>
+              {c.issue&&<div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{c.issue}</div>}
+              {c.error_code_or_led&&<div style={{fontSize:12,color:T.subtext,marginBottom:4}}>Error code / LED: {c.error_code_or_led}</div>}
+              {c.fix_description&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5}}>{c.fix_description}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if(folders.length===0) return <div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No folders yet.</div>;
   return (
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       {folders.map(f=>{
         const folderCases=cases.filter(c=>c.folder_id===f.id);
-        const isOpen=openFolder===f.id;
         return (
-          <div key={f.id} style={{background:T.card,borderRadius:12,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-            <button onClick={()=>setOpenFolder(isOpen?null:f.id)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:14,background:"none",border:"none",cursor:"pointer",textAlign:"left"}}>
-              <span style={{fontSize:13,fontWeight:700,color:T.text}}>📁 {f.name}</span>
-              <span style={{fontSize:11,color:T.subtext}}>{folderCases.length} case{folderCases.length===1?"":"s"} {isOpen?"▲":"▼"}</span>
-            </button>
-            {isOpen&&<div style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:8}}>
-              {folderCases.length===0&&<div style={{fontSize:12,color:T.subtext}}>No cases in this folder yet.</div>}
-              {folderCases.map(c=>(
-                <div key={c.id} style={{background:T.bg,borderRadius:10,padding:12,border:`1px solid ${T.border}`}}>
-                  {c.issue&&<div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{c.issue}</div>}
-                  {c.error_code_or_led&&<div style={{fontSize:12,color:T.subtext,marginBottom:4}}>Error code / LED: {c.error_code_or_led}</div>}
-                  {c.fix_description&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5}}>{c.fix_description}</div>}
-                </div>
-              ))}
-            </div>}
-          </div>
+          <button key={f.id} onClick={()=>setOpenFolder(f)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:14,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,cursor:"pointer",textAlign:"left"}}>
+            <span style={{fontSize:13,fontWeight:700,color:T.text}}>📁 {f.name}</span>
+            <span style={{fontSize:11,color:T.subtext}}>{folderCases.length} case{folderCases.length===1?"":"s"} ›</span>
+          </button>
         );
       })}
     </div>
@@ -7822,6 +7832,18 @@ function AdminSettings() {
 // permission stays exclusively server-verified Viewer-role, enforced in
 // resolved_cases_list in invoices.js, same as before.
 function AdminResolvedCases(){
+  const adminT={bg:"#0f1420",card:"#1a1f2e",border:"#2a3050",text:"#fff",subtext:"#6b7db3"};
+  const [browseData,setBrowseData]=useState(null); // null=loading
+  const loadBrowse=async()=>{
+    try{
+      const r=await invoicesAdminApi("resolved_cases_list_for_admin");
+      setBrowseData({folders:r.folders||[],cases:r.cases||[]});
+    }catch{
+      setBrowseData({folders:[],cases:[]});
+    }
+  };
+  useEffect(()=>{loadBrowse();},[]);
+
   const [folders,setFolders]=useState([]);
   const [folderId,setFolderId]=useState("");
   const [newFolderName,setNewFolderName]=useState("");
@@ -7849,6 +7871,7 @@ function AdminResolvedCases(){
       setNewFolderName("");
       setFolderMsg(r.alreadyExisted?"That folder already exists — selected it below":"✅ Folder created");
       await loadFolders();
+      await loadBrowse();
       setFolderId(r.folder.id);
     }catch(e){
       setFolderMsg(`❌ ${e.message||"Failed to create folder"}`);
@@ -7864,6 +7887,7 @@ function AdminResolvedCases(){
       await invoicesAdminApi("resolved_cases_add",{folderId,issue,errorCode,fixDescription});
       setIssue("");setErrorCode("");setFixDescription("");
       setCaseMsg("✅ Case logged");
+      await loadBrowse();
     }catch(e){
       setCaseMsg(`❌ ${e.message||"Failed to save"}`);
     }finally{
@@ -7875,6 +7899,11 @@ function AdminResolvedCases(){
 
   return (
     <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Browse resolved cases</div>
+        {browseData===null&&<div style={{fontSize:12,color:"#6b7db3"}}>Loading…</div>}
+        {browseData&&<ResolvedCasesBrowser folders={browseData.folders} cases={browseData.cases} T={adminT}/>}
+      </div>
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>New folder</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:12,lineHeight:1.6}}>e.g. "Megmeet F1 Rev1.6" — cases get logged inside a folder below.</div>

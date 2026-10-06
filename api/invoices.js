@@ -238,6 +238,19 @@ module.exports = async (req, res) => {
       return res.status(200).json({ folders, cases });
     }
 
+    // Admin gets the same browsing data as viewer-role technicians — a
+    // separate action because admin auth (HMAC session) and the Firebase
+    // Viewer-role check in resolved_cases_list above are two different
+    // mechanisms; admin was never going to satisfy that check.
+    if (action === "resolved_cases_list_for_admin") {
+      authenticateAdmin(req);
+      const [folders, cases] = await Promise.all([
+        sb("resolved_case_folders", { filter: "?select=*&order=name.asc" }),
+        sb("resolved_cases", { filter: "?select=*&order=created_at.desc" }),
+      ]);
+      return res.status(200).json({ folders, cases });
+    }
+
     // Folder names only — used to populate the "which folder" dropdown when
     // adding a case. Deliberately not the full browsing view: admin's real
     // access here is create, not review: see resolved_cases_list above for
