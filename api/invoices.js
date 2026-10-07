@@ -295,6 +295,45 @@ module.exports = async (req, res) => {
       return res.status(200).json({ case: Array.isArray(created) ? created[0] : created });
     }
 
+    // EEPROM Files — same security shape as Resolved Cases: admin-gated
+    // create, Viewer-role-gated (server-verified, not client-only) list.
+    // The file itself is uploaded client-side straight to Supabase storage
+    // (same pattern used everywhere else in this app for images); only the
+    // resulting URL and metadata pass through here.
+    if (action === "eeprom_files_list") {
+      const { id: userId } = await authenticate(req);
+      const rows = await sb("users", { filter: `?id=eq.${userId}&select=role` });
+      const me = Array.isArray(rows) ? rows[0] : null;
+      if (!me || me.role !== "viewer") {
+        return res.status(403).json({ error: "Viewer role required" });
+      }
+      const files = await sb("eeprom_files", { filter: "?select=*&order=created_at.desc" });
+      return res.status(200).json({ files });
+    }
+
+    if (action === "eeprom_files_list_for_admin") {
+      authenticateAdmin(req);
+      const files = await sb("eeprom_files", { filter: "?select=*&order=created_at.desc" });
+      return res.status(200).json({ files });
+    }
+
+    if (action === "eeprom_files_add") {
+      authenticateAdmin(req);
+      const { fileUrl, fileName, brand, eepromNumber } = req.body;
+      if (!fileUrl) throw new Error("A file is required");
+      const created = await sb("eeprom_files", {
+        method: "POST",
+        prefer: "return=representation",
+        body: {
+          file_url: fileUrl,
+          file_name: fileName?.trim() || null,
+          brand: brand?.trim() || null,
+          eeprom_number: eepromNumber?.trim() || null,
+        },
+      });
+      return res.status(200).json({ file: Array.isArray(created) ? created[0] : created });
+    }
+
     if (action === "list_my_invoices") {
       const { id: technicianId } = await authenticate(req);
       const invoices = await sb("invoices", {

@@ -136,6 +136,21 @@ const realImageUrls=(images)=>(images||[]).filter(img=>img&&!img.startsWith("dat
 // from saving their work (the image just stays base64 for that one save,
 // and can be picked up by a later migration pass).
 const STORAGE_BUCKET = "site-images";
+// Generic raw-file upload — takes a File object directly (no base64
+// round-trip, unlike uploadImageToStorage above), for non-image binary
+// uploads like EEPROM dumps. Same bucket (it's general storage despite the
+// name), different folder.
+const uploadFileToStorage = async (file, folder="uploads") => {
+  const ext = (file.name.split(".").pop() || "bin").toLowerCase();
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2,9)}.${ext}`;
+  const up = await fetch(`${SB_URL}/storage/v1/object/${STORAGE_BUCKET}/${path}`, {
+    method: "POST",
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!up.ok) throw new Error(`Upload failed (${up.status})`);
+  return `${SB_URL}/storage/v1/object/public/${STORAGE_BUCKET}/${path}`;
+};
 const uploadImageToStorage = async (dataUrl, folder="uploads") => {
   try{
     if(!dataUrl||!dataUrl.startsWith("data:")) return dataUrl; // already a real URL — nothing to do
@@ -2420,6 +2435,7 @@ function Home({setTab,user}) {
     {id:"sensors",icon:"📡",title:"Sensor Values",desc:"Component test values",color:"#00bcd4"},
     ...(partsEnabled&&user?.role==="viewer"?[{id:"parts",icon:"🔩",title:"Part Finder",desc:"Identify parts by model",color:"#8e44ad"}]:[]),
     ...(user?.role==="viewer"?[{id:"resolved",icon:"🛠️",title:"Resolved Cases",desc:"Past fixes logged by the admin",color:"#27ae60"}]:[]),
+    ...(user?.role==="viewer"?[{id:"eeprom",icon:"💾",title:"EEPROM Files",desc:"Uploaded EEPROM dumps by brand",color:"#2980b9"}]:[]),
     {id:"myorder",icon:"📦",title:"My Order",desc:"Track your order status",color:"#00e5ff"},
     {id:"requests",icon:"📥",title:"Requests",desc:"Request new content",color:"#ff6b35"},
     {id:"invoices",icon:"🧾",title:"Invoices",desc:"Generate customer invoices",color:"#00c8a0"},
@@ -4176,6 +4192,43 @@ function ResolvedCases() {
   );
 }
 
+// Read-only for Viewer-role technicians, same server-verified gate as
+// Resolved Cases (eeprom_files_list checks the real role, not just UI).
+function EepromFiles() {
+  const T=useTheme();
+  const [files,setFiles]=useState(null); // null=loading, "denied"=403
+  useEffect(()=>{
+    invoicesApi("eeprom_files_list").then(r=>setFiles(r.files||[])).catch(()=>setFiles("denied"));
+  },[]);
+
+  if(files===null) return <div style={{padding:30,textAlign:"center",color:T.subtext}}>Loading...</div>;
+  if(files==="denied") return (
+    <div style={{padding:16}}>
+      <div style={{background:T.card,borderRadius:14,padding:24,textAlign:"center",border:`1px solid ${T.border}`}}>
+        <div style={{fontSize:32,marginBottom:8}}>💾</div>
+        <div style={{fontSize:13,color:T.subtext}}>EEPROM Files isn't available for your account.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{padding:16}}>
+      <h1 style={{fontSize:18,fontWeight:700,color:T.text,marginBottom:4,marginTop:0}}>💾 EEPROM Files</h1>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:16}}>Uploaded by the admin</div>
+      {files.length===0&&<div style={{textAlign:"center",color:T.subtext,padding:20,fontSize:13}}>No files uploaded yet.</div>}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {files.map(f=>(
+          <a key={f.id} href={f.file_url} target="_blank" rel="noreferrer" style={{display:"block",background:T.card,borderRadius:10,padding:12,border:`1px solid ${T.border}`,textDecoration:"none"}}>
+            <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{f.file_name||"EEPROM file"}</div>
+            {f.brand&&<div style={{fontSize:12,color:T.subtext}}>Brand: {f.brand}</div>}
+            {f.eeprom_number&&<div style={{fontSize:12,color:T.subtext}}>EEPROM No.: {f.eeprom_number}</div>}
+            <div style={{fontSize:11,color:"#2980b9",marginTop:4}}>⬇️ Download</div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 
 // ── SHARED: CHAT THREAD (used by both user-facing Requests and AdminRequests) ──
@@ -7900,11 +7953,6 @@ function AdminResolvedCases(){
   return (
     <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
       <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Browse resolved cases</div>
-        {browseData===null&&<div style={{fontSize:12,color:"#6b7db3"}}>Loading…</div>}
-        {browseData&&<ResolvedCasesBrowser folders={browseData.folders} cases={browseData.cases} T={adminT}/>}
-      </div>
-      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
         <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>New folder</div>
         <div style={{fontSize:11,color:"#6b7db3",marginBottom:12,lineHeight:1.6}}>e.g. "Megmeet F1 Rev1.6" — cases get logged inside a folder below.</div>
         <input value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder name" style={inputStyle}/>
@@ -7933,6 +7981,90 @@ function AdminResolvedCases(){
 
         <button onClick={saveCase} disabled={savingCase||!folderId} style={{width:"100%",padding:"12px",borderRadius:10,background:(savingCase||!folderId)?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(savingCase||!folderId)?"#6b7db3":"#0a0d14",border:"none",cursor:(savingCase||!folderId)?"default":"pointer",fontWeight:700,fontSize:13}}>{savingCase?"Saving...":"Save Case"}</button>
         {caseMsg&&<div style={{marginTop:10,fontSize:12,color:caseMsg.startsWith("✅")?PC:"#ff4757",textAlign:"center"}}>{caseMsg}</div>}
+      </div>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Browse resolved cases</div>
+        {browseData===null&&<div style={{fontSize:12,color:"#6b7db3"}}>Loading…</div>}
+        {browseData&&<ResolvedCasesBrowser folders={browseData.folders} cases={browseData.cases} T={adminT}/>}
+      </div>
+    </div>
+  );
+}
+
+// ── ADMIN: EEPROM FILES ─────────────────────────────────────────────────────
+// Create-and-browse, same shape as Resolved Cases: upload form on top,
+// browse list below. Only admin uploads; only Viewer-role technicians can
+// see the Viewer-facing EepromFiles() — enforced server-side.
+function AdminEepromFiles(){
+  const [file,setFile]=useState(null);
+  const [brand,setBrand]=useState("");
+  const [eepromNumber,setEepromNumber]=useState("");
+  const [uploading,setUploading]=useState(false);
+  const [msg,setMsg]=useState("");
+  const [files,setFiles]=useState(null);
+
+  const loadFiles=async()=>{
+    try{
+      const r=await invoicesAdminApi("eeprom_files_list_for_admin");
+      setFiles(r.files||[]);
+    }catch{
+      setFiles([]);
+    }
+  };
+  useEffect(()=>{loadFiles();},[]);
+
+  const save=async()=>{
+    if(!file){ setMsg("❌ Choose a file first"); return; }
+    setUploading(true);setMsg("");
+    try{
+      const fileUrl=await uploadFileToStorage(file,"eeprom");
+      await invoicesAdminApi("eeprom_files_add",{fileUrl,fileName:file.name,brand,eepromNumber});
+      setFile(null);setBrand("");setEepromNumber("");
+      setMsg("✅ File uploaded");
+      await loadFiles();
+    }catch(e){
+      setMsg(`❌ ${e.message||"Upload failed"}`);
+    }finally{
+      setUploading(false);
+    }
+  };
+
+  const inputStyle={width:"100%",padding:"12px",borderRadius:10,background:"#0f1420",border:"1px solid #2a3050",color:"#fff",fontSize:13,marginBottom:12,boxSizing:"border-box"};
+  const adminT={bg:"#0f1420",card:"#1a1f2e",border:"#2a3050",text:"#fff",subtext:"#6b7db3"};
+
+  return (
+    <div style={{padding:16,display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:3}}>Upload EEPROM file</div>
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:14,lineHeight:1.6}}>Visible only to technicians with the Viewer role approved. File is required; brand and EEPROM number are optional.</div>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>File</label>
+        <input type="file" onChange={e=>setFile(e.target.files[0]||null)} style={{...inputStyle,padding:"10px"}}/>
+        {file&&<div style={{fontSize:11,color:"#6b7db3",marginTop:-8,marginBottom:12}}>Selected: {file.name}</div>}
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>Brand</label>
+        <input value={brand} onChange={e=>setBrand(e.target.value)} placeholder="e.g. Samsung" style={inputStyle}/>
+
+        <label style={{fontSize:11,color:"#6b7db3",display:"block",marginBottom:4}}>EEPROM Number</label>
+        <input value={eepromNumber} onChange={e=>setEepromNumber(e.target.value)} placeholder="e.g. 24C02" style={inputStyle}/>
+
+        <button onClick={save} disabled={uploading||!file} style={{width:"100%",padding:"12px",borderRadius:10,background:(uploading||!file)?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:(uploading||!file)?"#6b7db3":"#0a0d14",border:"none",cursor:(uploading||!file)?"default":"pointer",fontWeight:700,fontSize:13}}>{uploading?"Uploading...":"Upload"}</button>
+        {msg&&<div style={{marginTop:10,fontSize:12,color:msg.startsWith("✅")?PC:"#ff4757",textAlign:"center"}}>{msg}</div>}
+      </div>
+
+      <div style={{background:"#1a1f2e",borderRadius:14,padding:16,border:"1px solid #2a3050"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:10}}>Uploaded files</div>
+        {files===null&&<div style={{fontSize:12,color:"#6b7db3"}}>Loading…</div>}
+        {files&&files.length===0&&<div style={{fontSize:12,color:adminT.subtext,textAlign:"center",padding:10}}>No files uploaded yet.</div>}
+        {files&&files.length>0&&<div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {files.map(f=>(
+            <a key={f.id} href={f.file_url} target="_blank" rel="noreferrer" style={{display:"block",background:adminT.bg,borderRadius:10,padding:12,border:`1px solid ${adminT.border}`,textDecoration:"none"}}>
+              <div style={{fontSize:13,fontWeight:600,color:adminT.text,marginBottom:4}}>{f.file_name||"EEPROM file"}</div>
+              {f.brand&&<div style={{fontSize:12,color:adminT.subtext}}>Brand: {f.brand}</div>}
+              {f.eeprom_number&&<div style={{fontSize:12,color:adminT.subtext}}>EEPROM No.: {f.eeprom_number}</div>}
+            </a>
+          ))}
+        </div>}
       </div>
     </div>
   );
@@ -9284,6 +9416,7 @@ function AdminPanel({onLogout}) {
     {id:"users",label:"Users",icon:"👤",badge:newUserCount>0},
     {id:"technicians",label:"Technicians",icon:"👷"},
     {id:"resolved",label:"Resolved Cases",icon:"🛠️"},
+    {id:"eeprom",label:"EEPROM Files",icon:"💾"},
     {id:"settings",label:"Settings",icon:"⚙️"},
   ];
   return (
@@ -9322,6 +9455,7 @@ function AdminPanel({onLogout}) {
         {tab==="technicians"&&<AdminTechnicians/>}
         {tab==="settings"&&<AdminSettings/>}
         {tab==="resolved"&&<AdminResolvedCases/>}
+        {tab==="eeprom"&&<AdminEepromFiles/>}
       </div>
 
       {newReqPopup&&<div onClick={()=>setNewReqPopup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -9693,6 +9827,7 @@ useEffect(() => {
         {tab==="sensors"&&<SensorValues onViewProduct={navigateToShopProduct}/>}
         {tab==="parts"&&<PartFinder user={user}/>}
         {tab==="resolved"&&<ResolvedCases/>}
+        {tab==="eeprom"&&<EepromFiles/>}
         {tab==="myorder"&&<MyOrder/>}
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
