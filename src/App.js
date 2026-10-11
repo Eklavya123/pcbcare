@@ -3266,6 +3266,18 @@ function Shop({initialPath,user}) {
           priceCurrency:"INR",
           availability:"https://schema.org/InStock",
           url:`${SITE_URL}/shop/product/${prod.slug}`,
+          // No shippingDetails here on purpose — the real delivery cost
+          // varies and is confirmed on WhatsApp, not a fixed figure, and a
+          // fabricated one would misrepresent actual cost in the snippet.
+          // Return policy, unlike shipping, we actually have a firm,
+          // truthful answer for: no returns/exchanges, except transit
+          // damage or a shipping error on our end (see /return-policy).
+          hasMerchantReturnPolicy:{
+            "@type":"MerchantReturnPolicy",
+            returnPolicyCategory:"https://schema.org/MerchantReturnNotPermitted",
+            merchantReturnLink:`${SITE_URL}/return-policy`,
+            applicableCountry:"IN",
+          },
         }:undefined,
         aggregateRating:ratingSummary?{
           "@type":"AggregateRating",

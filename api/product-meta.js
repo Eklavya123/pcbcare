@@ -103,6 +103,16 @@ module.exports = async (req, res) => {
               priceCurrency: "INR",
               availability: "https://schema.org/InStock",
               url,
+              // No shippingDetails — real delivery cost varies and is
+              // confirmed on WhatsApp, not a fixed figure to advertise.
+              // Return policy is firm and truthful, unlike shipping: no
+              // returns/exchanges except transit damage or our error.
+              hasMerchantReturnPolicy: {
+                "@type": "MerchantReturnPolicy",
+                returnPolicyCategory: "https://schema.org/MerchantReturnNotPermitted",
+                merchantReturnLink: `${SITE_URL}/return-policy`,
+                applicableCountry: "IN",
+              },
             },
           }
         : {}),
