@@ -17,7 +17,69 @@
 
     <!-- Monetag site verification -->
     <meta name="monetag" content="000f89c9b52d4227c9d7d01e91f62ea3" />
-    <!-- Google tag (gtag.js) --> <script async src="https://www.googletagmanager.com/gtag/js?id=G-7LJ17PXJ8C"></script> <script>   window.dataLayer = window.dataLayer || [];   function gtag(){dataLayer.push(arguments);}   gtag('js', new Date());    gtag('config', 'G-7LJ17PXJ8C'); </script>
+
+    <!-- Google tag (gtag.js): GA4 + Google Ads share one loader and one init -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-7LJ17PXJ8C"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-7LJ17PXJ8C');
+      gtag('config', 'AW-18518018282');
+
+      // WhatsApp click conversion (Google Ads).
+      // Tracks clicks on any WhatsApp link, and also buttons that open
+      // WhatsApp with window.open(), such as "Get Price on WhatsApp".
+      (function () {
+        var SEND_TO = 'AW-18518018282/N8XdCM3p058dEOqRiv5E';
+
+        function isWhatsAppLink(href) {
+          if (!href) return false;
+          href = String(href).toLowerCase();
+          return (
+            href.indexOf('wa.me') !== -1 ||
+            href.indexOf('api.whatsapp.com') !== -1 ||
+            href.indexOf('web.whatsapp.com') !== -1 ||
+            href.indexOf('whatsapp://') === 0
+          );
+        }
+
+        // 1) Normal <a href="https://wa.me/..."> links
+        document.addEventListener('click', function (e) {
+          var el = e.target && e.target.closest ? e.target.closest('a') : null;
+          if (!el || !isWhatsAppLink(el.href)) return;
+          if (typeof gtag !== 'function') return;
+
+          var url = el.href;
+
+          if (el.target === '_blank') {
+            gtag('event', 'conversion', { 'send_to': SEND_TO });
+            return;
+          }
+
+          e.preventDefault();
+          var done = false;
+          function go() {
+            if (done) return;
+            done = true;
+            window.location.href = url;
+          }
+          gtag('event', 'conversion', { 'send_to': SEND_TO, 'event_callback': go });
+          setTimeout(go, 1000);
+        }, true);
+
+        // 2) Buttons that call window.open('https://wa.me/...')
+        var originalOpen = window.open;
+        window.open = function (url) {
+          try {
+            if (isWhatsAppLink(url) && typeof gtag === 'function') {
+              gtag('event', 'conversion', { 'send_to': SEND_TO });
+            }
+          } catch (err) {}
+          return originalOpen.apply(window, arguments);
+        };
+      })();
+    </script>
 
     <!-- PWA install meta for iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
