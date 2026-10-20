@@ -9577,6 +9577,11 @@ useEffect(() => {
     myorder: "PCB Care – My Order",
     page: "PCB Care – Page"
   };
+  // Product and blog pages already carry their own title (server-rendered by
+  // /api/product-meta and /api/blog-meta, and set by setSEO). Their canonical
+  // link points at them, so don't overwrite that title with the generic one.
+  const canon = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "";
+  if (/\/(shop\/product|blog)\//.test(canon)) return;
   document.title = titleMap[tab] || "PCB Care";
 }, [tab]);
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
