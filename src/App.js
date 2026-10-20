@@ -2021,6 +2021,16 @@ function TambolaApp(){
   );
 }
 
+// Crawlers (Googlebot, Google's live inspection tool, link-preview bots,
+// Lighthouse) can't sit through the intro video: the app isn't even mounted
+// while it plays, so they capture a dark screen with no page content. Skip it
+// for them. Real visitors still get the normal once-per-session intro.
+const isCrawlerUA = () => {
+  try {
+    return /bot|crawl|spider|slurp|inspectiontool|lighthouse|facebookexternalhit|whatsapp|telegram|preview/i.test(navigator.userAgent || "");
+  } catch { return false; }
+};
+
 function Intro({onDone}) {
   const videoRef=useRef(null);
   useEffect(()=>{
@@ -9498,7 +9508,7 @@ export default function PCBCare() {
   // UI deterrent for right‑click and text selection removed for accessibility and SEO compliance
 
 
-  const [stage,setStage]=useState("intro");          // intro -> app (auth now shown on-demand, layered over "app")
+  const [stage,setStage]=useState(()=>isCrawlerUA()?"app":"intro");          // intro -> app (auth now shown on-demand, layered over "app")
   const [authView,setAuthView]=useState("login");     // login | signup
   const [user,setUser]=useState(()=>DB.get("pcb_user",null));
   // If someone lands directly on a /shop, /shop/category/:slug or /shop/product/:slug
