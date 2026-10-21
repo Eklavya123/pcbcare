@@ -8701,12 +8701,146 @@ const xmlEscape=(s)=>(s||"").toString()
   .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
   .replace(/"/g,"&quot;").replace(/'/g,"&apos;");
 
+// ── Inline fixer for ONE row of the "Needs fixing" list ────────────────────
+// Lets the admin supply whatever is missing (image, price, description, brand)
+// right in the Fix Products list and save it in one go, instead of opening each
+// product in the Products tab. Only the fields that were actually filled in are
+// sent, and the product's id and slug are never touched.
+function FixProductRow({p,badges,hasImage,hasPrice,hasBrand,hasDescription,allBrands,onSaved}) {
+  const INP={width:"100%",padding:"10px 12px",borderRadius:10,border:"1px solid #2a3050",background:"#0a0d14",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"};
+  const [open,setOpen]=useState(false);
+  const [newImages,setNewImages]=useState([]); // URLs to add (a data: URL while its upload is still running)
+  const [uploading,setUploading]=useState(0);
+  const [cropSrc,setCropSrc]=useState(null);
+  const [price,setPrice]=useState("");
+  const [description,setDescription]=useState("");
+  const [brands,setBrands]=useState([]);
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState("");
+
+  const dirty=newImages.length>0||price!==""||description.trim()!==""||brands.length>0;
+  const reset=()=>{setNewImages([]);setPrice("");setDescription("");setBrands([]);setMsg("");};
+
+  const pickImage=(e)=>{
+    const file=e.target.files&&e.target.files[0];
+    if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>setCropSrc(reader.result);
+    reader.onerror=()=>setMsg("⚠ Could not read that image.");
+    reader.readAsDataURL(file);
+    e.target.value="";
+  };
+  const cropConfirmed=async(dataUrl)=>{
+    setCropSrc(null);
+    setNewImages(imgs=>[...imgs,dataUrl]);
+    setUploading(n=>n+1);
+    const url=await uploadImageToStorage(dataUrl,"products");
+    setUploading(n=>n-1);
+    // On a failed upload this returns the same data: URL, so the preview stays;
+    // save() below refuses to store it and asks for a retry.
+    setNewImages(imgs=>imgs.map(img=>img===dataUrl?url:img));
+  };
+
+  const save=async()=>{
+    setMsg("");
+    if(uploading>0){setMsg("⏳ Image is still uploading, wait a moment.");return;}
+    if(newImages.some(i=>i.startsWith("data:"))){setMsg("⚠ An image failed to upload. Remove it and add it again.");return;}
+    const payload={};
+    if(newImages.length) payload.images=[...newImages,...(p.images||[])]; // new real images first so one becomes the primary
+    if(price!==""){
+      const n=Number(price);
+      if(!Number.isFinite(n)||n<=0){setMsg("⚠ Enter a price greater than 0.");return;}
+      payload.starting_price=n;
+    }
+    if(description.trim()) payload.description=description.trim();
+    if(brands.length) payload.brands=brands;
+    if(!Object.keys(payload).length) return;
+    setSaving(true);
+    try{
+      await api("shop_products",{method:"PATCH",filter:`?id=eq.${p.id}`,body:payload,prefer:"return=minimal"});
+      reset();
+      setMsg("✅ Saved");
+      await onSaved(p.name); // reloads the list; the product moves to "Ready" once image and price are both present
+    }catch(e){
+      setMsg("⚠ Save failed: "+e.message);
+    }
+    setSaving(false);
+  };
+
+  const label={fontSize:11,fontWeight:700,color:"#b0b8d0",marginBottom:5};
+  return (
+    <div style={{background:"#0f1420",border:"1px solid #2a3050",borderRadius:8,padding:"8px 10px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+        <span style={{fontSize:12,color:"#fff",flex:1,minWidth:140}}>{p.name}</span>
+        {badges}
+        <button type="button" onClick={()=>setOpen(o=>!o)}
+          style={{padding:"5px 11px",borderRadius:8,border:`1px solid ${PC}`,background:`${PC}22`,color:PC,fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+          {open?"Close":"✎ Fix here"}
+        </button>
+      </div>
+
+      {open&&<div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #2a3050",display:"flex",flexDirection:"column",gap:12}}>
+        {!hasImage&&<div>
+          <div style={label}>Image (required)</div>
+          <input type="file" accept="image/*" onChange={pickImage} style={{width:"100%",fontSize:12,color:"#6b7db3"}}/>
+          {newImages.length>0&&<div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+            {newImages.map((img,i)=>(
+              <div key={i} style={{position:"relative"}}>
+                <img src={img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:8,border:"1px solid #2a3050",opacity:img.startsWith("data:")?0.5:1}}/>
+                <button type="button" onClick={()=>setNewImages(imgs=>imgs.filter((_,j)=>j!==i))}
+                  style={{position:"absolute",top:-6,right:-6,width:20,height:20,borderRadius:10,border:"none",background:"#ff4757",color:"#fff",fontSize:11,cursor:"pointer",lineHeight:"20px",padding:0}}>✕</button>
+              </div>
+            ))}
+          </div>}
+          {uploading>0&&<div style={{fontSize:11,color:"#6b7db3",marginTop:6}}>Uploading…</div>}
+        </div>}
+
+        {!hasPrice&&<div>
+          <div style={label}>Price in ₹ (required)</div>
+          <input value={price} inputMode="decimal" placeholder="e.g. 2500" onChange={e=>setPrice(e.target.value.replace(/[^0-9.]/g,""))} style={INP}/>
+        </div>}
+
+        {!hasDescription&&<div>
+          <div style={label}>Description (optional, an automatic one is used if left empty)</div>
+          <textarea value={description} rows={3} placeholder="Description" onChange={e=>setDescription(e.target.value)} style={{...INP,resize:"vertical",fontFamily:"inherit"}}/>
+        </div>}
+
+        {!hasBrand&&allBrands.length>0&&<div>
+          <div style={label}>Brand (optional, defaults to "PCB Care")</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {allBrands.map(b=>{
+              const on=brands.includes(b);
+              return <button key={b} type="button" onClick={()=>setBrands(cur=>on?cur.filter(x=>x!==b):[...cur,b])}
+                style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#b0b8d0",fontSize:12,cursor:"pointer"}}>{b}</button>;
+            })}
+          </div>
+        </div>}
+
+        {msg&&<div style={{fontSize:12,color:msg.startsWith("✅")?PC:"#ffb020"}}>{msg}</div>}
+
+        {dirty&&<div style={{display:"flex",gap:8}}>
+          <button type="button" onClick={save} disabled={saving||uploading>0}
+            style={{padding:"9px 18px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",fontSize:13,fontWeight:800,cursor:"pointer",opacity:(saving||uploading>0)?0.6:1}}>
+            {saving?"Saving…":"Save"}
+          </button>
+          <button type="button" onClick={reset} disabled={saving}
+            style={{padding:"9px 14px",borderRadius:10,border:"1px solid #2a3050",background:"transparent",color:"#b0b8d0",fontSize:13,cursor:"pointer"}}>Discard</button>
+        </div>}
+      </div>}
+
+      {cropSrc&&<ImageCropModal src={cropSrc} allowBackground onConfirm={cropConfirmed} onCancel={()=>setCropSrc(null)}/>}
+    </div>
+  );
+}
+
 function AdminMerchantFeed(){
   const [rows,setRows]=useState(null); // null = loading
   const [categories,setCategories]=useState([]);
   const [generating,setGenerating]=useState(false);
   const [feedUrl,setFeedUrl]=useState(null);
   const [feedCount,setFeedCount]=useState(0);
+  const [allBrands]=useUniversalBrands(); // same universal Brands list the Products form uses
+  const [savedNote,setSavedNote]=useState("");
 
   const load=async()=>{
     const [prods,cats]=await Promise.all([
@@ -8805,14 +8939,17 @@ ${items}
         <div style={{fontSize:11,color:"#b0b8d0",marginBottom:12}}>{eligible.length} of {rows.length} product{rows.length===1?"":"s"} ready to export</div>
 
         {needsFixing.length>0&&<div style={{marginBottom:14}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#ffb020",marginBottom:8}}>Needs fixing before export ({needsFixing.length}) — edit these in the Products tab:</div>
+          {savedNote&&<div style={{fontSize:12,color:PC,marginBottom:8}}>{savedNote}</div>}
+          <div style={{fontSize:11,fontWeight:700,color:"#ffb020",marginBottom:8}}>Needs fixing before export ({needsFixing.length}) — tap "✎ Fix here" to add what's missing and save:</div>
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
-            {needsFixing.map(({p,hasImage,hasPrice})=>(
-              <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:"#0f1420",border:"1px solid #2a3050",borderRadius:8,padding:"8px 10px"}}>
-                <span style={{fontSize:12,color:"#fff",flex:1}}>{p.name}</span>
-                {!hasImage&&<Badge ok={false} label="No image"/>}
-                {!hasPrice&&<Badge ok={false} label="No price"/>}
-              </div>
+            {needsFixing.map(({p,hasImage,hasPrice,hasBrand,hasDescription})=>(
+              <FixProductRow key={p.id} p={p} allBrands={allBrands}
+                onSaved={async(name)=>{await load();setSavedNote(`✅ Saved "${name}"`);setTimeout(()=>setSavedNote(""),4000);}}
+                hasImage={hasImage} hasPrice={hasPrice} hasBrand={hasBrand} hasDescription={hasDescription}
+                badges={<>
+                  {!hasImage&&<Badge ok={false} label="No image"/>}
+                  {!hasPrice&&<Badge ok={false} label="No price"/>}
+                </>}/>
             ))}
           </div>
         </div>}
