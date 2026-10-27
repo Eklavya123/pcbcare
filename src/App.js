@@ -284,11 +284,59 @@ const googleSignIn = async (auth) => {
 // Stored callback key used to resume after redirect
 const REDIRECT_CB_KEY = "pcb_google_redirect_cb"; // "login" | "signup"
 
+// ── Database access ─────────────────────────────────────────────────────
+// Public content (blog, products, error codes...) is still READ straight from
+// Supabase, which keeps it fast. Every write, every read of personal data, and
+// every admin action goes through /api/orders (action "db") instead, where
+// the server checks WHO is asking and what they may do. This lets the
+// database stop trusting the public key. See api/_lib/dbProxy.js.
+const SB_DIRECT_TABLES = new Set([
+  "blog_categories","blog_posts","brands","error_codes","pages","parts_data","remote_images","remotes",
+  "sensor_values","shop_categories","shop_products","wiring_diagrams","tips_tricks","app_settings",
+  "community_posts","community_replies","site_pings",
+]);
+const proxyAuthHeaders = async () => {
+  const session = DB.get("pcb_admin_session", null);
+  if(session?.token && Number(session.expiresAt) > Date.now()){
+    return {"X-Admin-Session":session.token,"X-Admin-Session-Expires":String(session.expiresAt)};
+  }
+  try{
+    const auth = await initFirebase();
+    // A just-signed-in user is available immediately; after a page refresh Firebase restores the session asynchronously.
+    const u = auth.currentUser || (DB.get("pcb_user",null) ? await waitForFirebaseUser(auth) : null);
+    if(u) return {Authorization:`Bearer ${await u.getIdToken()}`};
+  }catch{}
+  return {};
+};
+const sbFetch = async (url, init = {}) => {
+  const base = `${SB_URL}/rest/v1/`;
+  if(!String(url).startsWith(base)) return fetch(url, init);
+  const rest = String(url).slice(base.length);
+  const qIdx = rest.indexOf("?");
+  const table = qIdx === -1 ? rest : rest.slice(0, qIdx);
+  const query = qIdx === -1 ? "" : rest.slice(qIdx);
+  const method = String(init.method || "GET").toUpperCase();
+  const session = DB.get("pcb_admin_session", null);
+  const adminActive = !!(session?.token && Number(session.expiresAt) > Date.now());
+  const direct = table === "site_pings" || (method === "GET" && SB_DIRECT_TABLES.has(table) && !adminActive);
+  if(direct) return fetch(url, init);
+  try{
+    const prefer = init.headers && (init.headers.Prefer || init.headers.prefer);
+    const r = await fetch("/api/orders", {
+      method: "POST",
+      headers: {"Content-Type":"application/json", ...(await proxyAuthHeaders())},
+      body: JSON.stringify({action:"db", table, method, query, body: init.body ? JSON.parse(init.body) : null, prefer}),
+    });
+    // The marker header means the proxy ran and gave a real answer (including a refusal).
+    if(r.headers.get("x-pcb-proxy") === "1" || (r.status < 500 && r.status !== 404)) return r;
+  }catch{ /* proxy unreachable: fall through to the direct call */ }
+  return fetch(url, init);
+};
 const api = async (table,{method="GET",filter="",body=null,prefer=""}={}) => {
   const url = `${SB_URL}/rest/v1/${table}${filter}`;
   const h = {apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"};
   if(prefer) h["Prefer"]=prefer;
-  const r = await fetch(url,{method,headers:h,body:body?JSON.stringify(body):null});
+  const r = await sbFetch(url,{method,headers:h,body:body?JSON.stringify(body):null});
   const raw = await r.text(); // read once as text; Supabase sends an EMPTY body for prefer:"return=minimal" and for PATCH/DELETE
   if(!r.ok){
     let detail=raw;
@@ -2061,6 +2109,140 @@ const _processGoogleLoginResult = async (result, onLogin, setErr) => {
 };
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
+// ── Privacy: consent for Google Analytics / Google Ads, and "your data" tools ──
+// index.html starts Google's tags with every consent type DENIED, and replays a
+// saved "granted" choice. These helpers store the visitor's choice and tell
+// Google about it. Rejecting is as easy as accepting, and the choice can be
+// changed at any time from the 🔒 button in the header.
+const CONSENT_KEY = "pcb_consent_v1";
+const readConsent = () => {
+  try{
+    const v = JSON.parse(localStorage.getItem(CONSENT_KEY) || "null");
+    return v && (v.choice === "granted" || v.choice === "denied") ? v : null;
+  }catch{ return null; }
+};
+const saveConsent = (choice) => {
+  try{ localStorage.setItem(CONSENT_KEY, JSON.stringify({choice, at:new Date().toISOString()})); }catch{}
+  try{
+    if(typeof window.gtag === "function"){
+      window.gtag("consent","update",{ad_storage:choice,ad_user_data:choice,ad_personalization:choice,analytics_storage:choice});
+    }
+  }catch{}
+  try{ window.dispatchEvent(new Event("pcb-consent-changed")); }catch{}
+};
+
+// Export / delete the signed-in user's own data. Identity comes from the
+// Firebase token, verified on the server, never from anything typed here.
+const userDataApi = async (action) => {
+  const auth = await initFirebase();
+  const u = await waitForFirebaseUser(auth);
+  if(!u) throw new Error("Please sign in again first.");
+  const r = await fetch("/api/orders", {
+    method: "POST",
+    headers: {"Content-Type":"application/json", Authorization:`Bearer ${await u.getIdToken(true)}`},
+    body: JSON.stringify({action}),
+  });
+  const data = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
+  return data;
+};
+
+function ConsentBanner() {
+  const [show,setShow] = useState(() => !isCrawlerUA() && !readConsent());
+  useEffect(() => {
+    const f = () => setShow(!readConsent());
+    window.addEventListener("pcb-consent-changed", f);
+    return () => window.removeEventListener("pcb-consent-changed", f);
+  }, []);
+  if(!show) return null;
+  const btn = {flex:1,padding:"10px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13};
+  return (
+    <div role="dialog" aria-label="Analytics and ads choices"
+      style={{position:"fixed",left:8,right:8,bottom:"calc(66px + env(safe-area-inset-bottom))",zIndex:60,background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:14,padding:12,boxShadow:"0 6px 24px #0008",maxWidth:560,margin:"0 auto"}}>
+      <div style={{fontSize:12,lineHeight:1.5,color:"#d6dbef",marginBottom:10}}>
+        We use Google Analytics and Google Ads to count visits and measure our ads. They stay <b>off</b> unless you accept. You can change this any time from the 🔒 button. <a href="/privacy-policy" style={{color:PC}}>Privacy Policy</a>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>saveConsent("denied")} style={btn}>Reject</button>
+        <button onClick={()=>saveConsent("granted")} style={btn}>Accept</button>
+      </div>
+    </div>
+  );
+}
+
+function PrivacyCenter({user,onClose,onLogout}) {
+  const [consent,setConsent] = useState(readConsent());
+  const [busy,setBusy] = useState(false);
+  const [msg,setMsg] = useState("");
+  const signedIn = !!(user && !user.isAdmin);
+  const choose = (c) => { saveConsent(c); setConsent(readConsent()); };
+
+  const download = async () => {
+    setBusy(true); setMsg("");
+    try{
+      const data = await userDataApi("user_export");
+      const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "my-pcbcare-data.json";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      setMsg("✅ Your data file was downloaded.");
+    }catch(e){ setMsg("⚠ "+e.message); }
+    setBusy(false);
+  };
+  const remove = async () => {
+    const typed = window.prompt("This permanently deletes your account, support requests, reviews and invoices. It cannot be undone.\n\nType DELETE to confirm.");
+    if(typed !== "DELETE") return;
+    setBusy(true); setMsg("");
+    try{
+      await userDataApi("user_delete");
+      try{ const auth = await initFirebase(); await auth.signOut(); }catch{}
+      onLogout(); onClose();
+    }catch(e){ setMsg("⚠ "+e.message); setBusy(false); }
+  };
+
+  const card = {background:"#0f1420",border:"1px solid #2a3050",borderRadius:12,padding:12,marginBottom:12};
+  const btn = (on) => ({flex:1,padding:"10px",borderRadius:10,border:`1px solid ${on?PC:"#2a3050"}`,background:on?`${PC}22`:"#0f1117",color:on?PC:"#fff",cursor:"pointer",fontWeight:700,fontSize:13});
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"#000a",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#1a1f2e",border:"1px solid #2a3050",borderRadius:16,padding:16,width:"100%",maxWidth:440,maxHeight:"88vh",overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontSize:16,fontWeight:700,color:"#fff"}}>Privacy &amp; your data</div>
+          <button onClick={onClose} aria-label="Close" style={{background:"none",border:"none",color:"#6b7db3",fontSize:20,cursor:"pointer"}}>✕</button>
+        </div>
+        <div style={card}>
+          <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:4}}>Analytics &amp; ads</div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:10,lineHeight:1.5}}>Google Analytics and Google Ads. Currently: <b style={{color:"#fff"}}>{consent?.choice==="granted"?"allowed":consent?.choice==="denied"?"off":"off (no choice made yet)"}</b>.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={()=>choose("denied")} style={btn(consent?.choice==="denied")}>Off</button>
+            <button onClick={()=>choose("granted")} style={btn(consent?.choice==="granted")}>Allow</button>
+          </div>
+        </div>
+        {signedIn&&<div style={card}>
+          <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:4}}>Your account data</div>
+          <div style={{fontSize:11,color:"#6b7db3",marginBottom:10,lineHeight:1.5}}>Download a copy of what we store about you, or delete your account and everything linked to it.</div>
+          <div style={{display:"flex",gap:8}}>
+            <button onClick={download} disabled={busy} style={btn(false)}>⬇ Download my data</button>
+            <button onClick={remove} disabled={busy} style={{...btn(false),color:"#ff4757",borderColor:"#ff475766"}}>🗑 Delete account</button>
+          </div>
+        </div>}
+        {msg&&<div style={{fontSize:12,color:msg.startsWith("✅")?PC:"#ffb020",marginBottom:10}}>{msg}</div>}
+        <a href="/privacy-policy" style={{color:PC,fontSize:12}}>Read the full Privacy Policy</a>
+      </div>
+    </div>
+  );
+}
+
+function PrivacyLauncher({user,onLogout}) {
+  const [open,setOpen] = useState(false);
+  return (<>
+    <button onClick={()=>setOpen(true)} aria-label="Privacy settings" title="Privacy settings"
+      style={{padding:"6px 10px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:12}}>🔒</button>
+    {open&&<PrivacyCenter user={user} onClose={()=>setOpen(false)} onLogout={onLogout}/>}
+  </>);
+}
+
 function Login({onLogin,onGoSignup,onBack}) {
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
@@ -2164,6 +2346,7 @@ function Login({onLogin,onGoSignup,onBack}) {
           style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:14}}>
           {loading?"Signing in...":"Sign In"}
         </button>
+        <div style={{textAlign:"center",fontSize:11,color:"#6b7db3",marginBottom:12}}>By signing in you agree to our <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a>.</div>
         <div style={{textAlign:"center",fontSize:13,color:"#6b7db3"}}>
           Don't have an account?{" "}
           <button onClick={onGoSignup} style={{background:"none",border:"none",color:PC,cursor:"pointer",fontSize:13,fontWeight:600,textDecoration:"underline"}}>Sign Up</button>
@@ -2192,6 +2375,7 @@ const _processGoogleSignupResult = async (result, {setFbUser,setCredEmail,setVer
 function Signup({onGoLogin,onLogin}) {
   const [step,setStep]=useState(1); // 1: verify (Google or manual Email), 2: set password
   const [verifyMethod,setVerifyMethod]=useState(null);
+  const [agree,setAgree]=useState(false); // explicit privacy agreement, required before any account is created
   const [fbUser,setFbUser]=useState(null);
   const [err,setErr]=useState("");
 
@@ -2206,6 +2390,7 @@ function Signup({onGoLogin,onLogin}) {
   // ── Step 1: Google ──
   const handleGoogleVerify=async()=>{
     setErr("");
+    if(!agree){setErr("Please tick the box to agree to the Privacy Policy first.");return;}
     try{
       const auth=await initFirebase();
       DB.set(REDIRECT_CB_KEY,"signup");
@@ -2230,6 +2415,7 @@ function Signup({onGoLogin,onLogin}) {
   // ── Manual email signup: skip verification, go straight to credentials ──
   const startManualEmailSignup=()=>{
     setErr("");
+    if(!agree){setErr("Please tick the box to agree to the Privacy Policy first.");return;}
     setFbUser({uid:"",email:"",displayName:"",phone:""});
     setVerifyMethod("email");
     setStep(2);
@@ -2299,6 +2485,10 @@ function Signup({onGoLogin,onLogin}) {
           <div style={{background:"#1a1f2e",borderRadius:16,padding:20,border:`1px solid ${"#2a3050"}`,marginBottom:14}}>
             <div style={{fontSize:13,fontWeight:600,color:"#fff",marginBottom:4}}>Verify Your Identity</div>
             <div style={{fontSize:11,color:"#6b7db3",marginBottom:14}}>Choose one way to verify it's really you</div>
+            <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:11,color:"#b0b8d0",marginBottom:14,lineHeight:1.5,cursor:"pointer"}}>
+              <input type="checkbox" checked={agree} onChange={e=>setAgree(e.target.checked)} style={{marginTop:2}}/>
+              <span>I have read the <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a> and agree that PCB Care stores my name, email and any details I add (such as city and experience) to run my account. I can download or delete my data at any time.</span>
+            </label>
             <button onClick={handleGoogleVerify} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:12,padding:"13px",borderRadius:12,border:"1px solid #dadce0",background:"#fff",color:"#3c4043",cursor:"pointer",fontWeight:600,fontSize:14,marginBottom:12}}>
               <svg width="20" height="20" viewBox="0 0 48 48">
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -2372,7 +2562,7 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
     try{
       const payload={full_name:form.fullName,city:form.city,state:form.state,country:form.country,experience:form.experience,specialization:form.specialization};
       if(user?.id){
-        await fetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        await sbFetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
       }
       const updated={...user,...payload};
       DB.set("pcb_user",updated);
@@ -2408,6 +2598,7 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
           </div>
         </div>
         {err&&<div style={{color:"#ff4757",fontSize:12,marginBottom:10,padding:"8px 12px",background:"#ff475711",borderRadius:8}}>⚠ {err}</div>}
+        <div style={{fontSize:11,color:"#6b7db3",marginBottom:10,lineHeight:1.5}}>These details are optional and are only used to run your account. You can skip them for now. See the <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a>.</div>
         <button onClick={save} disabled={saving} style={{width:"100%",padding:"13px",borderRadius:10,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14,marginBottom:10}}>
           {saving?"Saving...":"Save & Continue"}
         </button>
@@ -2493,6 +2684,7 @@ function Home({setTab,user}) {
 function MyOrder() {
   const T=useTheme();
   const [orderNumber,setOrderNumber]=useState("");
+  const [phoneLast4,setPhoneLast4]=useState("");
   const [order,setOrder]=useState(null);
   const [loading,setLoading]=useState(false);
   const [err,setErr]=useState("");
@@ -2507,10 +2699,10 @@ function MyOrder() {
   },[]);
 
   const find=async()=>{
-    if(!orderNumber.trim()) return;
+    if(!orderNumber.trim()||phoneLast4.length!==4) return;
     setLoading(true); setErr(""); setOrder(null);
     try{
-      const {order}=await ordersApi("get_order",{orderNumber:orderNumber.trim()});
+      const {order}=await ordersApi("get_order",{orderNumber:orderNumber.trim(),phoneLast4});
       setOrder(order);
     }catch(e){ setErr(e.message); }
     setLoading(false);
@@ -2529,7 +2721,7 @@ function MyOrder() {
     <div style={{padding:16}}>
       <h1 style={{position:"absolute",width:1,height:1,padding:0,margin:-1,overflow:"hidden",clip:"rect(0,0,0,0)",whiteSpace:"nowrap",border:0}}>Track My Order — PCB Care</h1>
       <div style={{fontSize:20,fontWeight:700,color:T.text,marginBottom:4}}>My Order</div>
-      <div style={{fontSize:12,color:T.subtext,marginBottom:18}}>Enter your order number to track your order or download your invoice.</div>
+      <div style={{fontSize:12,color:T.subtext,marginBottom:18}}>Enter your order number and the last 4 digits of the phone number on the order to track it or download your invoice.</div>
 
       <div style={{display:"flex",gap:8,marginBottom:14}}>
         <input
@@ -2537,9 +2729,16 @@ function MyOrder() {
           onChange={e=>setOrderNumber(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter") find();}}
           placeholder="Tracking ID"
-          style={{flex:1,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:14,boxSizing:"border-box"}}
+          style={{flex:1,minWidth:0,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:14,boxSizing:"border-box"}}
         />
-        <button onClick={find} disabled={loading||!orderNumber.trim()} style={{padding:"12px 18px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:loading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:loading?"default":"pointer",flexShrink:0}}>
+        <input
+          value={phoneLast4}
+          onChange={e=>setPhoneLast4(e.target.value.replace(/\D/g,"").slice(0,4))}
+          onKeyDown={e=>{if(e.key==="Enter") find();}}
+          inputMode="numeric" maxLength={4} placeholder="Phone last 4" aria-label="Last 4 digits of the phone number on the order"
+          style={{width:96,padding:"12px 10px",borderRadius:10,border:"1px solid #2a3050",background:T.card,color:T.text,fontSize:14,boxSizing:"border-box"}}
+        />
+        <button onClick={find} disabled={loading||!orderNumber.trim()||phoneLast4.length!==4} style={{padding:"12px 18px",borderRadius:10,background:loading?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:loading?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:13,cursor:loading?"default":"pointer",flexShrink:0}}>
           {loading?"…":"Find"}
         </button>
       </div>
@@ -3120,7 +3319,7 @@ function ReviewsSection({targetType,targetId,user}) {
     if(!rating){setMsg("⚠ Pick a star rating first.");return;}
     setSubmitting(true);
     try{
-      await fetch(`${SB_URL}/rest/v1/reviews`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({
+      await sbFetch(`${SB_URL}/rest/v1/reviews`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({
         target_type:targetType,target_id:targetId,
         user_name:reviewerName,user_id:user?.id||null,
         rating,comment:comment.trim()||null,status:"pending",
@@ -3175,12 +3374,12 @@ function AdminReviews() {
   useEffect(()=>{load();const iv=setInterval(load,15000);return()=>clearInterval(iv);},[]);
   const setStatus=async(id,status)=>{
     setList(l=>l.map(r=>r.id===id?{...r,status}:r)); // optimistic
-    try{await fetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});}catch(e){/* next poll resyncs */}
+    try{await sbFetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});}catch(e){/* next poll resyncs */}
     load();
   };
   const del=async(id)=>{
     if(!window.confirm("Delete this review permanently?"))return;
-    try{await fetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});}catch(e){}
+    try{await sbFetch(`${SB_URL}/rest/v1/reviews?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});}catch(e){}
     load();
   };
   const statusOf=(r)=>r.status||"pending";
@@ -3423,6 +3622,8 @@ function Shop({initialPath,user}) {
           <button onClick={()=>{try{window.history.pushState({},"","/return-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Return &amp; Exchange Policy</button>
           <span style={{color:T.subtext,fontSize:11,margin:"0 6px"}}>·</span>
           <button onClick={()=>{try{window.history.pushState({},"","/delivery-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Delivery Policy</button>
+          <span style={{color:T.subtext,fontSize:11,margin:"0 6px"}}>·</span>
+          <button onClick={()=>{try{window.history.pushState({},"","/privacy-policy");}catch{}window.location.reload();}} style={{background:"none",border:"none",color:T.subtext,fontSize:11,textDecoration:"underline",cursor:"pointer",padding:0}}>Privacy Policy</button>
         </div>
 
         {relatedProducts.length>0&&<>
@@ -5207,7 +5408,7 @@ function AdminBrands(){
   const del = async (name) => {
     if(!window.confirm(`Delete brand "${name}"? This won't delete existing error codes using this brand.`))return;
     try{
-      await fetch(`${SB_URL}/rest/v1/brands?name=eq.${encodeURIComponent(name)}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+      await sbFetch(`${SB_URL}/rest/v1/brands?name=eq.${encodeURIComponent(name)}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
       setMsg(`✅ "${name}" removed.`);
       await refresh();
     }catch(e){setMsg("⚠ Failed: "+e.message);}
@@ -5586,7 +5787,7 @@ function AdminErrors(){
         };
         // PATCH only the first entry (the one being edited), POST the rest as new rows
         if(fridgeEditId&&fridgeEntries.indexOf(e)===0){
-          await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${fridgeEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          await sbFetch(`${SB_URL}/rest/v1/error_codes?id=eq.${fridgeEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         }else{
           await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
         }
@@ -5669,7 +5870,7 @@ function AdminErrors(){
         };
         // PATCH only the first entry (the one being edited), POST the rest as new rows
         if(washEditId&&i===0){
-          await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${washEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          await sbFetch(`${SB_URL}/rest/v1/error_codes?id=eq.${washEditId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         }else{
           await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
         }
@@ -5689,7 +5890,7 @@ function AdminErrors(){
     const payload={appliance:"ac",brand:brandValue.trim(),error_code:form.error_code.trim().toUpperCase(),meaning:form.meaning.trim(),cause:form.cause.trim(),how_to_fix:form.how_to_fix.trim(),indoor_led_blinks:Number(form.indoor_led_blinks)||0,outdoor_led_blinks:Number(form.outdoor_led_blinks)||0};
     try{
       if(editId){
-        await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        await sbFetch(`${SB_URL}/rest/v1/error_codes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         setMsg("✅ Updated.");
       }else{
         await api("error_codes",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -5741,7 +5942,7 @@ function AdminErrors(){
 
   const del=async(id)=>{
     if(!window.confirm("Delete this error code permanently?"))return;
-    await fetch(`${SB_URL}/rest/v1/error_codes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    await sbFetch(`${SB_URL}/rest/v1/error_codes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
     load();
   };
 
@@ -6085,7 +6286,7 @@ function AdminWiring() {
     const payload={category:form.category,title:form.title,description:form.description,image_url:form.image_url,tips:form.tips.split("\n").map(t=>t.trim()).filter(Boolean),linked_product_ids:form.linked_product_ids};
     try{
       if(editId){
-        await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        await sbFetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
       }else{
         // Every new diagram gets its own live URL (/wiring/:slug) automatically —
         // no separate "Generate URL" step needed going forward, that button in
@@ -6104,7 +6305,7 @@ function AdminWiring() {
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
   const edit=(item)=>{setForm({category:item.category,title:item.title,description:item.description,image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",tips:(item.tips||[]).join("\n"),linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
-  const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  const del=async(id)=>{if(!window.confirm("Delete?"))return;await sbFetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>⚡ {editId?"Edit":"Add"} Wiring Diagram</div>
@@ -6190,13 +6391,13 @@ function AdminSensorValues() {
       linked_product_ids:form.linked_product_ids,
     };
     try{
-      if(editId){await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+      if(editId){await sbFetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("sensor_values",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
   const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"Fridge",title:item.title||"",description:item.description||"",image_url:item.image_url||"",image_source:(item.image_url||"").startsWith("data:")?"upload":"url",pcb_type:item.pcb_type||"",room_sensor_value:item.room_sensor_value||"",coil_sensor_value:item.coil_sensor_value||"",discharge_sensor_value:item.discharge_sensor_value||"",ambient_sensor_value:item.ambient_sensor_value||"",condenser_coil_sensor_value:item.condenser_coil_sensor_value||"",linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
-  const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  const del=async(id)=>{if(!window.confirm("Delete?"))return;await sbFetch(`${SB_URL}/rest/v1/sensor_values?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📡 {editId?"Edit":"Add"} Sensor Value</div>
@@ -6923,7 +7124,7 @@ function AdminRemoteImages() {
   const load=async()=>{
     setLoadError("");
     try{
-      const r=await fetch(`${SB_URL}/rest/v1/remote_images?select=*&order=image_id`,{
+      const r=await sbFetch(`${SB_URL}/rest/v1/remote_images?select=*&order=image_id`,{
         headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,Prefer:"count=exact"}
       });
       const contentRange=r.headers.get("content-range"); // e.g. "0-6/7" or "*/0"
@@ -6972,7 +7173,7 @@ function AdminRemoteImages() {
       setMsg("✅ Image added.");setUrlInput("");load();
     }catch(err){setMsg("⚠ Failed: "+err.message);}
   };
-  const del=async(id)=>{if(!window.confirm("Delete this image from library?"))return;await fetch(`${SB_URL}/rest/v1/remote_images?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  const del=async(id)=>{if(!window.confirm("Delete this image from library?"))return;await sbFetch(`${SB_URL}/rest/v1/remote_images?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
     <>
@@ -7069,14 +7270,14 @@ function AdminRemotes() {
     if(form.remote_images.length===0){setMsg("⚠ Add at least one remote image.");return;}
     const payload={model_number:form.model_number.trim().toUpperCase(),brand:form.brand.trim(),appliance:form.appliance,title:form.title,pcb_images:form.pcb_images,remote_images:form.remote_images,linked_product_ids:form.linked_product_ids};
     try{
-      if(editId){await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
+      if(editId){await sbFetch(`${SB_URL}/rest/v1/remotes?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});}
       else{await api("remotes",{method:"POST",body:payload,prefer:"return=minimal"});}
       setMsg("✅ Saved.");setForm(blank);setEditId(null);load();
     }catch(e){setMsg("⚠ Save failed: "+e.message);}
   };
   const toggleLinkedProduct=(id)=>setForm(f=>({...f,linked_product_ids:f.linked_product_ids.includes(id)?f.linked_product_ids.filter(x=>x!==id):[...f.linked_product_ids,id]}));
   const edit=(item)=>{setForm({model_number:item.model_number||"",brand:item.brand||"",appliance:item.appliance||"AC",title:item.title||"",pcb_images:item.pcb_images||[],remote_images:item.remote_images||[],linked_product_ids:item.linked_product_ids||[]});setEditId(item.id);};
-  const del=async(id)=>{if(!window.confirm("Delete?"))return;await fetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
+  const del=async(id)=>{if(!window.confirm("Delete?"))return;await sbFetch(`${SB_URL}/rest/v1/remotes?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});load();};
 
   return (
     <div style={{padding:16}}>
@@ -7185,7 +7386,7 @@ function AdminRequests() {
   const [zoom,setZoom]=useState(null);
   const load=async()=>{const d=await api("user_requests",{filter:"?select=*&order=created_at.desc"});setList(d||[]);};
   useEffect(()=>{load();},[]);
-  const updateStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
+  const updateStatus=async(id,status)=>{await sbFetch(`${SB_URL}/rest/v1/user_requests?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
   return (
     <div style={{padding:16}}>
       <div style={{fontSize:17,fontWeight:700,color:"#fff",marginBottom:14}}>📥 User Requests ({list.length})</div>
@@ -7274,7 +7475,7 @@ function AdminParts(){
     const payload={brand:form.brand,model_number:form.model_number.trim().toUpperCase(),parts:JSON.stringify(validParts)};
     try{
       if(editId){
-        await fetch(`${SB_URL}/rest/v1/parts_data?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        await sbFetch(`${SB_URL}/rest/v1/parts_data?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
         setMsg("✅ Updated.");
       }else{
         await api("parts_data",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -7295,7 +7496,7 @@ function AdminParts(){
 
   const del=async(id)=>{
     if(!window.confirm("Delete this entry?"))return;
-    await fetch(`${SB_URL}/rest/v1/parts_data?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    await sbFetch(`${SB_URL}/rest/v1/parts_data?id=eq.${id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
     load();
   };
 
@@ -7466,11 +7667,11 @@ function AdminUsers() {
     const t=setInterval(()=>forceTick(x=>x+1),5000);
     return()=>clearInterval(t);
   },[]);
-  const setStatus=async(id,status)=>{await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
+  const setStatus=async(id,status)=>{await sbFetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({status})});load();};
   const setRole=async(id,role)=>{
     setList(l=>l.map(u=>u.id===id?{...u,role}:u)); // optimistic so the toggle feels instant
     try{
-      await fetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({role})});
+      await sbFetch(`${SB_URL}/rest/v1/users?id=eq.${id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({role})});
     }catch(e){/* next poll will resync if this failed */}
     load();
   };
@@ -7567,7 +7768,7 @@ function AdminGenerateWiringUrls() {
       while(existingSlugs.has(slug)){ slug=`${slugify(`${item.category}-${item.title}`)}-${n}`; n++; }
       existingSlugs.add(slug);
       try{
-        await fetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${item.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({slug})});
+        await sbFetch(`${SB_URL}/rest/v1/wiring_diagrams?id=eq.${item.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({slug})});
       }catch{/* keep going even if one row fails — it'll show up again in "pending" next check */}
       setProgress({done:i+1,total:pending.length,current:item.title});
     }
@@ -7714,7 +7915,7 @@ function AdminMigrateImages() {
           }
           updates[row.jsonField]=JSON.stringify(parts);
         }
-        const res=await fetch(`${SB_URL}/rest/v1/${row.table}?${row.idCol}=eq.${row.idVal}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify(updates)});
+        const res=await sbFetch(`${SB_URL}/rest/v1/${row.table}?${row.idCol}=eq.${row.idVal}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify(updates)});
         if(!res.ok) throw new Error(`PATCH failed (${res.status})`);
       }catch(e){
         failed.push(`${row.table} #${row.idVal}: ${e.message}`);
@@ -7805,10 +8006,10 @@ function AdminSettings() {
       const payload={auto_approve:draft.auto_approve,parts_enabled:draft.parts_enabled,require_login:draft.require_login,updated_at:new Date().toISOString()};
       let res;
       if(draft.id){
-        res=await fetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
+        res=await sbFetch(`${SB_URL}/rest/v1/app_settings?id=eq.${draft.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
       }else{
         // No row exists yet anywhere in the table — create the single settings row.
-        res=await fetch(`${SB_URL}/rest/v1/app_settings`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
+        res=await sbFetch(`${SB_URL}/rest/v1/app_settings`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(payload)});
       }
       const raw=await res.text();
       let data=[];try{data=raw?JSON.parse(raw):[];}catch{}
@@ -8151,7 +8352,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
     setSaving(true);
     try{
       if(editId){
-        await fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({name:trimmed,image:form.image})});
+        await sbFetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({name:trimmed,image:form.image})});
         setMsg(`✅ "${trimmed}" updated.`);
       }else{
         const slug=uniqueSlug(trimmed,categories.map(c=>c.slug));
@@ -8171,7 +8372,7 @@ function AdminShopCategories({categories,refresh,setMsg}) {
   const del=async(cat)=>{
     if(!window.confirm(`Delete category "${cat.name}"? This will also delete every product listed under it — this cannot be undone.`))return;
     try{
-      await fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${cat.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+      await sbFetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${cat.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
       setMsg(`✅ "${cat.name}" deleted.`);
       if(editId===cat.id){setForm(blank);setEditId(null);}
       await refresh();
@@ -8184,8 +8385,8 @@ function AdminShopCategories({categories,refresh,setMsg}) {
     const a=categories[idx],b=categories[swapIdx];
     try{
       await Promise.all([
-        fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${a.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:b.sort_order})}),
-        fetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${b.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:a.sort_order})}),
+        sbFetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${a.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:b.sort_order})}),
+        sbFetch(`${SB_URL}/rest/v1/shop_categories?id=eq.${b.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({sort_order:a.sort_order})}),
       ]);
       await refresh();
     }catch(e){setMsg("⚠ Reorder failed: "+e.message);}
@@ -8572,7 +8773,7 @@ function AdminShopProducts({categories,setMsg}) {
         if(slugify(form.name.trim())!==slugify(editSlug.replace(new RegExp(`^${cat?.slug}-?`),""))){
           payload.slug=await uniqueSlug(`${cat?.slug||"item"}-${form.name.trim()}`,editId);
         }
-        await fetch(`${SB_URL}/rest/v1/shop_products?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
+        await sbFetch(`${SB_URL}/rest/v1/shop_products?id=eq.${editId}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify(payload)});
       }else{
         payload.slug=await uniqueSlug(`${cat?.slug||"item"}-${form.name.trim()}`,null);
         await api("shop_products",{method:"POST",body:payload,prefer:"return=minimal"});
@@ -8587,7 +8788,7 @@ function AdminShopProducts({categories,setMsg}) {
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
-    await fetch(`${SB_URL}/rest/v1/shop_products?id=eq.${p.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
+    await sbFetch(`${SB_URL}/rest/v1/shop_products?id=eq.${p.id}`,{method:"DELETE",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`}});
     load(filterCat);
   };
 
@@ -9835,7 +10036,7 @@ useEffect(() => {
   useEffect(()=>{
     if(!user||user.isAdmin||!user.id) return;
     const beat=()=>{
-      fetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({last_seen:new Date().toISOString()})}).catch(()=>{});
+      sbFetch(`${SB_URL}/rest/v1/users?id=eq.${user.id}`,{method:"PATCH",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({last_seen:new Date().toISOString()})}).catch(()=>{});
     };
     beat();
     const iv=setInterval(beat,25000);
@@ -9866,7 +10067,7 @@ useEffect(() => {
     }
     const ping=()=>{
       if(document.visibilityState!=="visible") return;
-      fetch(`${SB_URL}/rest/v1/site_pings`,{
+      sbFetch(`${SB_URL}/rest/v1/site_pings`,{
         method:"POST",
         headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},
         body:JSON.stringify({session_id:sessionId,path:window.location.pathname,user_agent:navigator.userAgent}),
@@ -9974,11 +10175,14 @@ useEffect(() => {
       <div style={{background:"#1a1f2e",borderBottom:`1px solid ${"#2a3050"}`,padding:"12px 16px",paddingTop:"max(12px, env(safe-area-inset-top))",display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:5,boxShadow:`0 1px 8px ${"rgba(0,0,0,0.4)"}`}}>
         <img src={LOGO} alt="PCB Care" style={{height:30}}/>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <PrivacyLauncher user={user} onLogout={handleLogout}/>
           {user
             ? <button onClick={handleLogout} style={{padding:"6px 12px",borderRadius:8,background:"#2a3050",color:"#6b7db3",border:"none",cursor:"pointer",fontSize:11,fontWeight:600}}>Logout</button>
             : <button onClick={()=>{setPendingTab(null);setStage("auth");}} style={{padding:"6px 14px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontSize:11,fontWeight:700}}>Login</button>}
         </div>
       </div>
+
+      <ConsentBanner/>
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}

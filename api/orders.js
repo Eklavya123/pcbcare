@@ -51,6 +51,50 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 const crypto = require("crypto");
+const { authorize, HttpError } = require("./_lib/dbProxy");
+
+// firebase-admin is loaded lazily and defensively: if it is missing or the
+// service-account env var is malformed, only the actions that need to verify a
+// logged-in user fail. Orders, games and admin actions keep working.
+let _fbAuth = null;
+const getFbAuth = () => {
+  if (_fbAuth) return _fbAuth;
+  const { initializeApp, getApps, cert } = require("firebase-admin/app");
+  const { getAuth } = require("firebase-admin/auth");
+  if (!getApps().length) {
+    initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)) });
+  }
+  _fbAuth = getAuth();
+  return _fbAuth;
+};
+// Returns { uid, email } for a valid Firebase ID token in the Authorization
+// header, or null when there is no token. A bad or expired token throws 401.
+const identifyUser = async (req) => {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return null;
+  let auth;
+  try {
+    auth = getFbAuth();
+  } catch (e) {
+    // A server configuration problem (not the user's fault). Flagged so the "db"
+    // action can answer in a way that lets the browser fall back safely.
+    const he = new HttpError(503, "Sign-in verification is not configured on the server.");
+    he.config = true;
+    throw he;
+  }
+  try {
+    const d = await auth.verifyIdToken(token);
+    return { uid: d.uid, email: d.email || null };
+  } catch (e) {
+    throw new HttpError(401, "Your session has expired. Please sign in again.");
+  }
+};
+// Failed order lookups seen by THIS server instance (see get_order).
+const lookupFails = { ip: new Map(), order: new Map() };
+const isAdminRequest = (req) => {
+  try { authenticateAdmin(req); return true; } catch { return false; }
+};
 
 const SB_URL = "https://vdyyaiapyhwqnxzeujim.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -282,19 +326,151 @@ module.exports = async (req, res) => {
       return res.status(200).json({ orders });
     }
 
-    // ── Public: "My Order" lookup by order number ──
-    // No auth — this is the whole point, a customer with just their order
-    // number can look it up. See the security note at the top of this
-    // file about what that trade-off means before changing anything here.
+    // ── Public: "My Order" lookup ──
+    // Needs the order number AND the last 4 digits of the phone number on the
+    // order, because order numbers are sequential and were being enumerable.
+    // Every wrong guess gets the same generic answer (so it does not reveal
+    // which order numbers exist) and is counted; too many failures from one
+    // IP or against one order are blocked for a while.
     if (action === "get_order") {
-      const { orderNumber } = req.body;
+      const { orderNumber, phoneLast4 } = req.body || {};
       if (!orderNumber?.trim()) throw new Error("Order number is required");
+      const last4 = String(phoneLast4 || "").replace(/\D/g, "");
+      if (last4.length !== 4) throw new Error("Please enter the last 4 digits of the phone number on your order (required)");
+
+      const wanted = orderNumber.trim().toUpperCase().slice(0, 32);
+      const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "unknown";
+      const ipHash = crypto.createHash("sha256").update(`${fwd}|${process.env.ADMIN_SESSION_SECRET || "pcb"}`).digest("hex").slice(0, 32);
+      const since = (ms) => new Date(Date.now() - ms).toISOString();
+      // Throttle: counted in the order_lookup_attempts table when it exists
+      // (shared across all server instances), and ALSO in memory as a safety
+      // net, so lookups stay protected and working even before that table is created.
+      const now = Date.now();
+      const recent = (arr, ms) => (arr || []).filter((t) => now - t < ms);
+      lookupFails.ip.set(ipHash, recent(lookupFails.ip.get(ipHash), 15 * 60e3));
+      lookupFails.order.set(wanted, recent(lookupFails.order.get(wanted), 60 * 60e3));
+      const [byIp, byOrder] = await Promise.all([
+        sb("order_lookup_attempts", { filter: `?select=id&ip_hash=eq.${ipHash}&created_at=gte.${since(15 * 60e3)}` }).catch(() => []),
+        sb("order_lookup_attempts", { filter: `?select=id&order_number=eq.${encodeURIComponent(wanted)}&created_at=gte.${since(60 * 60e3)}` }).catch(() => []),
+      ]);
+      const ipFails = Math.max((byIp || []).length, lookupFails.ip.get(ipHash).length);
+      const orderFails = Math.max((byOrder || []).length, lookupFails.order.get(wanted).length);
+      if (ipFails >= 10 || orderFails >= 5) {
+        return res.status(429).json({ error: "Too many attempts. Please wait a while and try again, or message us on WhatsApp." });
+      }
+
       const rows = await sb("orders", {
-        filter: `?order_number=eq.${encodeURIComponent(orderNumber.trim().toUpperCase())}&select=order_number,customer_name,customer_address,purchase_date,items,amount,shipping_amount,courier_name,tracking_url`,
+        filter: `?order_number=eq.${encodeURIComponent(wanted)}&select=order_number,customer_name,customer_address,customer_phone,purchase_date,items,amount,shipping_amount,courier_name,tracking_url`,
       });
-      const order = Array.isArray(rows) ? rows[0] : null;
-      if (!order) return res.status(404).json({ error: "No order found with that number. Double-check it and try again." });
+      const found = Array.isArray(rows) ? rows[0] : null;
+      const phoneDigits = String(found?.customer_phone || "").replace(/\D/g, "");
+      if (!found || phoneDigits.length < 4 || phoneDigits.slice(-4) !== last4) {
+        lookupFails.ip.get(ipHash).push(now);
+        lookupFails.order.get(wanted).push(now);
+        await sb("order_lookup_attempts", { method: "POST", body: { ip_hash: ipHash, order_number: wanted }, prefer: "return=minimal" }).catch(() => {});
+        return res.status(404).json({ error: "We couldn't find an order matching those details. Check the order number and the last 4 digits of your phone number." });
+      }
+      const { customer_phone, ...order } = found; // the phone number itself is never sent back
       return res.status(200).json({ order });
+    }
+
+    // ── Database proxy ──
+    // Everything the browser used to do straight against Supabase with the
+    // public key now comes through here. api/_lib/dbProxy.js decides what the
+    // caller (admin session, signed-in user, or visitor) may do; this code
+    // just runs the approved request with the service key and relays the answer.
+    if (action === "db") {
+      res.setHeader("x-pcb-proxy", "1"); // lets the client tell "refused by the proxy" from "proxy is down"
+      try {
+        const { table, method, query, body, prefer } = req.body || {};
+        const isAdmin = isAdminRequest(req);
+        const who = isAdmin ? null : await identifyUser(req);
+        let _dbUser, _loaded = false;
+        const ctx = {
+          isAdmin,
+          uid: who?.uid || null,
+          email: who?.email || null,
+          getDbUser: async () => {
+            if (!who) return null;
+            if (!_loaded) {
+              const r = await sb("users", { filter: `?firebase_uid=eq.${encodeURIComponent(who.uid)}&select=id,full_name,status&limit=1` });
+              _dbUser = Array.isArray(r) ? r[0] || null : null; _loaded = true;
+            }
+            return _dbUser;
+          },
+          getAutoApprove: async () => {
+            const r = await sb("app_settings", { filter: "?select=auto_approve&limit=1" });
+            return !!(Array.isArray(r) && r[0] && r[0].auto_approve);
+          },
+          getRequestOwner: async (id) => {
+            const r = await sb("user_requests", { filter: `?id=eq.${id}&select=user_id&limit=1` });
+            return Array.isArray(r) && r[0] ? r[0].user_id : null;
+          },
+        };
+        const plan = await authorize({ table, method, query, body, prefer }, ctx);
+        const up = await fetch(`${SB_URL}/rest/v1/${plan.path}`, {
+          method: plan.method,
+          headers: {
+            apikey: SERVICE_KEY,
+            Authorization: `Bearer ${SERVICE_KEY}`,
+            "Content-Type": "application/json",
+            ...(plan.prefer ? { Prefer: plan.prefer } : {}),
+          },
+          body: plan.body ? JSON.stringify(plan.body) : undefined,
+        });
+        const txt = await up.text();
+        res.setHeader("Content-Type", "application/json");
+        return res.status(up.status).send(txt);
+      } catch (e) {
+        if (e && e.config) { res.removeHeader("x-pcb-proxy"); return res.status(503).json({ message: e.message }); } // no marker -> the browser falls back to the direct path
+        if (e instanceof HttpError) return res.status(e.status).json({ message: e.message });
+        res.removeHeader("x-pcb-proxy"); // unexpected server error: also let the browser fall back
+        return res.status(500).json({ message: e.message });
+      }
+    }
+
+    // ── Your data: export a copy / delete your account ──
+    // Identity comes ONLY from the verified Firebase token, never from the
+    // request body, so nobody can export or delete someone else's data.
+    if (action === "user_export" || action === "user_delete") {
+      let who;
+      try { who = await identifyUser(req); } catch (e) { return res.status(e.status || 401).json({ error: e.message }); }
+      if (!who) return res.status(401).json({ error: "Please sign in first." });
+      const urows = await sb("users", { filter: `?firebase_uid=eq.${encodeURIComponent(who.uid)}&select=*&limit=1` });
+      const me = Array.isArray(urows) ? urows[0] : null;
+      if (!me) return res.status(404).json({ error: "No profile found for this account." });
+
+      const reqs = (await sb("user_requests", { filter: `?user_id=eq.${me.id}&select=*` })) || [];
+      const reqIds = reqs.map((r) => r.id);
+      const inList = (ids) => `(${ids.join(",")})`;
+      const messages = reqIds.length ? (await sb("request_messages", { filter: `?request_id=in.${inList(reqIds)}&select=*` })) || [] : [];
+      const reviews = (await sb("reviews", { filter: `?user_id=eq.${me.id}&select=*` })) || [];
+      const invProfiles = (await sb("invoice_profiles", { filter: `?user_id=eq.${me.id}&select=*` })) || [];
+      const invoices = (await sb("invoices", { filter: `?technician_id=eq.${me.id}&select=*` })) || [];
+      const invIds = invoices.map((i) => i.id);
+      const lineItems = invIds.length ? (await sb("invoice_line_items", { filter: `?invoice_id=in.${inList(invIds)}&select=*` })) || [] : [];
+
+      if (action === "user_export") {
+        return res.status(200).json({
+          exported_at: new Date().toISOString(),
+          note: "A copy of the personal data stored for your account. Order records are held separately for warranty and accounting and are not linked to accounts.",
+          profile: me, support_requests: reqs, support_messages: messages, reviews,
+          invoice_profile: invProfiles, invoices, invoice_line_items: lineItems,
+        });
+      }
+
+      // user_delete — children first, then the profile, then the sign-in account.
+      const del = (table, filter) => sb(table, { method: "DELETE", filter, prefer: "return=minimal" });
+      if (invIds.length) await del("invoice_line_items", `?invoice_id=in.${inList(invIds)}`);
+      await del("invoices", `?technician_id=eq.${me.id}`);
+      await del("invoice_profiles", `?user_id=eq.${me.id}`);
+      if (reqIds.length) await del("request_messages", `?request_id=in.${inList(reqIds)}`);
+      await del("user_requests", `?user_id=eq.${me.id}`);
+      await del("reviews", `?user_id=eq.${me.id}`);
+      await del("passkey_credentials", `?user_id=eq.${me.id}`).catch(() => {});
+      await del("users", `?id=eq.${me.id}`);
+      try { await getFbAuth().deleteUser(who.uid); } catch (e) { /* profile data is already gone; the sign-in record can be removed by hand if this fails */ }
+      return res.status(200).json({ ok: true });
     }
 
     // ── Dots and Boxes — hidden two-player game, /g/<code> ──
@@ -796,6 +972,11 @@ module.exports = async (req, res) => {
     // the database responded.
     if (action === "keepalive") {
       await sb("orders", { filter: "?select=id&limit=1" });
+      // Data minimisation: visitor pings are kept 90 days, failed order-lookup
+      // attempts 30 days. This runs daily from the cron in vercel.json.
+      const ago = (days) => new Date(Date.now() - days * 864e5).toISOString();
+      await sb("site_pings", { method: "DELETE", filter: `?pinged_at=lt.${ago(90)}`, prefer: "return=minimal" }).catch(() => {});
+      await sb("order_lookup_attempts", { method: "DELETE", filter: `?created_at=lt.${ago(30)}`, prefer: "return=minimal" }).catch(() => {});
       return res.status(200).json({ ok: true, ts: new Date().toISOString() });
     }
 
