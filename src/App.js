@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import RefurbishedNotice from "./components/RefurbishedNotice";
+import ShopFooter from "./components/ShopFooter";
 import jsPDF from "jspdf"; // npm install jspdf — new dependency for the Invoice Generator's PDF output
 import { TAB_ROUTES, PATH_TO_TAB, RESERVED_PATH_PREFIXES } from './routes';
 
@@ -3616,6 +3618,7 @@ function Shop({initialPath,user}) {
         </div>}
         {p.description&&<div style={{fontSize:13,color:T.muted,lineHeight:1.6,marginBottom:18,whiteSpace:"pre-wrap"}}>{p.description}</div>}
         {p.starting_price&&<div style={{fontSize:15,fontWeight:700,color:PC,marginBottom:10}}>Starting from ₹{Number(p.starting_price).toLocaleString("en-IN")}</div>}
+        <RefurbishedNotice/>
         <button onClick={()=>getPrice(p)} style={{width:"100%",padding:"14px",borderRadius:12,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:15,marginBottom:20}}>💬 GET PRICE on WhatsApp</button>
         <ShopTrustBadges/>
         <div style={{textAlign:"center",marginTop:-10,marginBottom:20}}>
@@ -10199,6 +10202,8 @@ useEffect(() => {
         {tab==="myorder"&&<MyOrder/>}
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
+
+        <ShopFooter/>
       </div>
 
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",paddingBottom:"calc(8px + env(safe-area-inset-bottom))",zIndex:5}}>
