@@ -3647,6 +3647,9 @@ function Shop({initialPath,user}) {
 
         <ReviewsSection targetType="product" targetId={p.slug} user={user}/>
 
+        {/* Site footer at the bottom of product pages; the negative margins cancel the page padding so it runs edge to edge. */}
+        <div style={{margin:"0 -16px -16px"}}><ShopFooter/></div>
+
         {zoomImg&&<div onClick={()=>setZoomImg(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <img src={zoomImg} alt="" style={{maxWidth:"100%",maxHeight:"90vh",borderRadius:12,objectFit:"contain"}}/>
           <button onClick={()=>setZoomImg(null)} style={{position:"absolute",top:20,right:20,width:32,height:32,borderRadius:"50%",background:"#ff4757",border:"none",color:"#fff",fontSize:16,cursor:"pointer"}}>✕</button>
@@ -10203,7 +10206,8 @@ useEffect(() => {
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
 
-        <ShopFooter/>
+        {/* Site footer: homepage only (and at the bottom of product pages, see Shop). */}
+        {tab==="home"&&<ShopFooter/>}
       </div>
 
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",paddingBottom:"calc(8px + env(safe-area-inset-bottom))",zIndex:5}}>
