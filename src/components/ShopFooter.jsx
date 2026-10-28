@@ -42,6 +42,7 @@ export default function ShopFooter() {
           <a href="https://pcbcare.in/return-refund-policy" style={linkStyle}>Return &amp; Refund Policy</a>
           <a href="https://pcbcare.in/terms-and-conditions" style={linkStyle}>Terms &amp; Conditions</a>
           <a href="/privacy-policy" style={linkStyle}>Privacy Policy</a>
+          <a href="/pcb-parts-directory" style={linkStyle}>All PCBs &amp; Parts</a>
           <a href="https://pcbcare.in" style={linkStyle}>pcbcare.in</a>
         </nav>
 

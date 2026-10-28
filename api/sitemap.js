@@ -201,6 +201,7 @@ ${items}
       // pure self-service tools (my order, invoices, requests). ──
       { loc: `${SITE_URL}/`, lastmod: today, priority: "1.0" },
       { loc: `${SITE_URL}/shop`, lastmod: today, priority: "0.9" },
+    { loc: `${SITE_URL}/pcb-parts-directory`, lastmod: today, priority: "0.9" },
       { loc: `${SITE_URL}/blog`, lastmod: today, priority: "0.7" },
       { loc: `${SITE_URL}/wiring`, lastmod: today, priority: "0.7" },
       { loc: `${SITE_URL}/error-codes`, lastmod: today, priority: "0.6" },

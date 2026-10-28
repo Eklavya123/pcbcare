@@ -2627,6 +2627,99 @@ function CompleteProfilePopup({user,onSaved,onDismiss}) {
 
 
 // ── HOME ──────────────────────────────────────────────────────────────────────
+// ── Real links ───────────────────────────────────────────────────────────
+// This app used to navigate with click handlers (<div onClick>, <button>).
+// Google cannot follow those, so it could only find product pages through the
+// sitemap and never saw a single internal link pointing at them. SpaLink
+// renders a real <a href> (crawlable, middle-click / "open in new tab" works)
+// and still does the fast in-app navigation on a normal click.
+function SpaLink({href,onNavigate,style,children,...rest}) {
+  if(!href) return <div onClick={onNavigate} style={{cursor:"pointer",...style}} {...rest}>{children}</div>;
+  const onClick=(e)=>{
+    if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey) return; // let the browser handle new-tab clicks
+    e.preventDefault();
+    if(onNavigate) onNavigate();
+  };
+  return <a href={href} onClick={onClick} style={{display:"block",color:"inherit",textDecoration:"none",...style}} {...rest}>{children}</a>;
+}
+// The address a bottom-menu / home-tile tab lives at (null when it has no page of its own).
+const tabHref = (id) => id==="home"?"/":id==="shop"?"/shop":id==="blog"?"/blog":id==="wiring"?"/wiring":(TAB_ROUTES[id]||null);
+
+// ── /pcb-parts-directory ──────────────────────────────────────────────────
+// One crawlable page that links to EVERY product (grouped by category), every
+// wiring diagram and the repair-service pages, so any product is two clicks
+// from the homepage. It is built from the live tables, so a product you add
+// in Admin shows up here by itself. Plain <a href> links on purpose.
+function Directory() {
+  const T=useTheme();
+  const [data,setData]=useState(null);
+  useEffect(()=>{
+    setSEO({
+      title:"All PCBs & Parts — PCB Care Shop Directory",
+      description:"Every refurbished AC, washing machine and refrigerator PCB and sensor at PCB Care, Jabalpur, grouped by type — plus wiring diagrams and repair guides, all on one page.",
+      path:"/pcb-parts-directory",
+      jsonLdId:"shop-jsonld",
+    });
+    Promise.all([
+      api("shop_categories",{filter:"?select=id,name,slug&order=name"}),
+      api("shop_products",{filter:"?select=id,name,slug,category_id&order=name"}),
+      api("wiring_diagrams",{filter:"?select=slug,title&order=title"}),
+      api("pages",{filter:"?select=slug,title&order=title"}),
+    ]).then(([cats,prods,wiring,pages])=>setData({cats:cats||[],prods:prods||[],wiring:wiring||[],pages:pages||[]}))
+      .catch(()=>setData({cats:[],prods:[],wiring:[],pages:[],failed:true}));
+    return ()=>clearSEO("shop-jsonld");
+  },[]);
+
+  const link={color:T.text,textDecoration:"none",fontSize:13.5,lineHeight:1.6};
+  const h2={fontSize:15,fontWeight:700,color:PC,margin:"22px 0 8px"};
+  if(!data) return <div style={{padding:24,color:T.subtext}}>Loading…</div>;
+  const known=new Set(data.cats.map(c=>c.id));
+  const groups=data.cats
+    .map(c=>({cat:c,items:data.prods.filter(p=>p.category_id===c.id)}))
+    .filter(g=>g.items.length);
+  const other=data.prods.filter(p=>!known.has(p.category_id));
+  const services=data.pages.filter(pg=>/-pcb-repair$/.test(pg.slug));
+  return (
+    <div style={{padding:16}}>
+      <h1 style={{fontSize:20,fontWeight:800,color:T.text,margin:"0 0 6px"}}>All PCBs &amp; Parts</h1>
+      <p style={{fontSize:13,color:T.subtext,lineHeight:1.6,margin:"0 0 6px"}}>
+        {data.prods.length} refurbished boards and sensors from PCB Care, Jabalpur, grouped by type. Tap a name for photos, details and the WhatsApp price.
+      </p>
+      {data.failed&&<div style={{color:"#ffb020",fontSize:12}}>Couldn't load the full list right now. Please try again.</div>}
+      {groups.map(({cat,items})=>(
+        <section key={cat.id}>
+          <h2 style={h2}><a href={`/shop/category/${cat.slug}`} style={{color:PC,textDecoration:"none"}}>{cat.name}</a> <span style={{color:T.subtext,fontWeight:400,fontSize:12}}>({items.length})</span></h2>
+          <ul style={{margin:0,paddingLeft:18}}>
+            {items.map(p=><li key={p.id}><a href={`/shop/product/${p.slug}`} style={link}>{p.name}</a></li>)}
+          </ul>
+        </section>
+      ))}
+      {other.length>0&&<section>
+        <h2 style={h2}>More PCBs &amp; Parts</h2>
+        <ul style={{margin:0,paddingLeft:18}}>
+          {other.map(p=><li key={p.id}><a href={`/shop/product/${p.slug}`} style={link}>{p.name}</a></li>)}
+        </ul>
+      </section>}
+      {data.wiring.length>0&&<section>
+        <h2 style={h2}><a href="/wiring" style={{color:PC,textDecoration:"none"}}>Wiring diagrams</a></h2>
+        <ul style={{margin:0,paddingLeft:18}}>
+          {data.wiring.map(w=><li key={w.slug}><a href={`/wiring/${w.slug}`} style={link}>{w.title}</a></li>)}
+        </ul>
+      </section>}
+      <section>
+        <h2 style={h2}>Repair guides &amp; tools</h2>
+        <ul style={{margin:0,paddingLeft:18}}>
+          {services.map(pg=><li key={pg.slug}><a href={`/${pg.slug}`} style={link}>{pg.title}</a></li>)}
+          <li><a href="/blog" style={link}>Blog: repair guides and tips</a></li>
+          <li><a href="/error-codes" style={link}>Error codes by brand</a></li>
+          <li><a href="/find-remote" style={link}>Find a remote by PCB</a></li>
+          <li><a href="/sensor-values" style={link}>Sensor test values</a></li>
+        </ul>
+      </section>
+    </div>
+  );
+}
+
 function Home({setTab,user}) {
   const T=useTheme();
   const [partsEnabled,setPartsEnabled]=useState(false); // default hidden until confirmed on, avoids a flash of a disabled feature
@@ -2644,6 +2737,7 @@ function Home({setTab,user}) {
     });
   },[]);
   const cards=[
+    {id:"directory",icon:"🗂️",title:"All PCBs & Parts",desc:"Every product in one list",color:PC},
     {id:"errors",icon:"🔴",title:"Error Codes",desc:"Fault codes by brand",color:"#ff4757"},
     {id:"wiring",icon:"⚡",title:"Wiring Diagrams",desc:"Circuit diagrams & images",color:AC},
     {id:"remote",icon:"🎮",title:"Find Remote",desc:"Match PCB to its remote",color:"#e91e63"},
@@ -2669,11 +2763,11 @@ function Home({setTab,user}) {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16}}>
         {cards.map(c=>(
-          <div key={c.id} onClick={()=>setTab(c.id)} style={{background:T.card,border:`1px solid ${c.color}22`,borderRadius:14,padding:16,cursor:"pointer"}}>
+          <SpaLink href={tabHref(c.id)} onNavigate={()=>setTab(c.id)} key={c.id} style={{background:T.card,border:`1px solid ${c.color}22`,borderRadius:14,padding:16}}>
             <div style={{fontSize:26,marginBottom:8}}>{c.icon}</div>
             <div style={{fontWeight:600,fontSize:13,color:T.text,marginBottom:3}}>{c.title}</div>
             <div style={{fontSize:11,color:T.subtext,lineHeight:1.4}}>{c.desc}</div>
-          </div>
+          </SpaLink>
         ))}
       </div>
       <div style={{background:T.card,borderRadius:14,padding:14,border:`1px solid ${"#2a3050"}`}}>
@@ -3648,12 +3742,12 @@ function Shop({initialPath,user}) {
             className="ios-scroll-x"
             style={{display:"flex",gap:10,overflowX:"auto",scrollBehavior:"smooth",paddingBottom:4,marginBottom:4}}>
             {relatedProducts.map(rp=>(
-              <div key={rp.id} onClick={()=>openProduct(rp,activeCategory)} style={{flex:"0 0 130px",width:130,background:T.card,borderRadius:12,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+              <SpaLink href={`/shop/product/${rp.slug}`} onNavigate={()=>openProduct(rp,activeCategory)} key={rp.id} style={{flex:"0 0 130px",width:130,background:T.card,borderRadius:12,padding:10,border:`1px solid ${T.border}`}}>
                 {rp.images&&rp.images[0]
                   ? <img src={rp.images[0]} alt={rp.name} loading="lazy" style={{width:"100%",height:90,objectFit:"cover",borderRadius:8,marginBottom:8}}/>
                   : <div style={{width:"100%",height:90,borderRadius:8,marginBottom:8,background:T.input}}/>}
                 <div style={{fontSize:12,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{rp.name}</div>
-              </div>
+              </SpaLink>
             ))}
           </div>
         </>}
@@ -3667,6 +3761,15 @@ function Shop({initialPath,user}) {
             {p.keywords.map(k=><span key={k} style={{fontSize:12,color:T.text,background:T.card,border:`1px solid ${T.border}`,borderRadius:999,padding:"5px 11px"}}>{k}</span>)}
           </div>
         </div>}
+
+        {/* Real links from every product page to its category, the matching repair service and the directory */}
+        <div style={{marginTop:20,paddingTop:14,borderTop:`1px solid ${T.border}`,display:"flex",flexWrap:"wrap",gap:"6px 14px",fontSize:12.5}}>
+          {activeCategory&&<a href={`/shop/category/${activeCategory.slug}`} style={{color:PC,textDecoration:"none"}}>More {activeCategory.name}</a>}
+          {(()=>{const n=(activeCategory&&activeCategory.name)||"";const svc=/washing/i.test(n)?["/washing-machine-pcb-repair","Washing machine PCB repair"]:/fridge|refrigerator/i.test(n)?["/refrigerator-pcb-repair","Refrigerator PCB repair"]:/microwave/i.test(n)?["/microwave-pcb-repair","Microwave PCB repair"]:/\bac\b|air.?con/i.test(n)?["/ac-pcb-repair","AC PCB repair"]:null;return svc?<a href={svc[0]} style={{color:PC,textDecoration:"none"}}>{svc[1]}</a>:null;})()}
+          <a href="/pcb-parts-directory" style={{color:PC,textDecoration:"none"}}>All PCBs &amp; Parts</a>
+          <a href="/wiring" style={{color:PC,textDecoration:"none"}}>Wiring diagrams</a>
+          <a href="/error-codes" style={{color:PC,textDecoration:"none"}}>Error codes</a>
+        </div>
 
         {/* Site footer at the bottom of product pages; the negative margins cancel the page padding so it runs edge to edge. */}
         <div style={{margin:"0 -16px -16px"}}><ShopFooter/></div>
@@ -3695,13 +3798,13 @@ function Shop({initialPath,user}) {
           {filtered.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>{q?`No products match "${categorySearch}" in ${activeCategory.name}.`:"No products in this category yet."}</div>}
           <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
             {filtered.map(p=>(
-              <div key={p.id} onClick={()=>openProduct(p,activeCategory)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+              <SpaLink href={`/shop/product/${p.slug}`} onNavigate={()=>openProduct(p,activeCategory)} key={p.id} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`}}>
                 {p.images&&p.images[0]
                   ? <img src={p.images[0]} alt={p.name} loading="lazy" style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
                   : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>🧩</div>}
                 <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{p.name}</div>
                 <div style={{fontSize:11,fontWeight:700,color:PC}}>GET PRICE →</div>
-              </div>
+              </SpaLink>
             ))}
           </div>
         </div>
@@ -3717,12 +3820,12 @@ function Shop({initialPath,user}) {
       {categories.length===0&&<div style={{fontSize:13,color:T.subtext,textAlign:"center",padding:30}}>No categories yet.</div>}
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:12}}>
         {categories.map(c=>(
-          <div key={c.id} onClick={()=>openCategory(c)} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`,cursor:"pointer"}}>
+          <SpaLink href={`/shop/category/${c.slug}`} onNavigate={()=>openCategory(c)} key={c.id} style={{background:T.card,borderRadius:14,padding:10,border:`1px solid ${T.border}`}}>
             {c.image
               ? <img src={c.image} alt={c.name} loading="lazy" style={{width:"100%",height:120,objectFit:"cover",borderRadius:10,marginBottom:8}}/>
               : <div style={{width:"100%",height:120,borderRadius:10,marginBottom:8,background:T.input,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28}}>🧩</div>}
             <div style={{fontSize:13,fontWeight:700,color:T.text}}>{c.name}</div>
-          </div>
+          </SpaLink>
         ))}
       </div>
     </div>
@@ -3846,7 +3949,7 @@ function BlogPostCard({post,category,onOpen}) {
   const T=useTheme();
   const dateStr=post.published_at?new Date(post.published_at).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"";
   return (
-    <div onClick={onOpen} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",cursor:"pointer",marginBottom:14}}>
+    <SpaLink href={`/blog/${post.slug}`} onNavigate={onOpen} style={{background:T.card,borderRadius:14,border:`1px solid ${T.border}`,overflow:"hidden",marginBottom:14}}>
       {post.featured_image&&<img src={post.featured_image} alt={post.title} loading="lazy" style={{width:"100%",height:150,objectFit:"cover"}}/>}
       <div style={{padding:14}}>
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
@@ -3856,7 +3959,7 @@ function BlogPostCard({post,category,onOpen}) {
         <div style={{fontWeight:700,fontSize:14.5,color:T.text,marginBottom:5,lineHeight:1.35}}>{post.title}</div>
         {post.excerpt&&<div style={{fontSize:12,color:T.subtext,lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{post.excerpt}</div>}
       </div>
-    </div>
+    </SpaLink>
   );
 }
 
@@ -9962,7 +10065,7 @@ useEffect(() => {
   // /api/product-meta and /api/blog-meta, and set by setSEO). Their canonical
   // link points at them, so don't overwrite that title with the generic one.
   const canon = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "";
-  if (/\/(shop\/product|blog)\//.test(canon)) return;
+  if (/\/(shop\/product|blog)\/|\/pcb-parts-directory$/.test(canon)) return;
   document.title = titleMap[tab] || "PCB Care";
 }, [tab]);
   // Cross-tab navigation used by Wiring Diagram pages / Find Remote results
@@ -10137,7 +10240,7 @@ useEffect(() => {
   const [requireLogin,setRequireLogin]=useState(true);
   useEffect(()=>{ getRequireLogin().then(setRequireLogin); },[]);
   const goToTab=(id)=>{
-    if(id!=="home"&&id!=="shop"&&id!=="blog"&&id!=="page"&&id!=="invoices"&&requireLogin&&!user){
+    if(id!=="home"&&id!=="shop"&&id!=="blog"&&id!=="page"&&id!=="invoices"&&id!=="directory"&&requireLogin&&!user){
       setPendingTab(id);
       setStage("auth");
       return;
@@ -10230,6 +10333,7 @@ useEffect(() => {
         {tab==="resolved"&&<ResolvedCases/>}
         {tab==="eeprom"&&<EepromFiles/>}
         {tab==="myorder"&&<MyOrder/>}
+        {tab==="directory"&&<Directory/>}
         {tab==="requests"&&<Requests user={user}/>}
         {tab==="invoices"&&<Invoices user={user}/>}
 
@@ -10239,10 +10343,10 @@ useEffect(() => {
 
       <div style={{position:"fixed",bottom:0,left:0,right:0,background:"#1a1f2e",borderTop:`1px solid ${"#2a3050"}`,display:"flex",padding:"8px 4px",paddingBottom:"calc(8px + env(safe-area-inset-bottom))",zIndex:5}}>
         {NAV.map(n=>(
-          <button key={n.id} onClick={()=>goToTab(n.id)} style={{flex:1,background:"none",border:"none",cursor:"pointer",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+          <SpaLink href={tabHref(n.id)} onNavigate={()=>goToTab(n.id)} key={n.id} style={{flex:1,background:"none",border:"none",padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
             <div style={{fontSize:19,opacity:tab===n.id?1:0.5}}>{n.icon}</div>
             <div style={{fontSize:9,color:tab===n.id?PC:"#6b7db3",fontWeight:tab===n.id?700:400}}>{n.label}</div>
-          </button>
+          </SpaLink>
         ))}
       </div>
 

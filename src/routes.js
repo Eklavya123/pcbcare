@@ -6,6 +6,7 @@ export const TAB_ROUTES = {
   requests: "/requests",
   invoices: "/invoices",
   myorder: "/my-order",
+  directory: "/pcb-parts-directory",
 };
 
 export const PATH_TO_TAB = Object.fromEntries(
