@@ -173,6 +173,19 @@ const uploadImageToStorage = async (dataUrl, folder="uploads") => {
   }
 };
 
+// Turns what the admin typed ("samsung top load pcb , Samsung 7 button pcb") into
+// separate keywords. Commas (and new lines) separate them; each one is trimmed,
+// extra spaces are collapsed, empties and case-insensitive duplicates are dropped.
+const parseKeywords = (text) => {
+  const seen = new Set();
+  const out = [];
+  String(text || "").split(/[,，\n]+/).forEach((raw) => {
+    const k = raw.replace(/\s+/g, " ").trim().slice(0, 80);
+    const key = k.toLowerCase();
+    if (k && !seen.has(key) && out.length < 30) { seen.add(key); out.push(k); }
+  });
+  return out;
+};
 const slugify = (s) => (s||"").toString().toLowerCase().trim()
   .replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,80) || "item";
 
@@ -3646,6 +3659,14 @@ function Shop({initialPath,user}) {
         </>}
 
         <ReviewsSection targetType="product" targetId={p.slug} user={user}/>
+
+        {/* Keywords entered by the admin for this product, one chip per keyword */}
+        {Array.isArray(p.keywords)&&p.keywords.length>0&&<div style={{marginTop:24,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+          <div style={{fontSize:12,fontWeight:700,color:T.subtext,marginBottom:8}}>Keywords</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {p.keywords.map(k=><span key={k} style={{fontSize:12,color:T.text,background:T.card,border:`1px solid ${T.border}`,borderRadius:999,padding:"5px 11px"}}>{k}</span>)}
+          </div>
+        </div>}
 
         {/* Site footer at the bottom of product pages; the negative margins cancel the page padding so it runs edge to edge. */}
         <div style={{margin:"0 -16px -16px"}}><ShopFooter/></div>
@@ -8692,7 +8713,7 @@ function AdminBulkUploadProducts({categories,allBrands,onImported,setMsg}) {
 
 function AdminShopProducts({categories,setMsg}) {
   const [allBrands] = useUniversalBrands(); // reuses the same universal Brands list as the rest of the app
-  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",starting_price:""};
+  const blank={category_id:"",name:"",description:"",images:[],brands:[],condition:"",motor_type:"",starting_price:"",keywords:""};
   const [form,setForm]=useState(blank);
   const [editId,setEditId]=useState(null);
   const [editSlug,setEditSlug]=useState(null);
@@ -8773,6 +8794,7 @@ function AdminShopProducts({categories,setMsg}) {
         images:form.images,brands:form.brands,condition:catIsRemotes?"":form.condition,
         motor_type:catIsPcb?(form.motor_type||""):"",
         starting_price:form.starting_price===""?null:Number(form.starting_price),
+        keywords:parseKeywords(form.keywords),
       };
       if(editId){
         // Only regenerate the slug (and thus the product's URL) if the name changed.
@@ -8790,7 +8812,7 @@ function AdminShopProducts({categories,setMsg}) {
     setSaving(false);
   };
 
-  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",starting_price:p.starting_price??""});setEditId(p.id);setEditSlug(p.slug);};
+  const edit=(p)=>{setForm({category_id:p.category_id,name:p.name,description:p.description||"",images:p.images||[],brands:p.brands||[],condition:p.condition||"",motor_type:p.motor_type||"",starting_price:p.starting_price??"",keywords:(p.keywords||[]).join(", ")});setEditId(p.id);setEditSlug(p.slug);};
   const cancelEdit=()=>{setForm(blank);setEditId(null);setEditSlug(null);};
   const del=async(p)=>{
     if(!window.confirm(`Delete product "${p.name}"?`))return;
@@ -8812,6 +8834,11 @@ function AdminShopProducts({categories,setMsg}) {
         <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Product name" style={{...INP,marginBottom:10}}/>
         <textarea value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" rows={3} style={{...INP,marginBottom:10,resize:"vertical",fontFamily:"inherit"}}/>
         <input value={form.starting_price} onChange={e=>setForm(f=>({...f,starting_price:e.target.value.replace(/[^0-9.]/g,"")}))} placeholder="Starting price in ₹ (optional — shown as 'Starting from' and used for Google's price snippet)" inputMode="decimal" style={{...INP,marginBottom:10}}/>
+        <textarea value={form.keywords} onChange={e=>setForm(f=>({...f,keywords:e.target.value}))} placeholder="Keywords (separate with commas), e.g. samsung top load pcb, Samsung 7 button pcb" rows={2} style={{...INP,marginBottom:6,resize:"vertical",fontFamily:"inherit"}}/>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+          {parseKeywords(form.keywords).map(k=><span key={k} style={{fontSize:12,color:PC,background:`${PC}22`,border:`1px solid ${PC}55`,borderRadius:999,padding:"4px 10px"}}>{k}</span>)}
+          {parseKeywords(form.keywords).length>0&&<span style={{fontSize:11,color:"#6b7db3",alignSelf:"center"}}>{parseKeywords(form.keywords).length} keyword{parseKeywords(form.keywords).length===1?"":"s"} will be saved</span>}
+        </div>
 
         <div style={{fontSize:11,fontWeight:600,color:"#b0b8d0",marginBottom:8}}>Images</div>
         {form.images.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
