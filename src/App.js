@@ -1105,6 +1105,7 @@ function DotsAndBoxesApp(){
 
         <div style={{width:"100%",maxWidth:280,marginBottom:14}}>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <GameNotice/>
           <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
             style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
         </div>
@@ -1148,6 +1149,7 @@ function DotsAndBoxesApp(){
     return (
       <div style={wrap}>
         <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        <GameNotice/>
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
         <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
           style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
@@ -1584,6 +1586,7 @@ function LetterDuelApp(){
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
         <div style={{width:"100%",maxWidth:280,marginBottom:20}}>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <GameNotice/>
           <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
             style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
         </div>
@@ -1600,6 +1603,7 @@ function LetterDuelApp(){
     return (
       <div style={wrap}>
         <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        <GameNotice/>
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
         <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
           style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
@@ -1898,6 +1902,7 @@ function TambolaApp(){
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:16,maxWidth:320}}>{err}</div>}
         <div style={{width:"100%",maxWidth:280,marginBottom:20}}>
           <div style={{fontSize:11,color:"#6b7db3",marginBottom:5}}>Your Name</div>
+          <GameNotice/>
           <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Nikhil" maxLength={24}
             style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:14,boxSizing:"border-box"}}/>
         </div>
@@ -1926,6 +1931,7 @@ function TambolaApp(){
     return (
       <div style={wrap}>
         <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>Choose your name</div>
+        <GameNotice/>
         {err&&<div style={{background:"#ff475722",border:"1px solid #ff475755",color:"#ff8a8a",padding:10,borderRadius:8,fontSize:12,marginBottom:14,maxWidth:280}}>{err}</div>}
         <input value={nameInput} onChange={e=>setNameInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter") submitName();}} placeholder="e.g. Nikhil" maxLength={24} autoFocus
           style={{width:"100%",maxWidth:280,padding:"12px 14px",borderRadius:10,border:"1px solid #2a3050",background:"#1a1f2e",color:"#fff",fontSize:15,boxSizing:"border-box",marginBottom:14,textAlign:"center"}}/>
@@ -2258,6 +2264,43 @@ function PrivacyLauncher({user,onLogout}) {
   </>);
 }
 
+// ── Privacy notices ─────────────────────────────────────────────────────
+// Shown next to anything that collects or publishes personal data.
+function GameNotice() {
+  return <div style={{fontSize:10.5,color:"#6b7db3",marginBottom:8,lineHeight:1.5,maxWidth:280}}>Your name and chat are visible to the other players and deleted after 30 days. <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a></div>;
+}
+
+// Existing users signed up before consent was recorded: ask them once to
+// acknowledge the current Privacy Policy. The server stamps the time/version.
+function PolicyUpdateGate({user,onUpdated}) {
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState("");
+  const [later,setLater]=useState(false);
+  if(!user||user.isAdmin||!user.id||user.privacy_agreed_at||later||isCrawlerUA()) return null;
+  const agree=async()=>{
+    setBusy(true); setErr("");
+    try{
+      await api("users",{method:"PATCH",filter:`?id=eq.${user.id}`,body:{privacy_agree:true},prefer:"return=minimal"});
+      const updated={...user,privacy_agreed_at:new Date().toISOString(),privacy_version:"2026-10-30"};
+      DB.set("pcb_user",updated);
+      onUpdated(updated);
+    }catch(e){ setErr("Couldn't save. Please try again."); }
+    setBusy(false);
+  };
+  const btn={flex:1,padding:"10px",borderRadius:10,border:"1px solid #2a3050",background:"#0f1117",color:"#fff",cursor:"pointer",fontWeight:700,fontSize:13};
+  return (
+    <div role="dialog" aria-label="Privacy Policy update" style={{position:"fixed",left:8,right:8,bottom:"calc(66px + env(safe-area-inset-bottom))",zIndex:61,background:"#1a1f2e",border:`1px solid ${PC}66`,borderRadius:14,padding:12,boxShadow:"0 6px 24px #000a",maxWidth:560,margin:"0 auto"}}>
+      <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:4}}>We've updated our Privacy Policy</div>
+      <div style={{fontSize:12,lineHeight:1.5,color:"#d6dbef",marginBottom:10}}>It explains what we store about your account, who we share it with, how long we keep it, and how to download or delete your data. Please read it and confirm. <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Read the Privacy Policy</a></div>
+      {err&&<div style={{fontSize:12,color:"#ffb020",marginBottom:8}}>{err}</div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>setLater(true)} disabled={busy} style={btn}>Later</button>
+        <button onClick={agree} disabled={busy} style={{...btn,borderColor:PC,color:PC}}>{busy?"Saving…":"I agree"}</button>
+      </div>
+    </div>
+  );
+}
+
 function Login({onLogin,onGoSignup,onBack}) {
   const [email,setEmail]=useState("");
   const [pw,setPw]=useState("");
@@ -2466,6 +2509,7 @@ function Signup({onGoLogin,onLogin}) {
         status,
         verified_at:new Date().toISOString(),
         details_skipped_at:new Date().toISOString(),
+        privacy_agreed:true,
       },prefer:"return=representation"});
       const newUser=Array.isArray(created)?created[0]:null;
       if(status==="pending"){
@@ -3411,6 +3455,7 @@ function ReviewsSection({targetType,targetId,user}) {
   const [guestName,setGuestName]=useState("");
   const [submitting,setSubmitting]=useState(false);
   const [msg,setMsg]=useState("");
+  const [agreePublic,setAgreePublic]=useState(false);
 
   const load=async()=>{
     setLoading(true);
@@ -3426,6 +3471,7 @@ function ReviewsSection({targetType,targetId,user}) {
     const reviewerName=user?(user.full_name||"Customer"):guestName.trim();
     if(!reviewerName){setMsg("⚠ Please enter your name.");return;}
     if(!rating){setMsg("⚠ Pick a star rating first.");return;}
+    if(!agreePublic){setMsg("⚠ Please tick the box to agree before submitting.");return;}
     setSubmitting(true);
     try{
       await sbFetch(`${SB_URL}/rest/v1/reviews`,{method:"POST",headers:{apikey:SB_KEY,Authorization:`Bearer ${SB_KEY}`,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({
@@ -3456,6 +3502,10 @@ function ReviewsSection({targetType,targetId,user}) {
             {!user&&<input value={guestName} onChange={e=>setGuestName(e.target.value)} placeholder="Your name" style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,boxSizing:"border-box",marginBottom:9,fontFamily:"inherit"}}/>}
             <div style={{marginBottom:10}}><StarRating value={rating} onChange={setRating} size={23}/></div>
             <textarea value={comment} onChange={e=>setComment(e.target.value)} placeholder="Share your experience (optional)" rows={3} style={{width:"100%",padding:10,borderRadius:8,border:`1px solid ${T.border}`,background:T.input,color:T.text,fontSize:13,resize:"vertical",boxSizing:"border-box",marginBottom:9,fontFamily:"inherit"}}/>
+            <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:11,color:T.subtext,margin:"0 0 10px",lineHeight:1.5,cursor:"pointer"}}>
+              <input type="checkbox" checked={agreePublic} onChange={e=>setAgreePublic(e.target.checked)} style={{marginTop:2}}/>
+              <span>I agree that my name and review will be shown publicly on this page once approved. See the <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a>.</span>
+            </label>
             <button onClick={submit} disabled={submitting} style={{padding:"9px 18px",borderRadius:8,background:`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:submitting?"default":"pointer",fontWeight:700,fontSize:12.5,opacity:submitting?0.6:1}}>{submitting?"Submitting…":"Submit Review"}</button>
             {!user&&<div style={{fontSize:10.5,color:T.subtext,marginTop:8}}>Reviews are checked by our team before they appear.</div>}
           </>
@@ -4739,7 +4789,8 @@ function Requests({user}) {
           :<label style={{display:"inline-flex",alignItems:"center",gap:6,padding:"9px 14px",borderRadius:10,border:`1px dashed ${T.border}`,background:T.input,color:T.subtext,fontSize:12,cursor:"pointer",marginBottom:14}}>
             📎 Choose Image<input type="file" accept="image/*" onChange={handleAttach} style={{display:"none"}}/>
           </label>}
-          <button onClick={submit} disabled={!type||!form.description||loading} style={{width:"100%",padding:"13px",borderRadius:10,background:!type||!form.description?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{loading?"Submitting...":"Submit Request"}</button>
+          <div style={{fontSize:11,color:T.subtext,marginBottom:10,lineHeight:1.5}}>We store your request, any photo and our chat so we can answer you. Please don't include passwords, ID numbers or payment details. See the <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a>.</div>
+        <button onClick={submit} disabled={!type||!form.description||loading} style={{width:"100%",padding:"13px",borderRadius:10,background:!type||!form.description?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:"#0a0d14",border:"none",cursor:"pointer",fontWeight:700,fontSize:14}}>{loading?"Submitting...":"Submit Request"}</button>
         </div>
       }
 
@@ -5253,6 +5304,7 @@ function Invoices({user}){
   const [created,setCreated]=useState(null); // {invoice,lineItems} just after creation
   const [list,setList]=useState(null);
   const [err,setErr]=useState("");
+  const [custOk,setCustOk]=useState(false); // technician confirms they may store their customer's details
   const [saving,setSaving]=useState(false);
   const [advanced,setAdvanced]=useState(false);
   const [universalBrands]=useUniversalBrands(); // the same brand list used everywhere else products are created
@@ -5286,6 +5338,7 @@ function Invoices({user}){
   const total=form.lineItems.reduce((s,li)=>s+(li.quantity||0)*(li.unitPrice||0),0);
 
   const submit=async()=>{
+    if(!custOk){setErr("Please tick the box to confirm your customer agrees to their details being stored.");return;}
     if(!form.customerName.trim()||!form.customerPhone.trim()){ setErr("Customer name and WhatsApp number are required."); return; }
     if(!form.lineItems.some(li=>li.description.trim())){ setErr("Add at least one item."); return; }
     setSaving(true); setErr("");
@@ -5436,6 +5489,10 @@ function Invoices({user}){
             </div>
           )}
 
+          <label style={{display:"flex",gap:8,alignItems:"flex-start",fontSize:11,color:T.subtext,lineHeight:1.5,cursor:"pointer"}}>
+            <input type="checkbox" checked={custOk} onChange={e=>setCustOk(e.target.checked)} style={{marginTop:2}}/>
+            <span>My customer knows their name, phone number and address are stored in this invoice and has agreed. I'm responsible for having their permission. See the <a href="/privacy-policy" target="_blank" rel="noreferrer" style={{color:PC}}>Privacy Policy</a>.</span>
+          </label>
           <button onClick={submit} disabled={saving} style={{padding:"14px",borderRadius:10,background:saving?"#2a3050":`linear-gradient(135deg,${PC},${AC})`,color:saving?"#6b7db3":"#0a0d14",border:"none",fontWeight:700,fontSize:14,cursor:saving?"default":"pointer"}}>{saving?"Creating…":"Create Invoice"}</button>
         </div>
       )}
@@ -10319,6 +10376,7 @@ useEffect(() => {
       </div>
 
       <ConsentBanner/>
+      <PolicyUpdateGate user={user} onUpdated={setUser}/>
 
       <div style={{paddingBottom:"calc(74px + env(safe-area-inset-bottom))",minHeight:"calc(100vh - 56px)"}}>
         {tab==="home"&&<Home setTab={goToTab} user={user}/>}

@@ -977,6 +977,10 @@ module.exports = async (req, res) => {
       const ago = (days) => new Date(Date.now() - days * 864e5).toISOString();
       await sb("site_pings", { method: "DELETE", filter: `?pinged_at=lt.${ago(90)}`, prefer: "return=minimal" }).catch(() => {});
       await sb("order_lookup_attempts", { method: "DELETE", filter: `?created_at=lt.${ago(30)}`, prefer: "return=minimal" }).catch(() => {});
+      // Game rooms, player names and in-game chat are kept 30 days (chat first, then the rooms).
+      for (const [table, col] of [["game_messages", "created_at"], ["word_duel_messages", "created_at"], ["dots_boxes_games", "updated_at"], ["tambola_games", "updated_at"], ["word_duel_games", "updated_at"]]) {
+        await sb(table, { method: "DELETE", filter: `?${col}=lt.${ago(30)}`, prefer: "return=minimal" }).catch(() => {});
+      }
       return res.status(200).json({ ok: true, ts: new Date().toISOString() });
     }
 

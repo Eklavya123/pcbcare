@@ -5,7 +5,15 @@
 // app calls this same-origin endpoint (/api/mistral) instead of calling
 // Mistral directly, which also sidesteps any CORS restrictions a browser
 // would otherwise hit calling api.mistral.ai straight from client JS.
+// DISABLED (privacy + cost): nothing in the app calls this endpoint, but it was
+// open to anyone on the internet and forwarded whatever it received to Mistral
+// AI, a third party that the Privacy Policy does not list. To bring an AI
+// feature back, add visible consent in the UI, require a signed-in user or
+// admin here, rate-limit it, and list Mistral in the Privacy Policy first.
 export default async function handler(req, res) {
+  res.status(410).json({ error: "The AI assistant is not enabled." });
+  return;
+  // eslint-disable-next-line no-unreachable
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;

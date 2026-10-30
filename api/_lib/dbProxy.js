@@ -33,6 +33,9 @@ const ADMIN_TABLES = new Set([...PUBLIC_CONTENT, "reviews", "users", "user_reque
 const USER_CREATE_FIELDS = ["full_name", "phone", "email", "country", "state", "city", "instagram_id", "experience", "specialization", "method", "details_skipped_at"];
 const USER_PATCH_FIELDS = ["full_name", "phone", "country", "state", "city", "instagram_id", "experience", "specialization", "details_skipped_at", "last_seen"];
 
+// Bump this whenever the Privacy Policy changes in a way users should re-acknowledge.
+const POLICY_VERSION = "2026-10-30";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PREFER_OK = new Set(["return=minimal", "return=representation", "resolution=merge-duplicates", "resolution=ignore-duplicates"]);
 
@@ -97,7 +100,11 @@ async function authorize(input, ctx) {
       }
       if (method === "POST") {
         if (await ctx.getDbUser()) throw err(409, "Account already exists");
+        // No account without an explicit agreement; the server stamps the time and the policy version.
+        if (!input.body || input.body.privacy_agreed !== true) throw err(400, "Please agree to the Privacy Policy to create an account");
         const b = onlyKeys(input.body, USER_CREATE_FIELDS);
+        b.privacy_agreed_at = new Date().toISOString();
+        b.privacy_version = POLICY_VERSION;
         b.firebase_uid = ctx.uid;                      // never trust the client for identity
         if (ctx.email) b.email = ctx.email;            // the verified email wins
         if (b.method && !["Google", "Email"].includes(b.method)) delete b.method;
@@ -110,6 +117,11 @@ async function authorize(input, ctx) {
         const me = await ctx.getDbUser();
         if (!me || String(me.id).toLowerCase() !== id) throw err(403, "You can only change your own profile");
         const b = onlyKeys(input.body, USER_PATCH_FIELDS);
+        // An existing user acknowledging the current policy: the server sets the record, not the browser.
+        if (input.body && input.body.privacy_agree === true) {
+          b.privacy_agreed_at = new Date().toISOString();
+          b.privacy_version = POLICY_VERSION;
+        }
         if (!Object.keys(b).length) throw err(400, "Nothing to update");
         const p = new URLSearchParams();
         p.set("id", "eq." + id);
@@ -205,4 +217,4 @@ async function authorize(input, ctx) {
   }
 }
 
-module.exports = { authorize, HttpError, PUBLIC_CONTENT, ADMIN_TABLES, UUID };
+module.exports = { authorize, HttpError, PUBLIC_CONTENT, ADMIN_TABLES, UUID, POLICY_VERSION };
