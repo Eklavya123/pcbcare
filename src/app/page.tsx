@@ -9,7 +9,7 @@ import { meta } from "@/lib/seo";
 
 export const revalidate = 600;
 export const metadata = meta({
-  title: "PCB Care – AC, Washing Machine & Fridge PCBs, Sensors & Remotes | Jabalpur",
+  title: "PCB Care – AC, Washing Machine & Fridge PCBs | Jabalpur",
   absoluteTitle: true, path: "/",
   description: "Buy refurbished, tested AC, washing machine, refrigerator and microwave PCBs, sensors and remotes from PCB Care, Jabalpur. Prices on WhatsApp, delivery across India.",
 });

@@ -12,7 +12,7 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: `${BUSINESS.name} – AC, Washing Machine & Fridge PCBs, Sensors & Remotes | Jabalpur`, template: `%s | ${BUSINESS.name}` },
+  title: { default: `${BUSINESS.name} – AC, Washing Machine & Fridge PCBs | Jabalpur`, template: `%s | ${BUSINESS.name}` },
   description: "Refurbished and tested AC, washing machine, refrigerator and microwave PCBs, sensors and remotes from PCB Care, Jabalpur. Delivery across India.",
   applicationName: BUSINESS.name,
   formatDetection: { telephone: false },
