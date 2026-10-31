@@ -3,3 +3,9 @@ node_modules
 .env*.local
 .env
 next-env.d.ts
+# generated at build time from legacy-react/
+public/static
+public/spa.html
+public/manifest.json
+legacy-react/node_modules
+legacy-react/build

@@ -1,16 +1,13 @@
 import type { NextConfig } from "next";
 
-// Where the previous React app (login, orders, invoices, admin, games + its /api functions) is deployed.
-// Set APP_ORIGIN in Vercel to override. Default = the original Vercel project once its Root Directory is `legacy-react`.
-const APP_ORIGIN = (process.env.APP_ORIGIN || "https://pcbcare.vercel.app").replace(/\/$/, "");
-
-// Paths that stay in the existing React app (auth, orders, invoices, games, ...).
-// Explicit allow-list on purpose: unknown URLs must return a real 404, not the SPA shell.
-const SPA_PATHS = ["/my-order", "/invoices", "/requests", "/part-finder", "/g/:code", "/l/:code", "/t/:code", "/static/:path*", "/api/:path*", "/manifest.json"];
+// Screens that still run in the previous React app. It is compiled by scripts/build-legacy.mjs into
+// public/spa.html and served for these URLs, with its /api/* handlers in src/pages/api/[...legacy].js.
+const SPA_PATHS = ["/app", "/my-order", "/invoices", "/requests", "/part-finder", "/g/:code", "/l/:code", "/t/:code"];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  serverExternalPackages: ["firebase-admin", "@simplewebauthn/server"],
   images: {
     remotePatterns: [{ protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" }],
     formats: ["image/avif", "image/webp"],
@@ -25,22 +22,23 @@ const nextConfig: NextConfig = {
       ...["ac-pcb-repair", "washing-machine-pcb-repair", "refrigerator-pcb-repair", "microwave-pcb-repair"].map((s) => ({
         source: `/${s}`, destination: `https://pcbcare.in/${s}`, permanent: true,
       })),
-      // Old SPA tab URLs that now have proper pages
       { source: "/shop/category", destination: "/shop", permanent: true },
     ];
   },
   async rewrites() {
-    return [
-      { source: "/app", destination: `${APP_ORIGIN}/` }, // Login / technician app entry
-      ...SPA_PATHS.map((p) => ({ source: p, destination: `${APP_ORIGIN}${p}` })),
-    ];
+    return SPA_PATHS.map((source) => ({ source, destination: "/spa.html" }));
   },
   async headers() {
+    const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
     return [
       { source: "/:path*", headers: [
         { key: "X-Content-Type-Options", value: "nosniff" },
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       ] },
+      // Private app screens and the raw SPA shell must never be indexed.
+      { source: "/spa.html", headers: noindex },
+      ...SPA_PATHS.map((source) => ({ source, headers: noindex })),
+      { source: "/api/:path*", headers: noindex },
     ];
   },
 };

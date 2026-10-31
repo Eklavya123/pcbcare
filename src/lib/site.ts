@@ -1,6 +1,5 @@
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://shop.pcbcare.in").replace(/\/$/, "");
 export const MAIN_SITE = "https://pcbcare.in";
-export const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "";
 
 export const BUSINESS = {
   name: "PCB Care",
