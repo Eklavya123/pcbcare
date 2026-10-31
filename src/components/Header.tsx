@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import { APP_URL } from "@/lib/site";
 
 export const NAV = [
   { href: "/shop", label: "Shop" },
@@ -20,7 +19,7 @@ export function Header() {
         <nav className="dnav" aria-label="Main">
           {NAV.map((n) => <Link key={n.href} href={n.href}>{n.label}</Link>)}
         </nav>
-        <a className="login" href={APP_URL || "/my-order"} rel="nofollow">Login</a>
+        <a className="login" href="/app" rel="nofollow">Login</a>
       </div>
     </header>
   );
