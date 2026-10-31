@@ -1,8 +1,59 @@
 {
+  "redirects": [
+    {
+      "source": "/blog",
+      "destination": "https://pcbcare.in/blog",
+      "permanent": true
+    },
+    {
+      "source": "/blog/:slug",
+      "destination": "https://pcbcare.in/blog/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/wiring",
+      "destination": "https://pcbcare.in/wiring",
+      "permanent": true
+    },
+    {
+      "source": "/wiring/:slug",
+      "destination": "https://pcbcare.in/wiring/:slug",
+      "permanent": true
+    },
+    {
+      "source": "/ac-pcb-repair",
+      "destination": "https://pcbcare.in/ac-pcb-repair",
+      "permanent": true
+    },
+    {
+      "source": "/washing-machine-pcb-repair",
+      "destination": "https://pcbcare.in/washing-machine-pcb-repair",
+      "permanent": true
+    },
+    {
+      "source": "/refrigerator-pcb-repair",
+      "destination": "https://pcbcare.in/refrigerator-pcb-repair",
+      "permanent": true
+    },
+    {
+      "source": "/microwave-pcb-repair",
+      "destination": "https://pcbcare.in/microwave-pcb-repair",
+      "permanent": true
+    }
+  ],
   "rewrites": [
-    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
-    { "source": "/merchant-feed.xml", "destination": "/api/sitemap?feed=merchant" },
-    { "source": "/local-inventory.xml", "destination": "/api/sitemap?feed=local-inventory" },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api/sitemap"
+    },
+    {
+      "source": "/merchant-feed.xml",
+      "destination": "/api/sitemap?feed=merchant"
+    },
+    {
+      "source": "/local-inventory.xml",
+      "destination": "/api/sitemap?feed=local-inventory"
+    },
     {
       "source": "/shop/product/:slug",
       "has": [
@@ -14,9 +65,15 @@
       ],
       "destination": "/api/product-meta?slug=:slug"
     },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
   ],
   "crons": [
-    { "path": "/api/orders?action=keepalive", "schedule": "0 0 * * *" }
+    {
+      "path": "/api/orders?action=keepalive",
+      "schedule": "0 0 * * *"
+    }
   ]
 }

@@ -10121,6 +10121,13 @@ useEffect(() => {
   // Product and blog pages already carry their own title (server-rendered by
   // /api/product-meta and /api/blog-meta, and set by setSEO). Their canonical
   // link points at them, so don't overwrite that title with the generic one.
+  // The static index.html canonical points at the home page. Tool tabs that
+  // never call setSEO would otherwise keep it and look like duplicates of "/".
+  if (TAB_ROUTES[tab] && !["requests","invoices","myorder"].includes(tab)) {
+    let c = document.querySelector('link[rel="canonical"]');
+    if (!c) { c = document.createElement("link"); c.setAttribute("rel","canonical"); document.head.appendChild(c); }
+    c.setAttribute("href", SITE_URL + TAB_ROUTES[tab]);
+  }
   const canon = document.querySelector('link[rel="canonical"]')?.getAttribute("href") || "";
   if (/\/(shop\/product|blog)\/|\/pcb-parts-directory$/.test(canon)) return;
   document.title = titleMap[tab] || "PCB Care";

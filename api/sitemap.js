@@ -24,7 +24,13 @@ const SITE_URL = "https://shop.pcbcare.in";
 // personal, or utility flows with no independent search value (nobody
 // searches for "my order" or "invoices"), and duplicate/thin utility
 // pages in a sitemap waste crawl budget rather than helping it.
-const EXCLUDED_STATIC_SLUGS = new Set(["my-order","invoices","requests"]);
+const EXCLUDED_STATIC_SLUGS = new Set([
+  "my-order","invoices","requests",
+  // These live on https://pcbcare.in (blog, wiring and the service pages are
+  // owned by the main site). vercel.json 301s them there, so listing them here
+  // would only submit redirecting/duplicate URLs.
+  "ac-pcb-repair","washing-machine-pcb-repair","refrigerator-pcb-repair","microwave-pcb-repair",
+]);
 
 const esc = (s) => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 const realImageUrls = (images) => (images||[]).filter(img => img && !img.startsWith("data:"));
@@ -180,17 +186,13 @@ ${items}
       return res.status(200).send(xml);
     }
 
-    const [catsRes, prodsRes, blogRes, wiringRes, pagesRes] = await Promise.all([
+    const [catsRes, prodsRes, pagesRes] = await Promise.all([
       fetch(`${SB_URL}/rest/v1/shop_categories?select=slug,created_at&order=sort_order`, { headers }),
       fetch(`${SB_URL}/rest/v1/shop_products?select=slug,created_at&order=created_at.desc`, { headers }),
-      fetch(`${SB_URL}/rest/v1/blog_posts?status=eq.published&select=slug,published_at,updated_at,created_at&order=published_at.desc`, { headers }),
-      fetch(`${SB_URL}/rest/v1/wiring_diagrams?select=slug,created_at&order=created_at.desc`, { headers }),
       fetch(`${SB_URL}/rest/v1/pages?status=eq.published&select=slug,published_at,updated_at,created_at&order=created_at.desc`, { headers }),
     ]);
     const categories = catsRes.ok ? await catsRes.json() : [];
     const products = prodsRes.ok ? await prodsRes.json() : [];
-    const blogPosts = blogRes.ok ? await blogRes.json() : [];
-    const wiringDiagrams = wiringRes.ok ? await wiringRes.json() : [];
     const pages = pagesRes.ok ? await pagesRes.json() : [];
 
     const today = new Date().toISOString().slice(0, 10);
@@ -202,8 +204,6 @@ ${items}
       { loc: `${SITE_URL}/`, lastmod: today, priority: "1.0" },
       { loc: `${SITE_URL}/shop`, lastmod: today, priority: "0.9" },
     { loc: `${SITE_URL}/pcb-parts-directory`, lastmod: today, priority: "0.9" },
-      { loc: `${SITE_URL}/blog`, lastmod: today, priority: "0.7" },
-      { loc: `${SITE_URL}/wiring`, lastmod: today, priority: "0.7" },
       { loc: `${SITE_URL}/error-codes`, lastmod: today, priority: "0.6" },
       { loc: `${SITE_URL}/find-remote`, lastmod: today, priority: "0.6" },
       { loc: `${SITE_URL}/sensor-values`, lastmod: today, priority: "0.6" },
@@ -218,16 +218,6 @@ ${items}
         loc: `${SITE_URL}/shop/product/${p.slug}`,
         lastmod: (p.created_at || today).slice(0, 10),
         priority: "0.7",
-      })),
-      ...blogPosts.map(p => ({
-        loc: `${SITE_URL}/blog/${p.slug}`,
-        lastmod: dateOf(p),
-        priority: "0.6",
-      })),
-      ...wiringDiagrams.map(w => ({
-        loc: `${SITE_URL}/wiring/${w.slug}`,
-        lastmod: (w.created_at || today).slice(0, 10),
-        priority: "0.6",
       })),
       ...pages
         .filter(pg => pg.slug && !EXCLUDED_STATIC_SLUGS.has(pg.slug))
