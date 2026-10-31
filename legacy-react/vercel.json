@@ -75,5 +75,16 @@
       "path": "/api/orders?action=keepalive",
       "schedule": "0 0 * * *"
     }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex, nofollow"
+        }
+      ]
+    }
   ]
 }
