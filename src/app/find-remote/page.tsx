@@ -4,7 +4,7 @@ import { getRemotes, modelSlugs } from "@/lib/data";
 import { meta } from "@/lib/seo";
 
 export const revalidate = 3600;
-export const metadata = meta({ title: "Find Remote – Match Your AC PCB to Its Remote", path: "/find-remote", description: "Find the right AC remote for your board by brand and model number. PCB Care, Jabalpur." });
+export const metadata = meta({ title: "Find Remote – Match Your AC PCB to Its Remote", path: "/find-remote", description: "Find the right AC remote for your PCB by brand and model number. Browse original remotes and the boards they match, from PCB Care, Jabalpur." });
 
 export default async function Remotes() {
   const map = modelSlugs(await getRemotes());

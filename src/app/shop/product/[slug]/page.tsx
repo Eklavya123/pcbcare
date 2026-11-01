@@ -6,12 +6,13 @@ import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { DeliveryNotice } from "@/components/DeliveryNotice";
 import { JsonLd } from "@/components/JsonLd";
 import { ProductCard } from "@/components/ProductCard";
+import { ReviewForm } from "@/components/ReviewForm";
 import { TrustBadges } from "@/components/TrustBadges";
 import { productFaqs, productMetaDescription, productSummary, productWa } from "@/lib/content";
 import { brandOf, getBrandNames, getCategories, getErrorCodes, getProduct, getProductReviews, getProducts, groupErrorCodes, price } from "@/lib/data";
 import { safeParams } from "@/lib/db";
 import { faqLd, productLd } from "@/lib/schema";
-import { meta } from "@/lib/seo";
+import { fitTitle, meta } from "@/lib/seo";
 import { slugify } from "@/lib/slug";
 import { MAIN_SITE } from "@/lib/site";
 
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: P): Promise<Metadata> {
   const d = await load((await params).slug);
   if (!d) return { title: "Product not found", robots: { index: false } };
   const { p, cat } = d;
-  return meta({ title: `${p.name} – Buy Online | PCB Care Jabalpur`, absoluteTitle: true, path: `/shop/product/${p.slug}`, image: p.images[0], description: productMetaDescription(p, cat?.name ?? "PCB", price(p)) });
+  return meta({ title: fitTitle(p.name), absoluteTitle: true, path: `/shop/product/${p.slug}`, image: p.images[0], description: productMetaDescription(p, cat?.name ?? "PCB", price(p)) });
 }
 
 export default async function Product({ params }: P) {
@@ -63,7 +64,7 @@ export default async function Product({ params }: P) {
           <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "6px 0", flexWrap: "wrap" }}>
             {cat && <Link href={`/shop/category/${cat.slug}`} style={{ fontSize: 12, color: "var(--ac)", fontWeight: 600 }}>{cat.name}</Link>}
             <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: p.condition === "new" ? "#4caf5022" : "#ffd70022", color: p.condition === "new" ? "var(--pc)" : "var(--ac)" }}>{p.condition === "new" ? "🆕 New" : "♻️ Refurbished"}</span>
-            {reviews.length > 0 && <span style={{ fontSize: 12 }}><span className="stars" aria-hidden>★</span> {avg.toFixed(1)} ({reviews.length})</span>}
+            {reviews.length > 0 ? <a href="#reviews" style={{ fontSize: 12 }}><span className="stars" aria-hidden>★</span> {avg.toFixed(1)} ({reviews.length})</a> : <a href="#write-review" style={{ fontSize: 12, color: "var(--sub)" }}>☆ Be the first to review</a>}
           </div>
           {(brand || p.motor_type) && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
             {brand && <Link className="chip" href={`/brands/${brandSlug}`}>{brand}</Link>}
@@ -89,10 +90,12 @@ export default async function Product({ params }: P) {
           {pr && <tr><th>Starting price</th><td>₹{pr.toLocaleString("en-IN")} (final price confirmed on WhatsApp)</td></tr>}
         </tbody></table>
 
-        <h2 className="h">Customer reviews</h2>
+        <h2 className="h" id="reviews">Customer reviews</h2>
         {reviews.length === 0 ? <p className="s">No reviews for this product yet.</p> : reviews.map((r) => (
           <div className="rev" key={r.id}><span className="stars" aria-label={`${r.rating} out of 5`}>{"★".repeat(r.rating)}{"☆".repeat(5 - r.rating)}</span> <b>{r.user_name}</b>{r.comment && <p style={{ margin: "4px 0 0", color: "var(--muted)" }}>{r.comment}</p>}</div>
         ))}
+
+        <ReviewForm productSlug={p.slug} productName={p.name} />
 
         <h2 className="h">Questions about this board</h2>
         {faqs.map((f) => <details key={f.q}><summary>{f.q}</summary><p>{f.a}</p></details>)}

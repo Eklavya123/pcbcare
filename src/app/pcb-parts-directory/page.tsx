@@ -4,7 +4,7 @@ import { getCategories, getProducts, price } from "@/lib/data";
 import { meta } from "@/lib/seo";
 
 export const revalidate = 600;
-export const metadata = meta({ title: "All PCBs & Parts – Complete Product Directory", path: "/pcb-parts-directory", description: "Every PCB, sensor and remote sold by PCB Care in one list, grouped by category. Jabalpur, India." });
+export const metadata = meta({ title: "All PCBs & Parts – Complete Product Directory", path: "/pcb-parts-directory", description: "Complete list of every PCB, sensor and remote sold by PCB Care, grouped by category with starting prices. Refurbished and tested, Jabalpur, India." });
 
 export default async function Directory() {
   const [cats, products] = await Promise.all([getCategories(), getProducts()]);

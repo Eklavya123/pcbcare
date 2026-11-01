@@ -76,3 +76,13 @@ export function modelSlugs<T extends { id: string; brand: string | null; model_n
   }
   return out;
 }
+
+/** Map an error-code "appliance" label to words found in category names. */
+export function applianceWords(appliance: string): string[] {
+  const a = appliance.toLowerCase();
+  if (a.includes("wash")) return ["washing"];
+  if (a.includes("fridge") || a.includes("refrig")) return ["fridge"];
+  if (a.includes("micro")) return ["microwave"];
+  if (a.includes("ac") || a.includes("air")) return ["ac ", "window"];
+  return [];
+}

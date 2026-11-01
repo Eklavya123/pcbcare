@@ -4,7 +4,7 @@ import { getSensors, modelSlugs } from "@/lib/data";
 import { meta } from "@/lib/seo";
 
 export const revalidate = 3600;
-export const metadata = meta({ title: "AC Sensor Values – Room, Coil & Discharge Sensor Resistance", path: "/sensor-values", description: "Sensor resistance values (room, coil, discharge, ambient) for AC models by brand. Reference for technicians from PCB Care, Jabalpur." });
+export const metadata = meta({ title: "AC Sensor Values – Resistance by Brand", path: "/sensor-values", description: "Sensor resistance values (room, coil, discharge, ambient) for AC models by brand. Reference for technicians from PCB Care, Jabalpur." });
 
 export default async function Sensors() {
   const map = modelSlugs(await getSensors());

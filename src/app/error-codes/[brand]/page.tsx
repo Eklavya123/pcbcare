@@ -15,7 +15,7 @@ export const generateStaticParams = () => safeParams(async () => [...groupErrorC
 export async function generateMetadata({ params }: P): Promise<Metadata> {
   const b = groupErrorCodes(await getErrorCodes()).get((await params).brand);
   if (!b) return { title: "Brand not found", robots: { index: false } };
-  return meta({ title: `${b.name} Error Codes – Meaning, Cause & Fix`, path: `/error-codes/${b.slug}`, description: `All ${b.codes.size} ${b.name} error codes with meaning, cause and how to fix. Reference for technicians from PCB Care, Jabalpur.` });
+  return meta({ title: `${b.name} Error Codes – Meaning, Cause & Fix`, path: `/error-codes/${b.slug}`, description: `Complete list of ${b.codes.size} ${b.name} error codes with the meaning, likely cause and how to fix each one. A technician reference from PCB Care, Jabalpur.` });
 }
 
 export default async function BrandCodes({ params }: P) {

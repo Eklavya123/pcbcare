@@ -3,10 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { JsonLd } from "@/components/JsonLd";
-import { getBrandIndex, getErrorCodes, groupErrorCodes } from "@/lib/data";
+import { ProductCard } from "@/components/ProductCard";
+import { applianceWords, getBrandIndex, getCategories, getErrorCodes, groupErrorCodes } from "@/lib/data";
 import { safeParams } from "@/lib/db";
 import { faqLd } from "@/lib/schema";
-import { clip, meta } from "@/lib/seo";
+import { clip, fitTitle, meta } from "@/lib/seo";
 
 export const revalidate = 3600;
 type P = { params: Promise<{ brand: string; code: string }> };
@@ -23,14 +24,20 @@ export async function generateMetadata({ params }: P): Promise<Metadata> {
   const d = await load(params);
   if (!d) return { title: "Error code not found", robots: { index: false } };
   const { b, c } = d;
-  return meta({ title: `${b.name} ${c.code} Error Code – Meaning & How to Fix`, path: `/error-codes/${b.slug}/${c.slug}`, description: clip(`${b.name} error ${c.code}: ${c.rows[0].meaning}. ${c.rows[0].cause ? `Cause: ${c.rows[0].cause}. ` : ""}Step-by-step fix from PCB Care.`, 158) });
+  return meta({ title: fitTitle(`${b.name} ${c.code} Error Code`, [" – Meaning & How to Fix | PCB Care", " – Meaning & Fix | PCB Care", " | PCB Care"]), absoluteTitle: true, path: `/error-codes/${b.slug}/${c.slug}`, description: clip(`${b.name} error ${c.code}: ${c.rows[0].meaning}. ${c.rows[0].cause ? `Cause: ${c.rows[0].cause}. ` : ""}Step-by-step fix from PCB Care.`, 158) });
 }
 
 export default async function Code({ params }: P) {
   const d = await load(params);
   if (!d) notFound();
   const { b, c } = d;
-  const hasProducts = (await getBrandIndex()).some((x) => x.slug === b.slug);
+  const [idx, cats] = await Promise.all([getBrandIndex(), getCategories()]);
+  const brandEntry = idx.find((x) => x.slug === b.slug);
+  const hasProducts = !!brandEntry;
+  const words = applianceWords(c.rows[0].appliance);
+  const catName = (id: string) => (cats.find((k) => k.id === id)?.name ?? "").toLowerCase() + " ";
+  const matched = (brandEntry?.products ?? []).filter((p) => words.some((w) => catName(p.category_id).includes(w)));
+  const related = (matched.length ? matched : brandEntry?.products ?? []).slice(0, 4);
   const path = `/error-codes/${b.slug}/${c.slug}`;
   const others = [...b.codes.values()].filter((x) => x.slug !== c.slug).slice(0, 12);
   return (
@@ -53,6 +60,11 @@ export default async function Code({ params }: P) {
           {hasProducts && <Link href={`/brands/${b.slug}`}>{b.name} boards &amp; parts</Link>}
           <Link href="/shop">Shop</Link>
         </div>
+        {related.length > 0 && (<>
+          <h2 className="h">{b.name} boards that may fix {c.code}</h2>
+          <p className="s" style={{ marginBottom: 10 }}>If the board is the cause, these refurbished {b.name} boards are in stock. Match the part number before you order.</p>
+          <div className="g2">{related.map((p) => <ProductCard key={p.id} p={p} />)}</div>
+        </>)}
         {others.length > 0 && (<><h2 className="h">Other {b.name} codes</h2><div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>{others.map((o) => <Link key={o.slug} className="chip k" href={`/error-codes/${b.slug}/${o.slug}`}>{o.code}</Link>)}</div></>)}
       </div>
     </>

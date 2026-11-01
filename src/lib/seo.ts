@@ -15,3 +15,10 @@ export function meta(o: { title: string; description: string; path: string; imag
     twitter: { card: "summary_large_image", title: o.title, description: clip(o.description, 200), images: [image] },
   };
 }
+
+/** Pick the longest suffix that keeps the whole title within ~60 characters (what search results show). */
+export function fitTitle(name: string, suffixes = [" – Buy Online | PCB Care Jabalpur", " – Buy Online | PCB Care", " | PCB Care"], max = 60) {
+  for (const sfx of suffixes) if (name.length + sfx.length <= max) return name + sfx;
+  const last = suffixes[suffixes.length - 1];
+  return clip(name, max - last.length) + last;
+}

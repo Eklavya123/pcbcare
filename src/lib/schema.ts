@@ -70,10 +70,10 @@ export const faqLd = (qas: { q: string; a: string }[]): Json => ({
 export function productLd(p: Product, o: { brand: string | null; category: string; price: number | null; description: string; reviews: Review[] }): Json {
   const url = abs(`/shop/product/${p.slug}`);
   const base: Json = {
-    "@context": "https://schema.org", "@type": o.price ? "Product" : "ItemPage",
+    "@context": "https://schema.org", "@type": o.price && p.images.length ? "Product" : "ItemPage",
   };
-  if (!o.price) {
-    // No public price = not a valid Product rich result and not eligible for Shopping. Say what the page is instead.
+  if (!o.price || !p.images.length) {
+    // No public price or no photo = not a valid Product rich result and not eligible for Shopping. Say what the page is instead.
     return { ...base, "@id": `${url}#page`, url, name: p.name, description: o.description, ...(p.images[0] ? { primaryImageOfPage: { "@type": "ImageObject", url: p.images[0] } } : {}), isPartOf: { "@id": `${SITE_URL}/#website` } };
   }
   const out: Json = {
