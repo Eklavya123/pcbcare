@@ -23,6 +23,8 @@ const nextConfig: NextConfig = {
         source: `/${s}`, destination: `https://pcbcare.in/${s}`, permanent: true,
       })),
       { source: "/shop/category", destination: "/shop", permanent: true },
+      // The default Vercel address must never compete with the real domain in Google.
+      { source: "/:path*", has: [{ type: "host", value: "pcbcare.vercel.app" }], destination: "https://shop.pcbcare.in/:path*", permanent: true },
     ];
   },
   async rewrites() {
