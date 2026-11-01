@@ -28,7 +28,10 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    return SPA_PATHS.map((source) => ({ source, destination: "/spa.html" }));
+    return [
+      { source: "/sitemaps/:name.xml", destination: "/sitemaps/:name" },
+      ...SPA_PATHS.map((source) => ({ source, destination: "/spa.html" })),
+    ];
   },
   async headers() {
     const noindex = [{ key: "X-Robots-Tag", value: "noindex, nofollow" }];
