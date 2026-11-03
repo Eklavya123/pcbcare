@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 // Screens that still run in the previous React app. It is compiled by scripts/build-legacy.mjs into
 // public/spa.html and served for these URLs, with its /api/* handlers in src/pages/api/[...legacy].js.
-const SPA_PATHS = ["/app", "/my-order", "/invoices", "/requests", "/part-finder", "/g/:code", "/l/:code", "/t/:code"];
+const SPA_PATHS = ["/app", "/my-order", "/invoices", "/requests", "/part-finder", "/g/:path*", "/l/:path*", "/t/:path*"];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
